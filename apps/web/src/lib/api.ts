@@ -1,5 +1,13 @@
 import { API_BASE, API_ORIGIN } from './api-config';
-import { assertSessionReadable, assertSessionRevision, credentialRequest, renewSession, sessionRevision, sessionSignedOut, waitForSession } from './session';
+import {
+  assertSessionReadable,
+  assertSessionRevision,
+  credentialRequest,
+  renewSession,
+  sessionRevision,
+  sessionSignedOut,
+  waitForSession,
+} from './session';
 import type {
   CreatedGroupInviteInfo,
   GroupBannedMemberInfo,
@@ -119,8 +127,16 @@ export function newIdempotencyKey(): string {
  * `{ success, data }`, where `data.isReplay` tells a stored result (an exact
  * retry of an already settled request) from a newly played round.
  */
-export async function playGame<T extends GamePlayResult>(gameKey: string, body: Record<string, unknown>, idempotencyKey?: string): Promise<ApiResponse<T>> {
-  return api.postWithIdempotency<T>(`/games/${gameKey}/play`, idempotencyKey ?? newIdempotencyKey(), body);
+export async function playGame<T extends GamePlayResult>(
+  gameKey: string,
+  body: Record<string, unknown>,
+  idempotencyKey?: string
+): Promise<ApiResponse<T>> {
+  return api.postWithIdempotency<T>(
+    `/games/${gameKey}/play`,
+    idempotencyKey ?? newIdempotencyKey(),
+    body
+  );
 }
 
 class ApiClient {
@@ -130,7 +146,10 @@ class ApiClient {
     this.baseUrl = baseUrl;
   }
 
-  private buildUrl(endpoint: string, params?: Record<string, string | number | boolean | undefined>): string {
+  private buildUrl(
+    endpoint: string,
+    params?: Record<string, string | number | boolean | undefined>
+  ): string {
     const url = new URL(`${this.baseUrl}${endpoint}`, window.location.origin);
     if (params) {
       Object.entries(params).forEach(([key, value]) => {
@@ -142,21 +161,39 @@ class ApiClient {
     return url.toString();
   }
 
-  private async request<T, M = Record<string, unknown>>(endpoint: string, options: RequestOptions = {}): Promise<ApiResponse<T, M>> {
-    if (['/auth/login', '/auth/register', '/auth/logout', '/auth/google', '/auth/password-reset'].includes(endpoint)) {
-      return credentialRequest(endpoint === '/auth/password-reset' ? '/auth/logout' : endpoint, (signal) => this.performRequest<T, M>(endpoint, { ...options, signal }));
+  private async request<T, M = Record<string, unknown>>(
+    endpoint: string,
+    options: RequestOptions = {}
+  ): Promise<ApiResponse<T, M>> {
+    if (
+      [
+        '/auth/login',
+        '/auth/register',
+        '/auth/logout',
+        '/auth/google',
+        '/auth/password-reset',
+      ].includes(endpoint)
+    ) {
+      return credentialRequest(
+        endpoint === '/auth/password-reset' ? '/auth/logout' : endpoint,
+        (signal) => this.performRequest<T, M>(endpoint, { ...options, signal })
+      );
     }
     assertSessionReadable();
     return this.performRequest<T, M>(endpoint, options);
   }
 
-  private async performRequest<T, M = Record<string, unknown>>(endpoint: string, options: RequestOptions = {}): Promise<ApiResponse<T, M>> {
+  private async performRequest<T, M = Record<string, unknown>>(
+    endpoint: string,
+    options: RequestOptions = {}
+  ): Promise<ApiResponse<T, M>> {
     const { params, headers, ...fetchOptions } = options;
     const url = this.buildUrl(endpoint, params);
     const revision = sessionRevision();
     const read = fetchOptions.method === 'GET';
     if (read) assertSessionReadable();
-    if (read && endpoint === '/auth/me' && sessionSignedOut()) throw new Error(JSON.stringify({ status: 401, code: 'UNAUTHORIZED', message: 'Signed out' }));
+    if (read && endpoint === '/auth/me' && sessionSignedOut())
+      throw new Error(JSON.stringify({ status: 401, code: 'UNAUTHORIZED', message: 'Signed out' }));
 
     // Only declare a JSON content type when a body is actually being sent.
     // Fastify's default body parser rejects `Content-Type: application/json`
@@ -165,19 +202,25 @@ class ApiClient {
     // its route handler ever ran. Caller-supplied headers still win either way.
     const hasBody = fetchOptions.body !== undefined && fetchOptions.body !== null;
 
-    const execute = () => fetch(url, {
-      ...fetchOptions,
-      headers: {
-        ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
-        ...headers,
-      },
-      credentials: read && endpoint !== '/auth/google/nonce' && sessionSignedOut() ? 'omit' : 'include',
-    });
+    const execute = () =>
+      fetch(url, {
+        ...fetchOptions,
+        headers: {
+          ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
+          ...headers,
+        },
+        credentials:
+          read && endpoint !== '/auth/google/nonce' && sessionSignedOut() ? 'omit' : 'include',
+      });
 
     let response = await execute();
     // Only reads are retried. A wager, transfer or other mutation is never
     // automatically resubmitted by session recovery.
-    if (read && response.status === 401 && (!endpoint.startsWith('/auth/') || endpoint === '/auth/me')) {
+    if (
+      read &&
+      response.status === 401 &&
+      (!endpoint.startsWith('/auth/') || endpoint === '/auth/me')
+    ) {
       try {
         assertSessionRevision(revision);
         await waitForSession(renewSession(this.buildUrl(''), revision), fetchOptions.signal);
@@ -191,7 +234,7 @@ class ApiClient {
     }
 
     const data = await response.json().catch(() => ({}));
-    if (read) assertSessionRevision(revision);
+    assertSessionRevision(revision);
 
     if (!response.ok) {
       const error = data.error || {
@@ -212,7 +255,12 @@ class ApiClient {
     return this.request<T, M>(endpoint, { method: 'GET', params, signal: options?.signal });
   }
 
-  async post<T>(endpoint: string, body?: unknown, params?: Record<string, string | number | boolean | undefined>, options?: { signal?: AbortSignal }): Promise<ApiResponse<T>> {
+  async post<T>(
+    endpoint: string,
+    body?: unknown,
+    params?: Record<string, string | number | boolean | undefined>,
+    options?: { signal?: AbortSignal }
+  ): Promise<ApiResponse<T>> {
     return this.request<T>(endpoint, {
       method: 'POST',
       body: body !== undefined ? JSON.stringify(body) : undefined,
@@ -244,7 +292,11 @@ class ApiClient {
     });
   }
 
-  async patch<T>(endpoint: string, body: unknown, options?: { signal?: AbortSignal }): Promise<ApiResponse<T>> {
+  async patch<T>(
+    endpoint: string,
+    body: unknown,
+    options?: { signal?: AbortSignal }
+  ): Promise<ApiResponse<T>> {
     return this.request<T>(endpoint, {
       method: 'PATCH',
       signal: options?.signal,
@@ -258,6 +310,7 @@ class ApiClient {
 
   async upload<T>(endpoint: string, formData: FormData): Promise<ApiResponse<T>> {
     assertSessionReadable();
+    const revision = sessionRevision();
     const response = await fetch(this.buildUrl(endpoint), {
       method: 'POST',
       body: formData,
@@ -265,6 +318,7 @@ class ApiClient {
     });
 
     const data = await response.json().catch(() => ({}));
+    assertSessionRevision(revision);
 
     if (!response.ok) {
       const error = data.error || {
@@ -290,11 +344,15 @@ class ApiClient {
     return this.get(`/challenges/${challengeId}`);
   }
 
-  async acceptChallenge(challengeId: string): Promise<ApiResponse<{ id: string; status: string; acceptedAt: string }>> {
+  async acceptChallenge(
+    challengeId: string
+  ): Promise<ApiResponse<{ id: string; status: string; acceptedAt: string }>> {
     return this.post(`/challenges/${challengeId}/accept`);
   }
 
-  async declineChallenge(challengeId: string): Promise<ApiResponse<{ id: string; status: string }>> {
+  async declineChallenge(
+    challengeId: string
+  ): Promise<ApiResponse<{ id: string; status: string }>> {
     return this.post(`/challenges/${challengeId}/decline`);
   }
 
@@ -302,7 +360,10 @@ class ApiClient {
     return this.post(`/challenges/${challengeId}/cancel`);
   }
 
-  async playChallengeTurn(challengeId: string, clientData?: Record<string, unknown>): Promise<ApiResponse<any>> {
+  async playChallengeTurn(
+    challengeId: string,
+    clientData?: Record<string, unknown>
+  ): Promise<ApiResponse<any>> {
     return this.post(`/challenges/${challengeId}/play`, { clientData });
   }
 
@@ -321,11 +382,17 @@ class ApiClient {
     return this.post(`/competitions/${body.groupId}`, body);
   }
 
-  async getCompetitionForGroup(groupId: string, competitionId: string): Promise<ApiResponse<Competition>> {
+  async getCompetitionForGroup(
+    groupId: string,
+    competitionId: string
+  ): Promise<ApiResponse<Competition>> {
     return this.get(`/competitions/${groupId}/${competitionId}`);
   }
 
-  async joinCompetition(groupId: string, competitionId: string): Promise<ApiResponse<{ id: string; status: string }>> {
+  async joinCompetition(
+    groupId: string,
+    competitionId: string
+  ): Promise<ApiResponse<{ id: string; status: string }>> {
     return this.post(`/competitions/${groupId}/${competitionId}/join`);
   }
 
@@ -337,7 +404,10 @@ class ApiClient {
     return this.post(`/competitions/${groupId}/${competitionId}/play`, { clientData });
   }
 
-  async finalizeCompetition(groupId: string, competitionId: string): Promise<ApiResponse<{ id: string; status: string }>> {
+  async finalizeCompetition(
+    groupId: string,
+    competitionId: string
+  ): Promise<ApiResponse<{ id: string; status: string }>> {
     return this.post(`/competitions/${groupId}/${competitionId}/finalize`);
   }
 
@@ -346,27 +416,38 @@ class ApiClient {
     return this.get('/wallet');
   }
 
-  async getWalletTransactions(params?: { page?: number; limit?: number; currency?: string }): Promise<ApiResponse<any>> {
+  async getWalletTransactions(params?: {
+    page?: number;
+    limit?: number;
+    currency?: string;
+  }): Promise<ApiResponse<any>> {
     return this.get('/wallet/transactions', params);
   }
 
   // Groups
-  async listGroups(params?: { page?: number; limit?: number; query?: string; mine?: boolean }): Promise<ApiResponse<any>> {
+  async listGroups(params?: {
+    page?: number;
+    limit?: number;
+    query?: string;
+    mine?: boolean;
+  }): Promise<ApiResponse<any>> {
     return this.get('/groups', params);
   }
 
-  async createGroup(body: { name: string; description?: string; isPrivate?: boolean }): Promise<ApiResponse<{
-    id: string;
-    ownerId: string;
-    name: string;
-    description: string | null;
-    imageUrl: string | null;
-    coverUrl: string | null;
-    isPrivate: boolean;
-    status: string;
-    createdAt: string;
-    updatedAt: string;
-  }>> {
+  async createGroup(body: { name: string; description?: string; isPrivate?: boolean }): Promise<
+    ApiResponse<{
+      id: string;
+      ownerId: string;
+      name: string;
+      description: string | null;
+      imageUrl: string | null;
+      coverUrl: string | null;
+      isPrivate: boolean;
+      status: string;
+      createdAt: string;
+      updatedAt: string;
+    }>
+  > {
     return this.post('/groups', body);
   }
 
@@ -382,7 +463,11 @@ class ApiClient {
     return this.post(`/groups/${groupId}/leave`);
   }
 
-  async getGroupMessages(groupId: string, params?: { page?: number; limit?: number; latest?: boolean; before?: string }, options?: { signal?: AbortSignal }): Promise<ApiResponse<any>> {
+  async getGroupMessages(
+    groupId: string,
+    params?: { page?: number; limit?: number; latest?: boolean; before?: string },
+    options?: { signal?: AbortSignal }
+  ): Promise<ApiResponse<any>> {
     return this.get(`/groups/${groupId}/messages`, params, options);
   }
 
@@ -395,12 +480,20 @@ class ApiClient {
     return this.delete(`/groups/${groupId}/members/${userId}`);
   }
 
-  async changeMemberRole(groupId: string, userId: string, role: string): Promise<ApiResponse<ApiMessage>> {
+  async changeMemberRole(
+    groupId: string,
+    userId: string,
+    role: string
+  ): Promise<ApiResponse<ApiMessage>> {
     return this.patch(`/groups/${groupId}/members/${userId}/role`, { role });
   }
 
   // Group invites
-  async createGroupInvite(groupId: string, email: string, role?: string): Promise<ApiResponse<CreatedGroupInviteInfo>> {
+  async createGroupInvite(
+    groupId: string,
+    email: string,
+    role?: string
+  ): Promise<ApiResponse<CreatedGroupInviteInfo>> {
     return this.post(`/groups/${groupId}/invites`, { email, role });
   }
 
@@ -424,7 +517,10 @@ class ApiClient {
     return this.post(`/groups/${groupId}/request`);
   }
 
-  async listJoinRequests(groupId: string, params?: { page?: number; limit?: number }): Promise<ApiResponse<GroupMemberInfo[]>> {
+  async listJoinRequests(
+    groupId: string,
+    params?: { page?: number; limit?: number }
+  ): Promise<ApiResponse<GroupMemberInfo[]>> {
     return this.get(`/groups/${groupId}/requests`, params);
   }
 
@@ -444,7 +540,10 @@ class ApiClient {
     groupId: string,
     params?: { page?: number; limit?: number }
   ): Promise<ApiResponse<GroupBannedMemberInfo[], PaginationMeta>> {
-    return this.get<GroupBannedMemberInfo[], PaginationMeta>(`/groups/${groupId}/banned-members`, params);
+    return this.get<GroupBannedMemberInfo[], PaginationMeta>(
+      `/groups/${groupId}/banned-members`,
+      params
+    );
   }
 
   async approveJoinRequest(groupId: string, userId: string): Promise<ApiResponse<ApiMessage>> {
@@ -505,17 +604,23 @@ class ApiClient {
     return this.get('/gifts');
   }
 
-  async sendGift(body: { recipientId: string; giftId: string; quantity: number }, idempotencyKey: string): Promise<ApiResponse<any>> {
+  async sendGift(
+    body: { recipientId: string; giftId: string; quantity: number },
+    idempotencyKey: string
+  ): Promise<ApiResponse<any>> {
     return this.postWithIdempotency('/gifts/send', idempotencyKey, body);
   }
 
-  async listGiftTransactions(params?: { page?: number; limit?: number; role?: string }): Promise<ApiResponse<any>> {
+  async listGiftTransactions(params?: {
+    page?: number;
+    limit?: number;
+    role?: string;
+  }): Promise<ApiResponse<any>> {
     return this.get('/gifts/transactions', params);
   }
   async googleNonce(): Promise<ApiResponse<{ nonce: string }>> {
     return this.get('/auth/google/nonce');
   }
-
 }
 
 export const api = new ApiClient();

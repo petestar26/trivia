@@ -5,6 +5,19 @@
  */
 export function installMemoryStorage() {
   const original = window.localStorage;
+  const originalLocks = Object.getOwnPropertyDescriptor(navigator, 'locks');
+  // A shared exclusive queue models the browser's cross-tab Web Locks contract.
+  let queue: Promise<unknown> = Promise.resolve();
+  Object.defineProperty(navigator, 'locks', {
+    configurable: true,
+    value: {
+      request: (_name: string, _options: unknown, callback: () => unknown) => {
+        const next = queue.catch(() => undefined).then(callback);
+        queue = next;
+        return next;
+      },
+    },
+  });
   const memory = new Map<string, string>();
   const store: Storage = {
     getItem: (key) => memory.get(key) ?? null,
@@ -21,6 +34,8 @@ export function installMemoryStorage() {
     memory,
     restore: () => {
       window.localStorage = original;
+      if (originalLocks) Object.defineProperty(navigator, 'locks', originalLocks);
+      else Reflect.deleteProperty(navigator, 'locks');
     },
   };
 }

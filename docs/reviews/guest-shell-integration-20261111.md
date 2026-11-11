@@ -1,5 +1,7 @@
 # Guest shell integration review (R2 + public-interface work)
 
+> Historical integration record for `0bf9531`/`b21c857`, not verification of the current hardening candidate. Independent review reproduced stale launch permission, non-atomic cross-tab consumption, and insufficient expiry privacy checks after this record was written. See `guest-session-hardening-20261111.md` for the corrections and current validation. The old browser JSON is retained as `shell-qa-results.integration-0bf9531.json`.
+
 Local branch `claude/salem-guest-shell-integration`. Application commit under
 test: **`0bf9531e78f6e7e8575f6414bde3284d06acc4e5`**. Nothing was pushed,
 merged or deployed. No real account, bet, payment, provider session or

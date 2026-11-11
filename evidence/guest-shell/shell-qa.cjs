@@ -21,7 +21,10 @@ const { mkdirSync, writeFileSync } = require('node:fs');
 const { resolve } = require('node:path');
 const assert = require('node:assert/strict');
 
-const pinned = '0bf9531e78f6e7e8575f6414bde3284d06acc4e5';
+// The result must identify the exact candidate actually tested, not the earlier
+// integration whose expiry assertion did not prove private UI was cleared.
+const pinned =
+  process.env.QA_SOURCE_COMMIT || execFileSync('git', ['rev-parse', 'HEAD']).toString().trim();
 const inputs = ['apps', 'packages', 'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml'];
 let source = pinned;
 if (process.env.QA_ALLOW_UNCOMMITTED === '1') {
@@ -29,7 +32,11 @@ if (process.env.QA_ALLOW_UNCOMMITTED === '1') {
 } else {
   execFileSync('git', ['diff', '--exit-code', pinned, '--', ...inputs]);
   assert.equal(
-    execFileSync('git', ['ls-files', '--others', '--exclude-standard', '--', ...inputs]).toString(),
+    execFileSync('git', ['ls-files', '--others', '--exclude-standard', '--', ...inputs])
+      .toString()
+      .split('\n')
+      .filter((path) => path && !/(^|\/)node_modules($|\/)/.test(path))
+      .join('\n'),
     '',
     'untracked application files'
   );
@@ -249,6 +256,7 @@ async function session(browser, opts = {}) {
     access = true,
     probeDelay = 0,
     watchMarkers = false,
+    locks = true,
   } = opts;
   const height = opts.height || (width < 600 ? 844 : 900);
   const context = await browser.newContext({
@@ -258,6 +266,10 @@ async function session(browser, opts = {}) {
     ...(width < 600 ? { isMobile: true, hasTouch: true } : {}),
   });
   const state = { signedIn, access, member: A, probeDelay, requests: [], external: [], errors: [] };
+  if (!locks)
+    await context.addInitScript(() =>
+      Object.defineProperty(navigator, 'locks', { value: undefined })
+    );
   const reply = (route, status, data, meta) =>
     route.fulfill({
       status,
@@ -767,7 +779,11 @@ async function main(browser) {
     await page.goto(origin + '/sports/open?intent=0f8b1c2e-3d4a-4b5c-8d9e-112233445566');
     await page.getByRole('heading', { name: 'Browse sports' }).waitFor();
     await delay(1000);
-    assert.equal(pathOf(page), '/sports/open', 'unknown intent is removed from the address');
+    assert.equal(
+      pathOf(page),
+      '/sports/open?intent=0f8b1c2e-3d4a-4b5c-8d9e-112233445566',
+      'an invalid nonce is inert'
+    );
     assert.deepEqual(launches(state), [], 'unknown intent does not launch');
     const sportsClick = state.requests.length;
     await page.getByRole('button', { name: 'Browse sports' }).click();
@@ -790,8 +806,8 @@ async function main(browser) {
       await page.locator('.casino-player-placeholder').getByText('Synthetic Wheel').isVisible(),
       'the linked game is shown as the selection'
     );
-    // The page drops ?game= once it has selected the game, so a reload cannot reselect or launch it.
-    assert.equal(pathOf(page), '/casino');
+    // A URL may retain its read-only selection; reload must still require a fresh click.
+    assert.equal(pathOf(page), '/casino?game=synthetic-1');
     await page.reload();
     await settle(page);
     await delay(1500);
@@ -842,7 +858,7 @@ async function main(browser) {
       1,
       'the used address cannot launch again'
     );
-    assert.equal(pathOf(reuse), '/sports/open');
+    assert.equal(pathOf(reuse), href);
     const original = pathOf(page);
     await context.close();
     return { href, originalTab: original };
@@ -860,7 +876,11 @@ async function main(browser) {
     await page.waitForURL((url) => url.pathname === '/casino');
     await page.waitForRequest((r) => r.url().endsWith('/provider-test/launch'));
     await delay(1000);
-    assert.equal(pathOf(page), '/casino', 'the intent and game are removed from the address');
+    assert.match(
+      pathOf(page),
+      /^\/casino\?game=synthetic-1&intent=[0-9a-f-]{36}$/,
+      'the spent URL carries no reusable permission'
+    );
     assert.equal(launches(state, before).length, 1, 'tile click launches once');
     await page.goBack();
     await page.waitForURL((url) => url.pathname === '/dashboard');
@@ -1061,7 +1081,7 @@ async function main(browser) {
   await check('session-restore', async () => {
     const out = [];
     for (const [link, expected, heading] of [
-      ['/casino?game=synthetic-2', '/casino', null],
+      ['/casino?game=synthetic-2', '/casino?game=synthetic-2', null],
       ['/sports/open', '/sports/open', 'Browse sports'],
       [INVITE, INVITE, null],
     ]) {
@@ -1095,7 +1115,8 @@ async function main(browser) {
     return { out };
   });
 
-  // 14. Session expiry while browsing: the next private read cannot be refreshed.
+  // 14. Confirmed expiry must unmount private UI while still on the Wallet page.
+  // Merely navigating away from Wallet and not seeing a balance is not evidence.
   await check('session-expiry', async () => {
     const { context, page, state } = await session(browser, { width: 1440, signedIn: true });
     await page.goto(origin + '/wallet');
@@ -1105,22 +1126,126 @@ async function main(browser) {
       .waitFor();
     state.signedIn = false; // the server forgets the session (expired refresh token)
     const from = state.requests.length;
-    await page.locator('aside, nav').getByRole('link', { name: 'Rewards' }).first().click();
-    await delay(2500);
+    await page.getByLabel('Transaction currency').selectOption('coins');
+    const guestSignIn = page.locator('header').getByRole('link', { name: 'Sign in', exact: true });
+    await guestSignIn.waitFor({ timeout: 15000 });
+    assert.equal(pathOf(page), '/wallet', 'expiry is handled without leaving the wallet');
     const text = await page.locator('body').innerText();
+    assert(!text.includes('123.45'), 'the private balance is removed');
+    assert(
+      !text.includes('Amina') && !text.includes('synthetic_amina'),
+      'the private identity is removed'
+    );
+    assert.equal(await page.getByRole('link', { name: 'Your profile' }).count(), 0);
+    assert.equal(
+      await page.getByLabel('Transaction currency').count(),
+      0,
+      'private wallet unmounted'
+    );
+    assert.equal(await page.getByRole('button', { name: 'Sign out' }).count(), 0);
     await shot(page, 'member-en-1440-expired', false);
     assert.deepEqual(launches(state, from), []);
     assert.deepEqual(writes(state, from), []);
-    return {
-      landed: pathOf(page),
-      guestHeader: await page
-        .locator('header')
-        .getByRole('link', { name: 'Sign in', exact: true })
-        .isVisible()
-        .catch(() => false),
-      shows: text.includes('123.45') ? 'still shows the cached balance' : 'balance not shown',
-      requests: keys(state, from),
-    };
+    const afterExpiry = state.requests.length;
+    for (const section of ['Rewards', 'Wallet', 'Home']) {
+      await page
+        .locator('aside, nav')
+        .getByRole('link', { name: section, exact: true })
+        .first()
+        .click();
+      await settle(page);
+      assert(await guestSignIn.isVisible());
+      assert(!(await page.locator('body').innerText()).includes('123.45'));
+    }
+    assert.deepEqual(
+      nonSession(state, afterExpiry),
+      [],
+      'guest navigation makes no private requests'
+    );
+    const requests = keys(state, from);
+    await context.close();
+    return { guestHeader: true, privateWalletUnmounted: true, requests };
+  });
+
+  // 15. A previously spent arrival permission must not authorize a new route selection.
+  await check('casino-selection-after-spent-intent', async () => {
+    const { context, page, state } = await session(browser, { signedIn: true });
+    await page.goto(origin + '/dashboard');
+    await settle(page);
+    await page.getByRole('link', { name: 'Play Synthetic Wheel' }).click();
+    await page.waitForURL((url) => url.pathname === '/casino');
+    await delay(1500);
+    assert.equal(launches(state).length, 1, 'the first fresh click launches once');
+    await page.evaluate(() => {
+      history.pushState(null, '', '/casino?game=synthetic-2');
+      dispatchEvent(new PopStateEvent('popstate'));
+    });
+    await page.locator('.casino-player-placeholder').getByText('Synthetic Reels').waitFor();
+    await delay(1500);
+    assert.equal(launches(state).length, 1, 'a later URL selection has no launch permission');
+    await page.locator('.casino-player-placeholder').getByRole('button', { name: 'Play' }).click();
+    await delay(1000);
+    assert.equal(launches(state).length, 2, 'a new deliberate click remains available');
+    await context.close();
+    return {};
+  });
+
+  // 16. Two tabs released together share one intent, not two independent get/remove operations.
+  await check('sportsbook-concurrent-consumers', async () => {
+    const { context, page, state } = await session(browser, { signedIn: true });
+    await page.goto(origin + '/sports');
+    await settle(page);
+    let waiting = 0;
+    let release;
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    await context.route(origin + '/sports/open?intent=*', async (route) => {
+      waiting += 1;
+      if (waiting === 2) release();
+      await gate;
+      await route.fallback();
+    });
+    const link = page.getByRole('link', { name: 'Browse sports' });
+    const [popup] = await Promise.all([context.waitForEvent('page'), link.click()]);
+    const href = await link.getAttribute('href');
+    assert.match(href, /^\/sports\/open\?intent=[0-9a-f-]{36}$/);
+    const second = await context.newPage();
+    await second.goto(origin + href);
+    await delay(2500);
+    assert.equal(waiting, 2);
+    assert.equal(launches(state).length, 1, 'at most one tab consumes the fresh intent');
+    const manual = await Promise.all(
+      [popup, second].map((tab) =>
+        tab
+          .getByRole('button', { name: 'Browse sports' })
+          .isVisible()
+          .catch(() => false)
+      )
+    );
+    assert.equal(manual.filter(Boolean).length, 1, 'the losing tab requires a fresh click');
+    await context.close();
+    return { launchCount: 1, manualFallbackCount: 1 };
+  });
+
+  // 17. Without cross-tab locking, a fresh in-page click is the only launch path.
+  await check('launch-without-web-locks', async () => {
+    const { context, page, state } = await session(browser, { signedIn: true, locks: false });
+    await page.goto(origin + '/sports');
+    await settle(page);
+    const [popup] = await Promise.all([
+      context.waitForEvent('page'),
+      page.getByRole('link', { name: 'Browse sports' }).click(),
+    ]);
+    const manual = popup.getByRole('button', { name: 'Browse sports' });
+    await manual.waitFor();
+    await delay(1000);
+    assert.deepEqual(launches(state), [], 'unsupported locking cannot authorize arrival');
+    await manual.click();
+    await delay(1000);
+    assert.equal(launches(state).length, 1, 'an explicit in-page click still works');
+    await context.close();
+    return { manualFallback: true };
   });
 }
 
@@ -1145,7 +1270,9 @@ async function main(browser) {
       } catch {}
       await delay(200);
     }
-    const browser = await chromium.launch();
+    const browser = await chromium.launch(
+      process.env.QA_BROWSER_EXECUTABLE ? { executablePath: process.env.QA_BROWSER_EXECUTABLE } : {}
+    );
     try {
       await main(browser);
     } finally {

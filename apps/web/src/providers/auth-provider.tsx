@@ -1,10 +1,18 @@
 import { requestStatus } from '@/lib/request-error';
 import { boundedRequest } from '@/lib/bounded-request';
-import { createContext, useContext, useEffect, useState, useRef, ReactNode, Fragment } from 'react';
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  useRef,
+  type ReactNode,
+  Fragment,
+} from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { setSessionUser } from '@/lib/session';
-import { UserPublicProfile } from '@socialplay/shared';
+import type { UserPublicProfile } from '@socialplay/shared';
 import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 interface AuthContextType {
@@ -269,9 +277,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         publishTransition(null);
       }
       // anonymous → anonymous: no-op.
-    } catch (error) {
-      if (!passiveIsValid(pubSnapshot, credSnapshot)) return;
-      if (current && requestStatus(error) === 401) publishTransition(null);
+    } catch {
+      // A read's original 401 can also mean refresh was unavailable/offline.
+      // Only the session coordinator's confirmed denial clears identity; its
+      // invalidation event also drops caches and remounts private effects.
     }
   };
 

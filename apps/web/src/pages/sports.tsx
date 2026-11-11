@@ -166,7 +166,9 @@ function SportsSession({ userId }: { userId: string }) {
               onClick={(event) => {
                 // This click is the member's intent; the new tab may launch once with it.
                 const intent = createLaunchIntent('sports', userId);
-                if (intent) event.currentTarget.href = `/sports/open?intent=${intent}`;
+                event.currentTarget.href = intent
+                  ? `/sports/open?intent=${intent}`
+                  : '/sports/open';
               }}
             >
               {translateUi('Browse sports') + ' '}

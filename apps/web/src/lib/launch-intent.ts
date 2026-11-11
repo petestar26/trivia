@@ -1,3 +1,5 @@
+import { sessionRevision, sessionSignedOut } from './session';
+
 /**
  * One-time launch intents.
  *
@@ -24,6 +26,7 @@ interface StoredIntent {
   userId: string;
   target: string;
   at: number;
+  revision: string;
 }
 
 function storage(): Storage | null {
@@ -50,14 +53,27 @@ function forgetExpired(store: Storage, now: number) {
 /** Record a click's intent to launch `target` now. Returns the nonce, or null if it cannot be stored. */
 export function createLaunchIntent(kind: LaunchKind, userId: string, target = ''): string | null {
   const store = storage();
-  if (!store || !userId || typeof crypto?.randomUUID !== 'function') return null;
+  if (
+    !store ||
+    !userId ||
+    sessionSignedOut() ||
+    !navigator.locks ||
+    typeof crypto?.randomUUID !== 'function'
+  )
+    return null;
   const now = Date.now();
   forgetExpired(store, now);
   const nonce = crypto.randomUUID();
   try {
     store.setItem(
       PREFIX + nonce,
-      JSON.stringify({ kind, userId, target, at: now } satisfies StoredIntent)
+      JSON.stringify({
+        kind,
+        userId,
+        target,
+        at: now,
+        revision: sessionRevision(),
+      } satisfies StoredIntent)
     );
     return store.getItem(PREFIX + nonce) ? nonce : null;
   } catch {
@@ -65,34 +81,81 @@ export function createLaunchIntent(kind: LaunchKind, userId: string, target = ''
   }
 }
 
+export interface LaunchPermit {
+  expiresAt: number;
+}
+
 /**
- * True only for a fresh intent created by this member for this launch. The
+ * A permit only for a fresh intent created by this member for this launch. The
  * intent is removed whatever the outcome, so it can never be used twice.
  */
-export function consumeLaunchIntent(
+export async function consumeLaunchPermit(
   kind: LaunchKind,
   userId: string | undefined,
   nonce: string | null,
   target = ''
-): boolean {
-  if (!userId || !nonce || !NONCE.test(nonce)) return false;
+): Promise<LaunchPermit | null> {
+  if (!userId || !nonce || !NONCE.test(nonce)) return null;
   const store = storage();
-  if (!store) return false;
+  if (!store) return null;
+  if (!navigator.locks) {
+    try {
+      store.removeItem(PREFIX + nonce);
+    } catch {
+      /* Fail closed if storage is denied. */
+    }
+    return null;
+  }
+  const revision = sessionRevision();
+  const navigationType = (
+    performance.getEntriesByType?.('navigation')[0] as PerformanceNavigationTiming | undefined
+  )?.type;
+  const restoredNavigation = navigationType === 'reload' || navigationType === 'back_forward';
   const key = PREFIX + nonce;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5_000);
   try {
-    const raw = store.getItem(key);
-    store.removeItem(key);
-    if (!raw) return false;
-    const intent = JSON.parse(raw) as Partial<StoredIntent>;
-    const age = Date.now() - Number(intent.at);
-    return (
-      intent.kind === kind &&
-      intent.userId === userId &&
-      intent.target === target &&
-      age >= 0 &&
-      age <= MAX_AGE_MS
+    return await navigator.locks.request(
+      key,
+      { mode: 'exclusive', signal: controller.signal },
+      () => {
+        const raw = store.getItem(key);
+        store.removeItem(key);
+        if (!raw) return null;
+        const intent = JSON.parse(raw) as Partial<StoredIntent>;
+        const age = Date.now() - Number(intent.at);
+        const valid =
+          !restoredNavigation &&
+          !sessionSignedOut() &&
+          sessionRevision() === revision &&
+          intent.revision === revision &&
+          intent.kind === kind &&
+          intent.userId === userId &&
+          intent.target === target &&
+          age >= 0 &&
+          age <= MAX_AGE_MS;
+        return valid ? { expiresAt: Number(intent.at) + MAX_AGE_MS } : null;
+      }
     );
   } catch {
-    return false;
+    // A denied/interrupted lock must not leave a grant for another navigation.
+    try {
+      store.removeItem(key);
+    } catch {
+      /* Storage denial still fails closed. */
+    }
+    return null;
+  } finally {
+    clearTimeout(timeout);
   }
+}
+
+/** Boolean convenience for callers that act immediately after consumption. */
+export async function consumeLaunchIntent(
+  kind: LaunchKind,
+  userId: string | undefined,
+  nonce: string | null,
+  target = ''
+): Promise<boolean> {
+  return (await consumeLaunchPermit(kind, userId, nonce, target)) !== null;
 }

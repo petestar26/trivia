@@ -1,6 +1,6 @@
 import { StrictMode } from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, useLocation } from 'react-router-dom';
+import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
 import { createLaunchIntent } from '@/lib/launch-intent';
 import { installMemoryStorage } from '@/test/memory-storage';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
@@ -24,8 +24,14 @@ const ready = (url = 'https://sports.example.com/session') => ({
   data: { mode: 'real-wallet', url },
 });
 function Address() {
+  const navigate = useNavigate();
   const location = useLocation();
-  return <output data-testid="address">{location.pathname + location.search}</output>;
+  return (
+    <>
+      <button onClick={() => navigate('/sports/open?other=route')}>Change launch route</button>
+      <output data-testid="address">{location.pathname + location.search}</output>
+    </>
+  );
 }
 // The member's click on "Browse sports" creates the intent, then the new tab opens.
 let entry = '/sports/open';
@@ -107,6 +113,7 @@ it('does not redirect after the member leaves the launch page', async () => {
       })
   );
   const view = render(tree());
+  await waitFor(() => expect(f.post).toHaveBeenCalledTimes(1));
   view.unmount();
   await act(async () => resolve(ready()));
   expect(f.navigate).not.toHaveBeenCalled();
@@ -120,6 +127,7 @@ it('discards the previous account session if the signed-in member changes', asyn
       })
   );
   const view = render(tree());
+  await waitFor(() => expect(f.post).toHaveBeenCalledTimes(1));
   f.user = { id: 'another-member' };
   view.rerender(tree());
   // The first member's click intent does not carry over: the new member chooses.
@@ -136,10 +144,10 @@ it('does not request a session for a signed-out visitor', () => {
   expect(f.post).not.toHaveBeenCalled();
 });
 
-it('removes the one-time intent from the address as soon as it is used', async () => {
+it('spends the one-time intent so the retained URL cannot replay it', async () => {
   render(tree());
   await waitFor(() => expect(f.navigate).toHaveBeenCalledTimes(1));
-  expect(screen.getByTestId('address')).toHaveTextContent(/^\/sports\/open$/);
+  expect(screen.getByTestId('address')).toHaveTextContent(/intent=/);
   expect(storage.memory.size).toBe(0);
 });
 it.each([
@@ -164,4 +172,38 @@ it('does not launch from an intent older than a minute', async () => {
   render(tree());
   expect(await screen.findByRole('button', { name: 'Browse sports' })).toBeVisible();
   expect(f.post).not.toHaveBeenCalled();
+});
+
+it('does not redirect an old response after same-account session revision changes', async () => {
+  let resolve!: (value: unknown) => void;
+  f.post.mockImplementationOnce(
+    () =>
+      new Promise((done) => {
+        resolve = done;
+      })
+  );
+  render(tree());
+  await waitFor(() => expect(f.post).toHaveBeenCalledTimes(1));
+  localStorage.setItem(
+    'socialplay.session-boundary',
+    JSON.stringify({ revision: 'relogin', signedOut: false })
+  );
+  await act(async () => resolve(ready()));
+  expect(f.navigate).not.toHaveBeenCalled();
+});
+it('does not redirect a pending response after navigation within the same launch page', async () => {
+  let resolve!: (value: unknown) => void;
+  f.post.mockImplementationOnce(
+    () =>
+      new Promise((done) => {
+        resolve = done;
+      })
+  );
+  render(tree());
+  await waitFor(() => expect(f.post).toHaveBeenCalledTimes(1));
+  fireEvent.click(screen.getByRole('button', { name: 'Change launch route' }));
+  await screen.findByRole('button', { name: 'Browse sports' });
+  await act(async () => resolve(ready()));
+  expect(f.navigate).not.toHaveBeenCalled();
+  expect(f.post).toHaveBeenCalledTimes(1);
 });

@@ -143,3 +143,20 @@ it.each([
     expect(f.post).not.toHaveBeenCalled();
   }
 );
+
+it('clears a previous click href if a later intent cannot be created', async () => {
+  mount();
+  const link = await screen.findByRole('link', { name: 'Browse sports' });
+  const storage = installMemoryStorage();
+  try {
+    fireEvent.click(link);
+    expect(link.getAttribute('href')).toContain('intent=');
+    localStorage.setItem = () => {
+      throw new Error('Denied');
+    };
+    fireEvent.click(link);
+    expect(link).toHaveAttribute('href', '/sports/open');
+  } finally {
+    storage.restore();
+  }
+});

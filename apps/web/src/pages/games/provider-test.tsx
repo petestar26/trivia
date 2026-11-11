@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
   ArrowUpRight,
@@ -21,7 +21,8 @@ import {
 import { api, unwrapData } from '@/lib/api';
 import { useAuth } from '@/providers/auth-provider';
 import { useFavoriteGames } from '@/lib/use-favorite-games';
-import { consumeLaunchIntent } from '@/lib/launch-intent';
+import { sessionRevision } from '@/lib/session';
+import { consumeLaunchPermit, type LaunchPermit } from '@/lib/launch-intent';
 import './provider-lobby.css';
 import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
@@ -149,8 +150,9 @@ export function ProviderTestPage() {
   const { t: translateUi } = useInterfaceLanguage();
 
   const { user } = useAuth();
+  const location = useLocation();
   return user ? (
-    <ProviderTestSession key={user.id} userId={user.id} />
+    <ProviderTestSession key={`${user.id}:${sessionRevision()}:${location.key}`} userId={user.id} />
   ) : (
     <p>{translateUi('Sign in to browse the casino.')}</p>
   );
@@ -163,32 +165,46 @@ function ProviderTestSession({ userId }: { userId: string }) {
   const favoriteSet = useMemo(() => new Set(favoriteIds), [favoriteIds]);
   const favoritesTab = useRef<HTMLButtonElement>(null);
 
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const requestedGame = searchParams.get('game');
   const attemptedGame = useRef<string | null>(null);
-  // A ?game= link launches on arrival only with a fresh one-time intent from the
-  // in-app click that made it. A pasted link, bookmark, reload or Back selects the
-  // game and waits for Play. The intent is consumed and removed immediately, before
-  // the catalogue loads, so returning to this entry later can never reuse it.
-  const launchOnArrival = useRef<boolean | null>(null);
+  // Authorization belongs to this mounted navigation, target and session only.
+  // Keep the spent nonce in the URL: reload/Back cannot consume it again, and
+  // sanitizing the route must never transfer permission to a newer navigation.
+  const [launchOnArrival, setLaunchOnArrival] = useState<boolean | null>(null);
+  const arrival = useRef<Promise<LaunchPermit | null> | null>(null);
+  const revision = useRef(sessionRevision());
+  const arrivalDeadline = useRef(0);
+  const activePage = useRef(true);
   useEffect(() => {
-    if (launchOnArrival.current !== null) return;
-    launchOnArrival.current = consumeLaunchIntent(
+    activePage.current = true;
+    const leave = () => {
+      activePage.current = false;
+    };
+    window.addEventListener('pagehide', leave);
+    return () => {
+      leave();
+      window.removeEventListener('pagehide', leave);
+    };
+  }, []);
+  useEffect(() => {
+    let active = true;
+    arrival.current ??= consumeLaunchPermit(
       'casino',
       userId,
       searchParams.get('intent'),
-      searchParams.get('game') ?? ''
+      requestedGame ?? ''
     );
-    if (searchParams.has('intent'))
-      setSearchParams(
-        (previous) => {
-          const next = new URLSearchParams(previous);
-          next.delete('intent');
-          return next;
-        },
-        { replace: true }
-      );
-  }, [searchParams, setSearchParams, userId]);
+    void arrival.current.then((permit) => {
+      if (active && activePage.current) {
+        arrivalDeadline.current = permit?.expiresAt ?? 0;
+        setLaunchOnArrival(permit !== null && revision.current === sessionRevision());
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [searchParams, userId, requestedGame]);
   const [selectionError, setSelectionError] = useState(false);
   const [motionEnabled, setMotionEnabled] = useState(
     () =>
@@ -250,6 +266,9 @@ function ProviderTestSession({ userId }: { userId: string }) {
   });
   const launch = useMutation({
     mutationFn: async (game: TestGame) => {
+      if (!activePage.current || revision.current !== sessionRevision())
+        throw new Error('Session changed');
+      const launchRevision = revision.current;
       const result = unwrapData(
         await api.post<{ url: string; mode: string }>('/provider-test/launch', {
           gameId: game.id,
@@ -258,6 +277,8 @@ function ProviderTestSession({ userId }: { userId: string }) {
           mobile: window.matchMedia('(max-width: 767px)').matches,
         })
       );
+      if (!activePage.current || launchRevision !== sessionRevision())
+        throw new Error('Session changed');
       const url = new URL(result.url);
       if (
         result.mode !== 'virtual-test' ||
@@ -324,6 +345,7 @@ function ProviderTestSession({ userId }: { userId: string }) {
   const launchGame = launch.mutate;
   useEffect(() => {
     if (
+      launchOnArrival === null ||
       !requestedGame ||
       !canLaunch ||
       !catalogue.data ||
@@ -333,14 +355,6 @@ function ProviderTestSession({ userId }: { userId: string }) {
       return;
     attemptedGame.current = requestedGame;
     const game = allGames.find((item) => item.id === requestedGame);
-    setSearchParams(
-      (previous) => {
-        const next = new URLSearchParams(previous);
-        next.delete('game');
-        return next;
-      },
-      { replace: true }
-    );
     if (!game) {
       setSelectionError(true);
       return;
@@ -348,14 +362,21 @@ function ProviderTestSession({ userId }: { userId: string }) {
     setSelectionError(false);
     setSelected(game);
     resetLaunch();
-    if (launchOnArrival.current) launchGame(game);
+    if (
+      launchOnArrival &&
+      activePage.current &&
+      revision.current === sessionRevision() &&
+      Date.now() <= arrivalDeadline.current
+    )
+      launchGame(game);
+    setLaunchOnArrival(false);
   }, [
     requestedGame,
     canLaunch,
     catalogue.data,
     allGames,
     catalogue.isError,
-    setSearchParams,
+    launchOnArrival,
     resetLaunch,
     launchGame,
   ]);

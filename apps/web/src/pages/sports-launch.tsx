@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Trophy } from 'lucide-react';
 import { useAuth } from '@/providers/auth-provider';
 import { navigateToSportsbook, requestSportsLaunch } from '@/lib/sports-launch';
+import { sessionRevision } from '@/lib/session';
 import { consumeLaunchIntent } from '@/lib/launch-intent';
 import './sports.css';
 import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
@@ -11,8 +12,9 @@ export function SportsLaunchPage() {
   const { t: translateUi } = useInterfaceLanguage();
 
   const { user } = useAuth();
+  const location = useLocation();
   return user ? (
-    <SportsLaunch key={user.id} userId={user.id} />
+    <SportsLaunch key={`${user.id}:${sessionRevision()}:${location.key}`} userId={user.id} />
   ) : (
     <p>{translateUi('Sign in to browse sports.')}</p>
   );
@@ -21,45 +23,49 @@ export function SportsLaunchPage() {
 function SportsLaunch({ userId }: { userId: string }) {
   const { t: translateUi } = useInterfaceLanguage();
 
-  const [params, setParams] = useSearchParams();
-  // null: not decided yet; false: no fresh click intent, so wait for one here.
+  const [params] = useSearchParams();
   const [allowed, setAllowed] = useState<boolean | null>(null);
-  const checked = useRef(false);
+  const revision = useRef(sessionRevision());
+  const arrival = useRef<Promise<boolean> | null>(null);
   useEffect(() => {
-    // Consume the one-time intent exactly once (StrictMode replays effects, not refs),
-    // then drop it from the address so reload or Back cannot reuse it.
-    if (checked.current) return;
-    checked.current = true;
-    setAllowed(consumeLaunchIntent('sports', userId, params.get('intent')));
-    if (params.has('intent'))
-      setParams(
-        (current) => {
-          const next = new URLSearchParams(current);
-          next.delete('intent');
-          return next;
-        },
-        { replace: true }
-      );
-  }, [params, setParams, userId]);
+    let active = true;
+    const leave = () => {
+      active = false;
+    };
+    window.addEventListener('pagehide', leave);
+    arrival.current ??= consumeLaunchIntent('sports', userId, params.get('intent'));
+    void arrival.current.then((value) => {
+      if (active) setAllowed(value && revision.current === sessionRevision());
+    });
+    return () => {
+      leave();
+      window.removeEventListener('pagehide', leave);
+    };
+  }, [params, userId]);
 
   const request = useRef<Promise<string> | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
-    if (!allowed) return;
+    if (!allowed || revision.current !== sessionRevision()) return;
     let active = true;
+    const leave = () => {
+      active = false;
+    };
+    window.addEventListener('pagehide', leave);
     // Reuse the request during StrictMode's effect replay; create no duplicate session.
     request.current ??= requestSportsLaunch();
     void request.current.then(
       (url) => {
-        if (active) navigateToSportsbook(url);
+        if (active && revision.current === sessionRevision()) navigateToSportsbook(url);
       },
       () => {
         if (active) setFailed(true);
       }
     );
     return () => {
-      active = false;
+      leave();
+      window.removeEventListener('pagehide', leave);
     };
   }, [attempt, allowed]);
 

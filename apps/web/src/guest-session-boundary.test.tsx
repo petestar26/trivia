@@ -118,7 +118,7 @@ it.each(['/sports/open', '/Sports/open', '/%73ports/open'])(
     await waitFor(() => expect(launch).toHaveBeenCalledTimes(1));
     expect(leave).toHaveBeenCalledTimes(1);
     expect(leave).toHaveBeenCalledWith('https://sportsbook.example.test/synthetic-launch');
-    expect(screen.getByTestId('path').textContent).toBe(base);
+    expect(screen.getByTestId('path').textContent).toBe(path);
     storage.restore();
   }
 );
