@@ -79,7 +79,52 @@ function isHostileWhenDecoded(pathname: string): boolean {
   return true;
 }
 
+/**
+ * A sign-in must never be what starts a provider session or a wager. Two
+ * member URLs act on their own when they load:
+ *
+ *  - /sports/open requests a sportsbook launch and leaves for the provider;
+ *  - /casino?game=<id> launches that provider game as soon as the lobby loads.
+ *
+ * As a return target each is replaced by its non-launching lobby, so the
+ * member lands on a page that waits for a fresh click. Matching mirrors the
+ * router: case-insensitive, one percent-decode, optional trailing slash, and
+ * repeated slashes collapsed (when in doubt, the safe lobby wins).
+ */
+export function withoutAutomaticLaunch(
+  resolved: string,
+  origin: string = window.location.origin
+): string {
+  let url: URL;
+  try {
+    url = new URL(resolved, origin);
+  } catch {
+    return FALLBACK;
+  }
+  let routed: string;
+  try {
+    routed = decodeURIComponent(url.pathname);
+  } catch {
+    routed = url.pathname;
+  }
+  routed = routed
+    .replace(/\/{2,}/g, '/')
+    .replace(/(.)\/$/, '$1')
+    .toLowerCase();
+  if (routed === '/sports/open') return '/sports';
+  if (routed === '/casino' && url.searchParams.has('game')) {
+    url.searchParams.delete('game');
+    return url.pathname + url.search + url.hash;
+  }
+  return resolved;
+}
+
 export function safeReturnTo(from: unknown, origin: string = window.location.origin): string {
+  const resolved = resolveReturnTo(from, origin);
+  return resolved === FALLBACK ? resolved : withoutAutomaticLaunch(resolved, origin);
+}
+
+function resolveReturnTo(from: unknown, origin: string): string {
   if (from === null || typeof from !== 'object') return FALLBACK;
   const { pathname, search = '', hash = '' } = from as Record<string, unknown>;
   if (typeof pathname !== 'string' || typeof search !== 'string' || typeof hash !== 'string') return FALLBACK;

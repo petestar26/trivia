@@ -19,20 +19,27 @@ import { AuthProvider, useAuth } from './auth-provider';
 
 /* ── Test users ────────────────────────────────────────────────────── */
 const userA: UserPublicProfile = {
-  id: 'user-a', username: 'alice', displayName: 'Alice',
-  email: 'alice@example.com', isVerified: true, createdAt: '2026-01-01T00:00:00.000Z',
+  id: 'user-a',
+  username: 'alice',
+  displayName: 'Alice',
+  email: 'alice@example.com',
+  isVerified: true,
+  createdAt: '2026-01-01T00:00:00.000Z',
 };
 const userB: UserPublicProfile = {
-  id: 'user-b', username: 'bob', displayName: 'Bob',
-  email: 'bob@example.com', isVerified: true, createdAt: '2026-01-02T00:00:00.000Z',
-};
-const userC: UserPublicProfile = {
-  id: 'user-c', username: 'charlie', displayName: 'Charlie',
-  email: 'charlie@example.com', isVerified: false, createdAt: '2026-01-03T00:00:00.000Z',
+  id: 'user-b',
+  username: 'bob',
+  displayName: 'Bob',
+  email: 'bob@example.com',
+  isVerified: true,
+  createdAt: '2026-01-02T00:00:00.000Z',
 };
 
 type MeResponse = { success: boolean; data: { user: UserPublicProfile | null } };
-const meResponse = (user: UserPublicProfile | null): MeResponse => ({ success: true, data: { user } });
+const meResponse = (user: UserPublicProfile | null): MeResponse => ({
+  success: true,
+  data: { user },
+});
 const loginResponse = (user: UserPublicProfile): MeResponse => meResponse(user);
 
 /** Matches ApiClient's thrown shape: JSON.stringify({ status, ...error }). */
@@ -43,7 +50,10 @@ const authError = (status: number, code: string, message: string) =>
 function deferred<T>() {
   let resolve!: (v: T) => void;
   let reject!: (e: unknown) => void;
-  const promise = new Promise<T>((r, j) => { resolve = r; reject = j; });
+  const promise = new Promise<T>((r, j) => {
+    resolve = r;
+    reject = j;
+  });
   return { promise, resolve, reject };
 }
 
@@ -59,7 +69,9 @@ function AuthProbe() {
 // old instance (cleanup does NOT decrement) then mounts a new one (increment).
 let cumulativeMounts = 0;
 function MountProbe() {
-  useEffect(() => { cumulativeMounts++; }, []);
+  useEffect(() => {
+    cumulativeMounts++;
+  }, []);
   return <div data-testid="mounts">{cumulativeMounts}</div>;
 }
 
@@ -105,7 +117,7 @@ function renderStack(client: QueryClient, children: ReactNode = null) {
         <MountProbe />
         {children}
       </AuthProvider>
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
 }
 
@@ -116,14 +128,20 @@ async function waitForAuth() {
 
 /** Run an auth operation and flush React state updates. */
 async function flushAuth(fn: () => Promise<void>) {
-  await act(async () => { await fn(); });
+  await act(async () => {
+    await fn();
+  });
 }
 
 /** Run a potentially-rejecting operation, capturing the rejection. */
 async function captureRejection(fn: () => Promise<unknown>) {
   let error: unknown;
   await act(async () => {
-    try { await fn(); } catch (err) { error = err; }
+    try {
+      await fn();
+    } catch (err) {
+      error = err;
+    }
   });
   return error;
 }
@@ -191,7 +209,9 @@ describe('AuthProvider — credential cache isolation', () => {
     const auth = await waitForAuth();
 
     apiPost.mockResolvedValue(loginResponse(userB));
-    await flushAuth(() => auth.register({ username: 'bob', email: 'bob@test.com', password: 'Passw0rd!' }));
+    await flushAuth(() =>
+      auth.register({ username: 'bob', email: 'bob@test.com', password: 'Passw0rd!' })
+    );
 
     expect(authStore.current?.user?.id).toBe('user-b');
     expect(client.getQueryData(['wallet'])).toBeUndefined();
@@ -226,7 +246,7 @@ describe('AuthProvider — current-operation failure propagation', () => {
 
     apiPost.mockRejectedValue(authError(409, 'USERNAME_TAKEN', 'Username already taken'));
     const error = await captureRejection(() =>
-      auth.register({ username: 'bob', email: 'bob@example.com', password: 'Passw0rd!' }),
+      auth.register({ username: 'bob', email: 'bob@example.com', password: 'Passw0rd!' })
     );
 
     expect((error as Error).message).toContain('Username already taken');
@@ -239,7 +259,10 @@ describe('AuthProvider — current-operation failure propagation', () => {
     renderStack(makeClient());
     const auth = await waitForAuth();
 
-    apiPost.mockResolvedValue({ success: false, error: { code: 'INVALID_CREDENTIALS', message: 'Bad credentials' } });
+    apiPost.mockResolvedValue({
+      success: false,
+      error: { code: 'INVALID_CREDENTIALS', message: 'Bad credentials' },
+    });
     const error = await captureRejection(() => auth.login('a@test.com', 'bad'));
 
     expect((error as Error).message).toBe('Bad credentials');
@@ -261,7 +284,9 @@ describe('AuthProvider — current-operation failure propagation', () => {
     expect(authStore.current?.user).toBeNull();
 
     // The stale login rejects later — it must be swallowed, not thrown.
-    await act(async () => { dLogin.reject(authError(500, 'SERVER', 'boom')); });
+    await act(async () => {
+      dLogin.reject(authError(500, 'SERVER', 'boom'));
+    });
     await expect(staleLogin).resolves.toBeUndefined();
     expect(authStore.current?.user).toBeNull();
   });
@@ -281,11 +306,15 @@ describe('AuthProvider — last intent wins among credential ops', () => {
     const pA = auth.login('a@test.com', 'x');
     const pB = auth.login('b@test.com', 'y');
 
-    await flushAuth(async () => { dB.resolve(loginResponse(userB)); });
+    await flushAuth(async () => {
+      dB.resolve(loginResponse(userB));
+    });
     await pB;
     expect(authStore.current?.user?.id).toBe('user-b');
 
-    await flushAuth(async () => { dA.resolve(loginResponse(userA)); });
+    await flushAuth(async () => {
+      dA.resolve(loginResponse(userA));
+    });
     await pA; // swallowed: resolves without publishing
     expect(authStore.current?.user?.id).toBe('user-b');
   });
@@ -296,15 +325,26 @@ describe('AuthProvider — last intent wins among credential ops', () => {
     const auth = await waitForAuth();
 
     const dReg = deferred<MeResponse>();
-    apiPost.mockReturnValueOnce(dReg.promise).mockReturnValueOnce(Promise.resolve(loginResponse(userB)));
-    const pReg = auth.register({ username: 'carol', email: 'c@example.com', password: 'Passw0rd!' });
+    apiPost
+      .mockReturnValueOnce(dReg.promise)
+      .mockReturnValueOnce(Promise.resolve(loginResponse(userB)));
+    const pReg = auth.register({
+      username: 'carol',
+      email: 'c@example.com',
+      password: 'Passw0rd!',
+    });
     const pLogin = auth.login('b@test.com', 'y');
 
-    await flushAuth(async () => { await pLogin; });
+    await flushAuth(async () => {
+      await pLogin;
+    });
     expect(authStore.current?.user?.id).toBe('user-b');
 
     // The older register response resolves later — superseded and ignored.
-    await flushAuth(async () => { dReg.resolve(loginResponse(userA)); await pReg; });
+    await flushAuth(async () => {
+      dReg.resolve(loginResponse(userA));
+      await pReg;
+    });
     expect(authStore.current?.user?.id).toBe('user-b');
   });
 
@@ -319,10 +359,15 @@ describe('AuthProvider — last intent wins among credential ops', () => {
     const pLogin = auth.login('a@test.com', 'x');
     const pLogout = auth.logout();
 
-    await flushAuth(async () => { await pLogout; });
+    await flushAuth(async () => {
+      await pLogout;
+    });
     expect(authStore.current?.user).toBeNull();
 
-    await flushAuth(async () => { dLogin.resolve(loginResponse(userA)); await pLogin; });
+    await flushAuth(async () => {
+      dLogin.resolve(loginResponse(userA));
+      await pLogin;
+    });
     expect(authStore.current?.user).toBeNull();
   });
 });
@@ -344,7 +389,10 @@ describe('AuthProvider — passive refresh vs credential authority', () => {
     await captureRejection(() => authStore.current!.refreshUser());
     expect(authStore.current?.user?.id).toBe('user-a'); // not nulled
 
-    await flushAuth(async () => { dLogin.resolve(loginResponse(userB)); await pLogin; });
+    await flushAuth(async () => {
+      dLogin.resolve(loginResponse(userB));
+      await pLogin;
+    });
     expect(authStore.current?.user?.id).toBe('user-b');
   });
 
@@ -360,7 +408,10 @@ describe('AuthProvider — passive refresh vs credential authority', () => {
     apiGet.mockResolvedValueOnce(meResponse(userA)); // refresh returns A
     await flushAuth(() => authStore.current!.refreshUser());
 
-    await flushAuth(async () => { dLogin.resolve(loginResponse(userB)); await pLogin; });
+    await flushAuth(async () => {
+      dLogin.resolve(loginResponse(userB));
+      await pLogin;
+    });
     expect(authStore.current?.user?.id).toBe('user-b');
   });
 
@@ -377,10 +428,16 @@ describe('AuthProvider — passive refresh vs credential authority', () => {
     apiPost.mockReturnValueOnce(dLogin.promise);
     const pLogin = authStore.current!.login('b@test.com', 'y');
 
-    await flushAuth(async () => { dLogin.resolve(loginResponse(userB)); await pLogin; });
+    await flushAuth(async () => {
+      dLogin.resolve(loginResponse(userB));
+      await pLogin;
+    });
     expect(authStore.current?.user?.id).toBe('user-b');
 
-    await flushAuth(async () => { dRefresh.resolve(meResponse(userA)); await pRefresh; });
+    await flushAuth(async () => {
+      dRefresh.resolve(meResponse(userA));
+      await pRefresh;
+    });
     expect(authStore.current?.user?.id).toBe('user-b');
   });
 });
@@ -399,7 +456,9 @@ describe('AuthProvider — stale auth/me success and failure', () => {
     expect(authStore.current?.user?.id).toBe('user-b');
     expect(authStore.current?.isLoading).toBe(false);
 
-    await flushAuth(async () => { me.resolve(meResponse(userA)); });
+    await flushAuth(async () => {
+      me.resolve(meResponse(userA));
+    });
     expect(authStore.current?.user?.id).toBe('user-b'); // A ignored
   });
 
@@ -415,7 +474,9 @@ describe('AuthProvider — stale auth/me success and failure', () => {
     expect(authStore.current?.user?.id).toBe('user-b');
 
     // Old probe REJECTS after B is published. Must not null B.
-    await act(async () => { me.reject(new Error('network down')); });
+    await act(async () => {
+      me.reject(new Error('network down'));
+    });
     expect(authStore.current?.user?.id).toBe('user-b');
     expect(authStore.current?.isLoading).toBe(false);
   });
@@ -468,7 +529,9 @@ describe('AuthProvider — initial probe loading deadlock', () => {
     await waitFor(() => expect(authStore.current?.isLoading).toBe(true));
 
     apiPost.mockResolvedValueOnce(loginResponse(userB));
-    await flushAuth(() => authStore.current!.register({ username: 'bob', email: 'b@test.com', password: 'Passw0rd!' }));
+    await flushAuth(() =>
+      authStore.current!.register({ username: 'bob', email: 'b@test.com', password: 'Passw0rd!' })
+    );
     expect(authStore.current?.user?.id).toBe('user-b');
     expect(authStore.current?.isLoading).toBe(false);
   });
@@ -488,7 +551,7 @@ describe('AuthProvider — initial probe boundary', () => {
     expect(authStore.current?.user?.id).toBe('user-a');
     expect(authStore.current?.isLoading).toBe(false);
     expect(client.getQueryData(['groups'])).toBeUndefined(); // cleared
-    expect(clearSpy).toHaveBeenCalledTimes(1);               // one bounded publish
+    expect(clearSpy).toHaveBeenCalledTimes(1); // one bounded publish
   });
 
   it('anonymous probe: null→null resolves loading without boundary churn', async () => {
@@ -502,7 +565,7 @@ describe('AuthProvider — initial probe boundary', () => {
 
     expect(authStore.current?.user).toBeNull();
     expect(authStore.current?.isLoading).toBe(false);
-    expect(client.getQueryData(['groups'])).toBeDefined();  // cache preserved
+    expect(client.getQueryData(['groups'])).toBeDefined(); // cache preserved
     expect(clearSpy).not.toHaveBeenCalled();
   });
 });
@@ -512,7 +575,10 @@ describe('AuthProvider — StrictMode obsolete probe guard', () => {
   it('StrictMode effect replay runs two probes but publishes exactly once', async () => {
     const me = deferred<MeResponse>();
     let getCalls = 0;
-    apiGet.mockImplementation(() => { getCalls++; return me.promise; });
+    apiGet.mockImplementation(() => {
+      getCalls++;
+      return me.promise;
+    });
     const client = makeClient();
     const clearSpy = vi.spyOn(client, 'clear');
 
@@ -524,13 +590,15 @@ describe('AuthProvider — StrictMode obsolete probe guard', () => {
             <MountProbe />
           </AuthProvider>
         </StrictMode>
-      </QueryClientProvider>,
+      </QueryClientProvider>
     );
 
     // StrictMode runs the initial effect twice → two /auth/me probes.
     await waitFor(() => expect(getCalls).toBeGreaterThanOrEqual(2));
 
-    await flushAuth(async () => { me.resolve(meResponse(userA)); });
+    await flushAuth(async () => {
+      me.resolve(meResponse(userA));
+    });
 
     expect(authStore.current?.user?.id).toBe('user-a');
     expect(authStore.current?.isLoading).toBe(false);
@@ -598,7 +666,7 @@ describe('AuthProvider — refresh identity matrix', () => {
     expect(cumulativeMounts).toBe(mountsBefore + 1);
   });
 
-  it('authenticated refresh failure A→null clears, remounts, resolves loading', async () => {
+  it('confirmed session denial A→null clears, remounts, resolves loading', async () => {
     apiGet.mockResolvedValue(meResponse(userA));
     const client = makeClient();
     renderStack(client);
@@ -607,7 +675,10 @@ describe('AuthProvider — refresh identity matrix', () => {
     client.setQueryData(['groups'], [{ id: 'g1' }]);
     const mountsBefore = cumulativeMounts;
 
-    apiGet.mockRejectedValueOnce(authError(401, 'UNAUTHORIZED', 'expired'));
+    apiGet.mockImplementationOnce(async () => {
+      window.dispatchEvent(new Event('socialplay:session-invalidated'));
+      throw authError(401, 'UNAUTHORIZED', 'expired');
+    });
     await flushAuth(() => auth.refreshUser());
 
     expect(authStore.current?.user).toBeNull();
@@ -629,7 +700,9 @@ describe('AuthProvider — refresh identity matrix', () => {
     await flushAuth(() => authStore.current!.login('b@test.com', 'y'));
     expect(authStore.current?.user?.id).toBe('user-b');
 
-    await act(async () => { dRefresh.reject(new Error('boom')); });
+    await act(async () => {
+      dRefresh.reject(new Error('boom'));
+    });
     await expect(pRefresh).resolves.toBeUndefined();
     expect(authStore.current?.user?.id).toBe('user-b'); // NOT nulled
   });
@@ -656,11 +729,15 @@ describe('AuthProvider — real late-query protection', () => {
     apiPost.mockResolvedValueOnce(loginResponse(userB));
     await flushAuth(() => authStore.current!.login('b@test.com', 'y'));
 
-    await flushAuth(async () => { bQuery.resolve('wallet-B'); });
+    await flushAuth(async () => {
+      bQuery.resolve('wallet-B');
+    });
     await waitFor(() => expect(screen.getByTestId('row-data')).toHaveTextContent('wallet-B'));
 
     // Old A promise resolves last — its data must not enter the cache.
-    await flushAuth(async () => { aQuery.resolve('wallet-A'); });
+    await flushAuth(async () => {
+      aQuery.resolve('wallet-A');
+    });
     expect(screen.getByTestId('row-data')).toHaveTextContent('wallet-B');
     expect(client.getQueryData(['wallet-row'])).toBe('wallet-B');
   });
@@ -673,7 +750,10 @@ describe('AuthProvider — rendered private-data isolation', () => {
     const client = makeClient();
     const bQuery = deferred<string>();
 
-    renderStack(client, <WalletRow onA={() => Promise.resolve('wallet-A')} onB={() => bQuery.promise} />);
+    renderStack(
+      client,
+      <WalletRow onA={() => Promise.resolve('wallet-A')} onB={() => bQuery.promise} />
+    );
 
     await waitFor(() => expect(screen.getByTestId('row-data')).toHaveTextContent('wallet-A'));
     await waitFor(() => expect(screen.getByTestId('row-user')).toHaveTextContent('user-a'));
@@ -687,7 +767,9 @@ describe('AuthProvider — rendered private-data isolation', () => {
     expect(screen.getByTestId('row-data')).toHaveTextContent('loading');
     expect(screen.getByTestId('row-user')).toHaveTextContent('user-b');
 
-    await flushAuth(async () => { bQuery.resolve('wallet-B'); });
+    await flushAuth(async () => {
+      bQuery.resolve('wallet-B');
+    });
     await waitFor(() => expect(screen.getByTestId('row-data')).toHaveTextContent('wallet-B'));
   });
 });
@@ -699,7 +781,20 @@ it('keeps a failed anonymous sign-in mounted so its error stays visible after se
   function SignInProbe() {
     const { login } = useAuth();
     const [error, setError] = useState('');
-    return <><button onClick={() => login('fixture@example.invalid', 'fixture-only').catch(() => setError('Sign-in rejected'))}>Try sign in</button>{error && <p role="alert">{error}</p>}</>;
+    return (
+      <>
+        <button
+          onClick={() =>
+            login('fixture@example.invalid', 'fixture-only').catch(() =>
+              setError('Sign-in rejected')
+            )
+          }
+        >
+          Try sign in
+        </button>
+        {error && <p role="alert">{error}</p>}
+      </>
+    );
   }
   const client = makeClient();
   renderStack(client, <SignInProbe />);
@@ -709,8 +804,12 @@ it('keeps a failed anonymous sign-in mounted so its error stays visible after se
   fireEvent.click(screen.getByRole('button', { name: 'Try sign in' }));
   // credentialRequest dispatches this before rejecting a 401. Flush separately
   // to cover the scheduling that discards the page's pending error handler.
-  await act(async () => { window.dispatchEvent(new Event('socialplay:session-invalidated')); });
-  await act(async () => { attempt.reject(authError(401, 'UNAUTHORIZED', 'Invalid credentials')); });
+  await act(async () => {
+    window.dispatchEvent(new Event('socialplay:session-invalidated'));
+  });
+  await act(async () => {
+    attempt.reject(authError(401, 'UNAUTHORIZED', 'Invalid credentials'));
+  });
   expect(await screen.findByRole('alert')).toHaveTextContent('Sign-in rejected');
   expect(cumulativeMounts).toBe(mounts);
   expect(client.getQueryData(['old-anonymous-cache'])).toBeUndefined();
@@ -718,7 +817,9 @@ it('keeps a failed anonymous sign-in mounted so its error stays visible after se
 });
 
 it('keeps startup pending on 503 and restores the session when retry succeeds', async () => {
-  apiGet.mockRejectedValueOnce(authError(503, 'UNAVAILABLE', 'Try again')).mockResolvedValueOnce(meResponse(userA));
+  apiGet
+    .mockRejectedValueOnce(authError(503, 'UNAVAILABLE', 'Try again'))
+    .mockResolvedValueOnce(meResponse(userA));
   renderStack(makeClient());
   await screen.findByRole('alert');
   expect(screen.getByTestId('loading')).toHaveTextContent('true');
@@ -728,18 +829,23 @@ it('keeps startup pending on 503 and restores the session when retry succeeds', 
 });
 
 describe('explicit phone credential transport', () => {
-  it.each(['email', 'phone'] as const)('sends only the selected %s identifier', async method => {
+  it.each(['email', 'phone'] as const)('sends only the selected %s identifier', async (method) => {
     apiGet.mockResolvedValue(meResponse(null));
     apiPost.mockResolvedValue(loginResponse(userA));
     renderStack(makeClient());
     const auth = await waitForAuth();
     const identifier = method === 'phone' ? '+251911234567' : '+member@example.test';
     await flushAuth(() => auth.login(identifier, 'Password123!', method));
-    expect(apiPost).toHaveBeenCalledWith('/auth/login', { [method]: identifier, password: 'Password123!' });
+    expect(apiPost).toHaveBeenCalledWith('/auth/login', {
+      [method]: identifier,
+      password: 'Password123!',
+    });
   });
   it('sends phone-only registration without fabricated email', async () => {
-    apiGet.mockResolvedValue(meResponse(null)); apiPost.mockResolvedValue(loginResponse(userA));
-    renderStack(makeClient()); const auth = await waitForAuth();
+    apiGet.mockResolvedValue(meResponse(null));
+    apiPost.mockResolvedValue(loginResponse(userA));
+    renderStack(makeClient());
+    const auth = await waitForAuth();
     const data = { username: 'phone_member', phone: '+251911234567', password: 'Password123!' };
     await flushAuth(() => auth.register(data));
     expect(apiPost).toHaveBeenCalledWith('/auth/register', data);
@@ -748,16 +854,27 @@ describe('explicit phone credential transport', () => {
 
 describe('Google authentication uses the same identity boundary', () => {
   it('clears the previous account cache before publishing Google identity', async () => {
-    apiGet.mockResolvedValue(meResponse(userA)); const client = makeClient(); renderStack(client); await waitForAuth();
-    client.setQueryData(['wallet'], { private: 'A' }); apiPost.mockResolvedValue(meResponse(userB));
+    apiGet.mockResolvedValue(meResponse(userA));
+    const client = makeClient();
+    renderStack(client);
+    await waitForAuth();
+    client.setQueryData(['wallet'], { private: 'A' });
+    apiPost.mockResolvedValue(meResponse(userB));
     await flushAuth(() => authStore.current!.googleAuthenticate({ credential: 'fixture-google' }));
     expect(apiPost).toHaveBeenCalledWith('/auth/google', { credential: 'fixture-google' });
-    expect(authStore.current!.user?.id).toBe('user-b'); expect(client.getQueryData(['wallet'])).toBeUndefined();
+    expect(authStore.current!.user?.id).toBe('user-b');
+    expect(client.getQueryData(['wallet'])).toBeUndefined();
   });
   it('surfaces username onboarding without publishing an identity', async () => {
-    apiGet.mockResolvedValue(meResponse(null)); renderStack(makeClient()); await waitForAuth();
+    apiGet.mockResolvedValue(meResponse(null));
+    renderStack(makeClient());
+    await waitForAuth();
     apiPost.mockRejectedValue(authError(422, 'USERNAME_REQUIRED', 'Please choose a username'));
-    expect(await captureRejection(() => authStore.current!.googleAuthenticate({ credential: 'fixture-google' }))).toBeInstanceOf(Error);
+    expect(
+      await captureRejection(() =>
+        authStore.current!.googleAuthenticate({ credential: 'fixture-google' })
+      )
+    ).toBeInstanceOf(Error);
     expect(authStore.current!.user).toBeNull();
   });
 });

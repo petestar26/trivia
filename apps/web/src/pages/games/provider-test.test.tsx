@@ -1,8 +1,11 @@
+import type * as ApiModule from '@/lib/api';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useNavigate } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ProviderTestPage } from './provider-test';
+import { createLaunchIntent } from '@/lib/launch-intent';
+import { installMemoryStorage } from '@/test/memory-storage';
 const mocks = vi.hoisted(() => ({
   get: vi.fn(),
   post: vi.fn(),
@@ -10,13 +13,22 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock('@/providers/auth-provider', () => ({ useAuth: () => ({ user: mocks.user }) }));
 vi.mock('@/lib/api', async () => ({
-  ...(await vi.importActual<typeof import('@/lib/api')>('@/lib/api')),
+  ...(await vi.importActual<typeof ApiModule>('@/lib/api')),
   api: { get: mocks.get, post: mocks.post },
 }));
 const game = { id: 'studio/slot', name: 'Test Slot', provider: 'Studio', category: 'slots' };
 const ok = (data: unknown) => ({ success: true, data });
 const favoriteKey = (id = 'tester') => `playqube.favorite-casino-games.v1:${id}`;
 const originalLocks = Object.getOwnPropertyDescriptor(navigator, 'locks');
+function NavigateInCasino() {
+  const navigate = useNavigate();
+  return (
+    <>
+      <button onClick={() => navigate('/casino?game=second')}>Select second URL</button>
+      <button onClick={() => navigate(-1)}>History back</button>
+    </>
+  );
+}
 function mount(
   client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } },
@@ -28,6 +40,7 @@ function mount(
     ...render(
       <QueryClientProvider client={client}>
         <MemoryRouter initialEntries={[entry]}>
+          <NavigateInCasino />
           <ProviderTestPage />
         </MemoryRouter>
       </QueryClientProvider>
@@ -461,15 +474,170 @@ it('browses the full catalogue in batches and combines category and provider sea
 });
 
 it('opens a selected Home game once after access and wallet checks', async () => {
-  const v = mount(undefined, '/casino?game=studio%2Fslot');
+  // The member's plain click on the Home tile created this one-time intent.
+  const storage = installMemoryStorage();
+  const intent = createLaunchIntent('casino', 'tester', 'studio/slot');
+  const v = mount(undefined, `/casino?game=studio%2Fslot&intent=${intent}`);
   await waitFor(() => expect(v.container.querySelector('iframe')).not.toBeNull());
   expect(mocks.post).toHaveBeenCalledTimes(1);
   fireEvent.click(screen.getByRole('button', { name: 'Back to casino' }));
   await screen.findByRole('button', { name: 'Play Test Slot' });
   expect(mocks.post).toHaveBeenCalledTimes(1);
+  storage.restore();
+});
+it.each([
+  ['a pasted or bookmarked link', '/casino?game=studio%2Fslot'],
+  [
+    'a reused or unknown intent',
+    '/casino?game=studio%2Fslot&intent=0f8b1c2e-3d4a-4b5c-8d9e-112233445566',
+  ],
+])('selects the game from %s but waits for Play before launching', async (_label, entry) => {
+  const v = mount(undefined, entry);
+  const play = await screen.findByRole('button', { name: 'Play' });
+  expect(screen.getByText('Nothing starts until you choose Play.')).toBeVisible();
+  await waitFor(() => expect(play).toBeEnabled());
+  expect(mocks.post).not.toHaveBeenCalled();
+  expect(v.container.querySelector('iframe')).toBeNull();
+  fireEvent.click(play);
+  await waitFor(() => expect(v.container.querySelector('iframe')).not.toBeNull());
+  expect(mocks.post).toHaveBeenCalledTimes(1);
+});
+it('does not launch from another member’s click intent', async () => {
+  const storage = installMemoryStorage();
+  const intent = createLaunchIntent('casino', 'another-member', 'studio/slot');
+  mount(undefined, `/casino?game=studio%2Fslot&intent=${intent}`);
+  expect(await screen.findByRole('button', { name: 'Play' })).toBeVisible();
+  expect(mocks.post).not.toHaveBeenCalled();
+  storage.restore();
 });
 it('rejects an unknown Home game id without a launch', async () => {
   mount(undefined, '/casino?game=unknown');
   await screen.findByText(/no longer in the collection/);
   expect(mocks.post).not.toHaveBeenCalled();
+});
+
+it('never reuses an arrival intent for another route or browser Back', async () => {
+  const storage = installMemoryStorage();
+  try {
+    const get = mocks.get.getMockImplementation()!;
+    mocks.get.mockImplementation((path: string) =>
+      path.endsWith('/games')
+        ? Promise.resolve(ok([game, { ...game, id: 'second', name: 'Second Game' }]))
+        : get(path)
+    );
+    const nonce = createLaunchIntent('casino', 'tester', game.id);
+    mount(undefined, `/casino?game=${encodeURIComponent(game.id)}&intent=${nonce}`);
+    await waitFor(() => expect(mocks.post).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: 'Select second URL' }));
+    await screen.findByText('Second Game', { selector: 'h2' });
+    expect(mocks.post).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: 'History back' }));
+    await screen.findByRole('button', { name: 'Play' });
+    expect(mocks.post).toHaveBeenCalledTimes(1);
+  } finally {
+    storage.restore();
+  }
+});
+
+it('refuses a fresh Play from a stale session before issuing a launch request', async () => {
+  const storage = installMemoryStorage();
+  try {
+    mount();
+    const play = await screen.findByRole('button', { name: 'Play Test Slot' });
+    localStorage.setItem(
+      'socialplay.session-boundary',
+      JSON.stringify({ revision: 'other-login', signedOut: false })
+    );
+    await act(async () => fireEvent.click(play));
+    expect(mocks.post).not.toHaveBeenCalled();
+  } finally {
+    storage.restore();
+  }
+});
+
+it('requires fresh Play when catalogue readiness outlives the original intent TTL', async () => {
+  const storage = installMemoryStorage();
+  vi.useFakeTimers({ toFake: ['Date'] });
+  try {
+    const issuedAt = Date.now();
+    const nonce = createLaunchIntent('casino', 'tester', game.id);
+    vi.setSystemTime(issuedAt + 59_000);
+    let resolveCatalogue!: (value: unknown) => void;
+    const catalogue = new Promise((resolve) => {
+      resolveCatalogue = resolve;
+    });
+    const get = mocks.get.getMockImplementation()!;
+    mocks.get.mockImplementation((path: string) =>
+      path.endsWith('/games') ? catalogue : get(path)
+    );
+    mount(undefined, `/casino?game=${encodeURIComponent(game.id)}&intent=${nonce}`);
+    await waitFor(() => expect(storage.memory.has(`salem-launch-intent:${nonce}`)).toBe(false));
+    vi.setSystemTime(issuedAt + 61_000);
+    await act(async () => resolveCatalogue(ok([game])));
+    const play = await screen.findByRole('button', { name: 'Play' });
+    expect(mocks.post).not.toHaveBeenCalled();
+    fireEvent.click(play);
+    await waitFor(() => expect(mocks.post).toHaveBeenCalledTimes(1));
+  } finally {
+    vi.useRealTimers();
+    storage.restore();
+  }
+});
+
+it('allows a fresh Play after BFCache restoration without reviving the spent arrival intent', async () => {
+  const storage = installMemoryStorage();
+  try {
+    const intent = createLaunchIntent('casino', 'tester', game.id);
+    const view = mount(undefined, `/casino?game=${encodeURIComponent(game.id)}&intent=${intent}`);
+    await waitFor(() => expect(view.container.querySelector('iframe')).not.toBeNull());
+    expect(mocks.post).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true }));
+      window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
+    });
+    const play = await screen.findByRole('button', { name: 'Play' });
+    expect(view.container.querySelector('iframe')).toBeNull();
+    expect(mocks.post).toHaveBeenCalledTimes(1);
+    fireEvent.click(play);
+    await waitFor(() => expect(mocks.post).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(view.container.querySelector('iframe')).not.toBeNull());
+  } finally {
+    storage.restore();
+  }
+});
+
+it('never publishes a pre-BFCache launch response after a fresh restored Play', async () => {
+  let finishOld!: (value: unknown) => void;
+  mocks.post.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finishOld = resolve;
+      })
+  );
+  const view = mount();
+  fireEvent.click(await screen.findByRole('button', { name: 'Play Test Slot' }));
+  await waitFor(() => expect(mocks.post).toHaveBeenCalledTimes(1));
+  await act(async () => {
+    window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true }));
+    window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
+  });
+  const play = await screen.findByRole('button', { name: 'Play Test Slot' });
+  expect(mocks.post).toHaveBeenCalledTimes(1);
+  expect(view.container.querySelector('iframe')).toBeNull();
+  fireEvent.click(play);
+  await waitFor(() => expect(mocks.post).toHaveBeenCalledTimes(2));
+  await waitFor(() =>
+    expect(view.container.querySelector('iframe')).toHaveAttribute(
+      'src',
+      'https://games.example.com/session'
+    )
+  );
+  await act(async () =>
+    finishOld(ok({ mode: 'virtual-test', url: 'https://games.example.com/stale' }))
+  );
+  expect(view.container.querySelector('iframe')).toHaveAttribute(
+    'src',
+    'https://games.example.com/session'
+  );
+  expect(mocks.post).toHaveBeenCalledTimes(2);
 });

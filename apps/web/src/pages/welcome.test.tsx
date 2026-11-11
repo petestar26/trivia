@@ -1,4 +1,5 @@
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { WelcomePage, ExplorePage } from './welcome';
@@ -32,18 +33,38 @@ beforeEach(() => {
   auth.isLoading = false;
 });
 afterEach(cleanup);
-it.each(['/', '/explore'])(
+it.each(['/', '/explore', '/dashboard', '/groups'])(
   'actual app route %s remains public while the session probe is loading',
   (path) => {
     auth.isLoading = true;
     render(
-      <MemoryRouter initialEntries={[path]}>
-        <App />
-      </MemoryRouter>
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter initialEntries={[path]}>
+          <App />
+        </MemoryRouter>
+      </QueryClientProvider>
     );
-    expect(screen.getByRole('navigation', { name: 'Account' })).toBeInTheDocument();
+    expect(screen.getByRole('navigation', { name: 'Main navigation' })).toBeInTheDocument();
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', '/login');
+    expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+    // Until the probe settles, show neither guest sign-in nor member controls, so a
+    // returning member never sees "Sign in" flash before their own header appears.
+    expect(screen.queryByRole('link', { name: 'Sign in' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Open your wallet' })).not.toBeInTheDocument();
+  }
+);
+it.each(['/', '/explore', '/dashboard', '/groups'])(
+  'actual app route %s offers sign-in once the probe confirms a guest',
+  (path) => {
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter initialEntries={[path]}>
+          <App />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    expect(screen.getByRole('navigation', { name: 'Main navigation' })).toBeInTheDocument();
+    expect(screen.getAllByRole('link', { name: 'Sign in' })[0]).toHaveAttribute('href', '/login');
   }
 );
 it.each([
@@ -66,20 +87,26 @@ it.each([
     expect(screen.getByLabelText('Email')).toBeInTheDocument();
   }
 );
-it.each(['/dashboard', '/admin', '/agent', '/groups'])(
-  'does not expose protected %s while the session probe is loading',
-  (path) => {
-    auth.isLoading = true;
-    render(
+it.each([
+  '/admin',
+  '/Admin/accounts',
+  '/%61dmin/accounts',
+  '/agent',
+  '/Agent/accounts',
+  '/%61gent/accounts',
+])('does not expose protected %s while the session probe is loading', (path) => {
+  auth.isLoading = true;
+  render(
+    <QueryClientProvider client={new QueryClient()}>
       <MemoryRouter initialEntries={[path]}>
         <App />
       </MemoryRouter>
-    );
-    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
-    expect(screen.queryByRole('navigation', { name: 'Account' })).not.toBeInTheDocument();
-    expect(document.querySelector('.animate-spin')).toBeInTheDocument();
-  }
-);
+    </QueryClientProvider>
+  );
+  expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+  expect(screen.queryByRole('navigation', { name: 'Account' })).not.toBeInTheDocument();
+  expect(screen.getByRole('status')).toHaveTextContent('Checking workspace access…');
+});
 it('opens with a welcome scene, not a credential form, and lets guests browse', () => {
   mount();
   expect(screen.getByRole('heading', { name: /A world of play/ })).toBeInTheDocument();

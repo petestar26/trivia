@@ -147,3 +147,23 @@ it('admin login preserves its protected deep link', async () => {
   await signIn(user);
   await waitFor(() => expect(screen.getByTestId('destination').textContent).toBe('/admin/accounts?page=2'));
 });
+
+describe('ProtectedRoute -> login never lands on a URL that launches by itself', () => {
+  it.each([
+    ['the sportsbook launcher', '/sports/open', '/sports'],
+    ['a casino game launch link', '/casino?game=synthetic-1', '/casino'],
+    [
+      'a casino launch link with other filters',
+      '/casino?category=slots&game=synthetic-1',
+      '/casino?category=slots',
+    ],
+  ])('returns to the lobby instead of %s', async (_label, start, expected) => {
+    const user = userEvent.setup();
+    renderApp([start]);
+    await signIn(user);
+    await waitFor(() => expect(screen.getByTestId('destination')).toHaveTextContent(expected));
+    expect(screen.getByTestId('destination').textContent).toBe(expected);
+    // Signing in is the only write: no provider session, launch or wager was requested.
+    expect(mocked.post.mock.calls.map(([path]) => path)).toEqual(['/auth/login']);
+  });
+});

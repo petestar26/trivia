@@ -31,9 +31,17 @@ export function WorkspaceGate({
 }) {
   const { t: translateUi } = useInterfaceLanguage();
 
-  const { user } = useAuth();
+  const { user, isLoading } = useAuth();
   const location = useLocation();
   const access = useWorkspaceAccess();
+  // Gate the matched route, not the raw URL spelling: React Router also accepts
+  // case variants and encoded segments. Never redirect an unresolved member.
+  if (isLoading)
+    return (
+      <div className="workspace-status" role="status">
+        {translateUi('Checking workspace access…')}
+      </div>
+    );
   if (!user) return <Navigate to={`/${kind}/login`} state={{ from: location }} replace />;
   if (access.isPending)
     return (

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
   ArrowUpRight,
@@ -21,6 +21,8 @@ import {
 import { api, unwrapData } from '@/lib/api';
 import { useAuth } from '@/providers/auth-provider';
 import { useFavoriteGames } from '@/lib/use-favorite-games';
+import { sessionRevision } from '@/lib/session';
+import { consumeLaunchPermit, type LaunchPermit } from '@/lib/launch-intent';
 import './provider-lobby.css';
 import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
@@ -148,23 +150,72 @@ export function ProviderTestPage() {
   const { t: translateUi } = useInterfaceLanguage();
 
   const { user } = useAuth();
+  const location = useLocation();
+  const [restoration, setRestoration] = useState(0);
+  useEffect(() => {
+    // BFCache preserves effects and refs. Replace the old launch session rather
+    // than reactivating a pagehide guard that still owns pending responses.
+    const restore = (event: PageTransitionEvent) => {
+      if (event.persisted) setRestoration((value) => value + 1);
+    };
+    window.addEventListener('pageshow', restore);
+    return () => window.removeEventListener('pageshow', restore);
+  }, []);
   return user ? (
-    <ProviderTestSession key={user.id} userId={user.id} />
+    <ProviderTestSession
+      key={`${user.id}:${sessionRevision()}:${location.key}:${restoration}`}
+      userId={user.id}
+      allowArrival={restoration === 0}
+    />
   ) : (
     <p>{translateUi('Sign in to browse the casino.')}</p>
   );
 }
 
-function ProviderTestSession({ userId }: { userId: string }) {
+function ProviderTestSession({ userId, allowArrival }: { userId: string; allowArrival: boolean }) {
   const { t: translateUi, locale: interfaceLocale } = useInterfaceLanguage();
   const { favoriteIds, toggleFavorite, storageUnavailable, limitReached, maxFavorites } =
     useFavoriteGames(userId, 'casino');
   const favoriteSet = useMemo(() => new Set(favoriteIds), [favoriteIds]);
   const favoritesTab = useRef<HTMLButtonElement>(null);
 
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const requestedGame = searchParams.get('game');
   const attemptedGame = useRef<string | null>(null);
+  // Authorization belongs to this mounted navigation, target and session only.
+  // Keep the spent nonce in the URL: reload/Back cannot consume it again, and
+  // sanitizing the route must never transfer permission to a newer navigation.
+  const [launchOnArrival, setLaunchOnArrival] = useState<boolean | null>(null);
+  const arrival = useRef<Promise<LaunchPermit | null> | null>(null);
+  const revision = useRef(sessionRevision());
+  const arrivalDeadline = useRef(0);
+  const activePage = useRef(true);
+  useEffect(() => {
+    activePage.current = true;
+    const leave = () => {
+      activePage.current = false;
+    };
+    window.addEventListener('pagehide', leave);
+    return () => {
+      leave();
+      window.removeEventListener('pagehide', leave);
+    };
+  }, []);
+  useEffect(() => {
+    let active = true;
+    arrival.current ??= allowArrival
+      ? consumeLaunchPermit('casino', userId, searchParams.get('intent'), requestedGame ?? '')
+      : Promise.resolve(null);
+    void arrival.current.then((permit) => {
+      if (active && activePage.current) {
+        arrivalDeadline.current = permit?.expiresAt ?? 0;
+        setLaunchOnArrival(permit !== null && revision.current === sessionRevision());
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [searchParams, userId, requestedGame, allowArrival]);
   const [selectionError, setSelectionError] = useState(false);
   const [motionEnabled, setMotionEnabled] = useState(
     () =>
@@ -226,6 +277,9 @@ function ProviderTestSession({ userId }: { userId: string }) {
   });
   const launch = useMutation({
     mutationFn: async (game: TestGame) => {
+      if (!activePage.current || revision.current !== sessionRevision())
+        throw new Error('Session changed');
+      const launchRevision = revision.current;
       const result = unwrapData(
         await api.post<{ url: string; mode: string }>('/provider-test/launch', {
           gameId: game.id,
@@ -234,6 +288,8 @@ function ProviderTestSession({ userId }: { userId: string }) {
           mobile: window.matchMedia('(max-width: 767px)').matches,
         })
       );
+      if (!activePage.current || launchRevision !== sessionRevision())
+        throw new Error('Session changed');
       const url = new URL(result.url);
       if (
         result.mode !== 'virtual-test' ||
@@ -300,6 +356,7 @@ function ProviderTestSession({ userId }: { userId: string }) {
   const launchGame = launch.mutate;
   useEffect(() => {
     if (
+      launchOnArrival === null ||
       !requestedGame ||
       !canLaunch ||
       !catalogue.data ||
@@ -309,14 +366,6 @@ function ProviderTestSession({ userId }: { userId: string }) {
       return;
     attemptedGame.current = requestedGame;
     const game = allGames.find((item) => item.id === requestedGame);
-    setSearchParams(
-      (previous) => {
-        const next = new URLSearchParams(previous);
-        next.delete('game');
-        return next;
-      },
-      { replace: true }
-    );
     if (!game) {
       setSelectionError(true);
       return;
@@ -324,14 +373,21 @@ function ProviderTestSession({ userId }: { userId: string }) {
     setSelectionError(false);
     setSelected(game);
     resetLaunch();
-    launchGame(game);
+    if (
+      launchOnArrival &&
+      activePage.current &&
+      revision.current === sessionRevision() &&
+      Date.now() <= arrivalDeadline.current
+    )
+      launchGame(game);
+    setLaunchOnArrival(false);
   }, [
     requestedGame,
     canLaunch,
     catalogue.data,
     allGames,
     catalogue.isError,
-    setSearchParams,
+    launchOnArrival,
     resetLaunch,
     launchGame,
   ]);
@@ -439,6 +495,20 @@ function ProviderTestSession({ userId }: { userId: string }) {
             </div>
             <span className="casino-player-mode">{translateUi('Virtual play')}</span>
           </div>
+          {launch.isIdle && (
+            <div className="casino-player-placeholder">
+              <Gamepad2 size={36} aria-hidden="true" />
+              <h3>{selected.name}</h3>
+              <p>{translateUi('Nothing starts until you choose Play.')}</p>
+              <button
+                className="casino-primary-button"
+                disabled={!canLaunch}
+                onClick={() => launch.mutate(selected)}
+              >
+                {translateUi('Play')}
+              </button>
+            </div>
+          )}
           {launch.isPending && (
             <div className="casino-player-placeholder" role="status">
               <span className="casino-loading-ring" />
