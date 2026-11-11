@@ -41,3 +41,23 @@ it('marks the shared game lobby as the group-play destination', () => {
     '/play-together'
   );
 });
+
+it.each(['/', '/explore'])('marks Home active for guest entry %s', (path) => {
+  render(
+    <MemoryRouter initialEntries={[path]}>
+      <MobileNavigation guest />
+    </MemoryRouter>
+  );
+  expect(screen.getByRole('link', { name: 'Home' })).toHaveAttribute('aria-current', 'page');
+});
+it.each(['/games/sky-crash', '/messages', '/messages/group'])(
+  'keeps guest preview navigation visible at %s',
+  (path) => {
+    render(
+      <MemoryRouter initialEntries={[path]}>
+        <MobileNavigation guest />
+      </MemoryRouter>
+    );
+    expect(screen.getByRole('navigation', { name: 'Quick navigation' })).toBeInTheDocument();
+  }
+);

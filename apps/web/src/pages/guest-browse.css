@@ -1,0 +1,432 @@
+/* The guest experience uses the real member shell and its existing visual tokens. */
+.salem-guest-browse {
+  max-width: 1460px;
+  margin-inline: auto;
+  color: var(--qube-text, #f1ece6);
+}
+.salem-guest-browse h1 {
+  font-size: clamp(30px, 4vw, 52px);
+  line-height: 1.12;
+  letter-spacing: -0.045em;
+  font-weight: 650;
+  text-wrap: balance;
+}
+.salem-guest-heading {
+  padding-block: 12px 4px;
+}
+.salem-guest-heading > p,
+.salem-guest-feature-copy > p {
+  max-width: 640px;
+  margin-block: 16px 24px;
+  color: var(--salem-muted, #b7b1ac);
+  font-size: 15px;
+  line-height: 1.75;
+}
+.salem-guest-signin {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  padding-inline: 8px;
+  font-size: 13px;
+  white-space: nowrap;
+  color: var(--salem-gold, #dfb995);
+}
+.salem-guest-register {
+  white-space: nowrap;
+}
+.salem-guest-account {
+  display: grid;
+  gap: 10px;
+}
+.salem-guest-account > strong {
+  font-size: 15px;
+  color: var(--salem-text, #f4f0e9);
+}
+.salem-guest-account > p {
+  color: var(--salem-muted, #b7b1ac);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.salem-guest-account .salem-eyebrow {
+  margin-bottom: 0;
+  font-size: 9px;
+}
+.salem-guest-feature {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(180px, 0.7fr);
+  gap: 24px;
+  align-items: center;
+  min-height: 330px;
+  padding: clamp(24px, 4vw, 50px);
+  border: 1px solid var(--salem-line, #383638);
+  border-radius: 24px;
+  background:
+    radial-gradient(ellipse at 90% 20%, #1e604740, transparent 60%), var(--salem-panel, #1b1c1f);
+  overflow: hidden;
+}
+.salem-guest-feature-art {
+  min-width: 0;
+  aspect-ratio: 1;
+  max-height: 250px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 24px;
+  border: 1px solid #d7aa802b;
+  border-radius: 50%;
+  color: var(--salem-gold, #dfb995);
+  background: radial-gradient(circle, #1e604733, transparent 65%);
+  box-shadow:
+    0 0 0 18px #d7aa8005,
+    0 0 0 36px #d7aa8004;
+}
+.salem-guest-feature-art span {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.25em;
+}
+.salem-guest-benefits,
+.salem-guest-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+.salem-guest-benefits > div,
+.salem-guest-steps > div {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 20px;
+  border: 1px solid var(--salem-line, #383638);
+  border-radius: 16px;
+  color: var(--salem-muted, #b7b1ac);
+  background: var(--salem-panel, #1b1c1f);
+  font-size: 13px;
+  line-height: 1.65;
+}
+.salem-guest-benefits svg {
+  flex-shrink: 0;
+  color: var(--salem-gold, #dfb995);
+}
+.salem-guest-steps span {
+  color: var(--salem-gold, #dfb995);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+}
+.salem-guest-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 18px;
+  border: 1px solid var(--salem-line, #383638);
+  border-radius: 16px;
+  background: var(--salem-panel, #1b1c1f);
+  padding: 24px;
+}
+.salem-guest-note > svg {
+  color: var(--salem-gold, #dfb995);
+  flex-shrink: 0;
+}
+.salem-guest-note > div {
+  min-width: 180px;
+  flex: 1;
+}
+.salem-guest-note h2 {
+  font-weight: 650;
+  font-size: 16px;
+  color: var(--salem-text, #f4f0e9);
+}
+.salem-guest-note p {
+  font-size: 13px;
+  line-height: 1.75;
+  margin-top: 5px;
+  color: var(--salem-muted, #b7b1ac);
+}
+.salem-guest-selected {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.7fr) minmax(0, 1.3fr);
+  gap: 28px;
+  padding: 24px;
+  border: 1px solid var(--salem-line, #383638);
+  background: var(--salem-raised, #242427);
+  border-radius: 22px;
+  align-items: center;
+}
+.salem-guest-selected > .ruby-art {
+  border-radius: 14px;
+  overflow: hidden;
+  max-height: 300px;
+  aspect-ratio: 4/3;
+}
+.salem-guest-selected h2 {
+  font-size: 32px;
+  letter-spacing: -0.025em;
+}
+.salem-guest-selected p {
+  color: var(--salem-muted, #b7b1ac);
+  line-height: 1.7;
+  margin-block: 12px;
+}
+.salem-guest-category-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+.salem-guest-category {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 22px;
+  border-radius: 20px;
+  border: 1px solid var(--salem-line, #383638);
+  background: var(--salem-panel, #1b1c1f);
+}
+.salem-guest-category > div {
+  display: grid;
+  place-items: center;
+  min-height: 145px;
+  width: 100%;
+  margin-bottom: 20px;
+  color: var(--salem-gold, #dfb995);
+  background: radial-gradient(ellipse, #257f5944, transparent 70%);
+}
+.salem-guest-category:nth-child(2) {
+  background: var(--salem-panel, #1b1c1f);
+}
+.salem-guest-category:nth-child(3) {
+  background: var(--salem-panel, #1b1c1f);
+}
+.salem-guest-category:nth-child(4) {
+  background: var(--salem-panel, #1b1c1f);
+}
+.salem-guest-category h2 {
+  font-size: 21px;
+  letter-spacing: -0.02em;
+}
+.salem-guest-category p {
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--salem-muted, #b7b1ac);
+  margin-block: 10px 22px;
+  flex: 1;
+}
+.salem-guest-category .salem-button {
+  width: 100%;
+  padding-inline: 10px;
+}
+.salem-guest-status {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  align-self: flex-start;
+  color: var(--salem-gold, #dfb995);
+  font-size: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--salem-line, #383638);
+  border-radius: 30px;
+}
+.salem-guest-stadium {
+  position: relative;
+  min-height: 300px;
+  overflow: hidden;
+}
+.salem-guest-stadium img {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.salem-guest-stadium span {
+  position: absolute;
+  bottom: 14px;
+  inset-inline-start: 14px;
+  background: #120c12e6;
+  color: #f0dfd3;
+  padding: 6px 10px;
+  border-radius: 7px;
+  font-size: 11px;
+}
+.salem-guest-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: #09070db8;
+  backdrop-filter: blur(5px);
+}
+.salem-guest-dialog {
+  position: fixed;
+  z-index: 101;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(480px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+  border: 1px solid var(--salem-line, #383638);
+  border-radius: 24px;
+  background: var(--salem-panel, #1b1c1f);
+  box-shadow: 0 30px 100px #0008;
+  color: var(--salem-text, #f4f0e9);
+  padding: 40px 30px 28px;
+}
+.salem-guest-dialog h2 {
+  font-size: 29px;
+  letter-spacing: -0.04em;
+  margin-block: 10px 16px;
+}
+.salem-guest-dialog p {
+  color: var(--salem-muted, #b7b1ac);
+  line-height: 1.75;
+  font-size: 14px;
+  margin-block: 12px;
+}
+.salem-guest-dialog-close {
+  position: absolute;
+  inset-inline-end: 10px;
+  top: 10px;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  color: var(--salem-gold, #dfb995);
+}
+.salem-guest-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-block: 24px 10px;
+}
+.salem-guest-dialog button:not(.salem-guest-dialog-close) {
+  min-height: 44px;
+}
+.salem-guest-dialog a:focus-visible,
+.salem-guest-dialog button:focus-visible,
+.qube-shell[data-guest='true'] a:focus-visible,
+.qube-shell[data-guest='true'] button:focus-visible,
+.qube-shell[data-guest='true'] input:focus-visible {
+  outline: 2px solid #f1d0ab;
+  outline-offset: 4px;
+}
+.qube-shell[data-guest='true'] .salem-favorite {
+  min-height: 40px;
+  min-width: 40px;
+}
+@media (max-width: 1200px) {
+  .salem-guest-category-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 640px) {
+  .salem-guest-feature {
+    grid-template-columns: minmax(0, 1fr);
+    min-height: 0;
+  }
+  .salem-guest-feature-art {
+    display: none;
+  }
+  .salem-guest-benefits,
+  .salem-guest-steps {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+  .salem-guest-benefits > div,
+  .salem-guest-steps > div {
+    padding: 14px 18px;
+  }
+  .salem-guest-selected {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 20px;
+    padding: 20px;
+  }
+  .salem-guest-selected > .ruby-art {
+    max-height: 220px;
+  }
+  .salem-guest-note {
+    padding: 20px;
+  }
+  .salem-guest-note > div {
+    min-width: 150px;
+  }
+  .salem-guest-category {
+    padding: 16px;
+  }
+  .salem-guest-category > div {
+    min-height: 100px;
+    margin-bottom: 14px;
+  }
+  .salem-guest-category h2 {
+    font-size: 19px;
+  }
+  .salem-guest-category .salem-button {
+    font-size: 11px;
+  }
+  .salem-guest-category .salem-button svg {
+    display: none;
+  }
+  .salem-guest-status {
+    margin-top: 16px;
+  }
+  .qube-shell[data-guest='true'] .qube-header {
+    gap: 8px;
+    padding-inline: 12px;
+  }
+  .qube-shell[data-guest='true'] .qube-header > div {
+    gap: 6px;
+  }
+  .salem-guest-register {
+    font-size: 11px;
+    padding-inline: 10px;
+  }
+  .salem-guest-signin {
+    font-size: 12px;
+    padding-inline: 4px;
+  }
+}
+@media (max-width: 380px) {
+  .qube-shell[data-guest='true'] .qube-header-title {
+    font-size: 12px;
+  }
+  .qube-shell[data-guest='true'] .qube-header-eyebrow {
+    display: none;
+  }
+  .salem-guest-register {
+    font-size: 10px;
+    padding-inline: 8px;
+  }
+  .salem-guest-category-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .salem-guest-browse *,
+  .salem-guest-dialog {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+/* Keep all account controls usable without horizontal scrolling on narrow phones. */
+@media (max-width: 640px) {
+  html.qube-member.dark .qube-shell[data-guest='true'] .qube-header .salem-language {
+    width: 58px;
+    max-width: 58px;
+    min-width: 58px;
+    padding-inline: 5px;
+    gap: 3px;
+  }
+  html.qube-member.dark .qube-shell[data-guest='true'] .qube-header .salem-language select {
+    width: 32px;
+    min-width: 0;
+    font-size: 10px;
+  }
+  html.qube-member.dark .qube-shell[data-guest='true'] .qube-header .salem-language svg {
+    width: 13px;
+    flex-shrink: 0;
+  }
+}
+@media (max-width: 380px) {
+  html.qube-member.dark .qube-shell[data-guest='true'] .qube-header-title {
+    display: none;
+  }
+}

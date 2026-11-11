@@ -1,6 +1,7 @@
 import { useLanguage } from '@/providers/language-provider';
 import { LanguageSelect } from './language-select';
 import { Link, useLocation } from 'react-router-dom';
+import { guestReturnTo } from '@/lib/guest-return-to';
 import { PRACTICE_ETB } from '@/lib/practice-etb';
 import { Menu, Wallet } from 'lucide-react';
 import { useAuth } from '@/providers/auth-provider';
@@ -12,7 +13,8 @@ export function Header({ onMenuClick }: { onMenuClick?: () => void }) {
 
   const { user } = useAuth();
   const { t } = useLanguage();
-  const { pathname } = useLocation();
+  const location = useLocation();
+  const { pathname } = location;
   const section = pathname.split('/')[1];
   const labels: Record<string, string> = {
     dashboard: 'Home',
@@ -48,25 +50,49 @@ export function Header({ onMenuClick }: { onMenuClick?: () => void }) {
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-2 sm:gap-4">
-        {PRACTICE_ETB && !['sports', 'play-together', 'groups', 'games'].includes(section) && (
-          <span className="salem-mode-badge">
-            {translateUi('Practice') + ' '}
-            <b>{'ETB'}</b>
-          </span>
+        {user &&
+          PRACTICE_ETB &&
+          !['sports', 'play-together', 'groups', 'games'].includes(section) && (
+            <span className="salem-mode-badge">
+              {translateUi('Practice') + ' '}
+              <b>{'ETB'}</b>
+            </span>
+          )}
+        {user ? (
+          <>
+            <Link
+              to="/wallet"
+              className="qube-wallet-link"
+              aria-label={translateUi('Open your wallet')}
+            >
+              <Wallet size={17} aria-hidden="true" />
+              <span className="hidden sm:inline">{t('Wallet')}</span>
+            </Link>
+            <LanguageSelect />
+            <NotificationBell />
+            <Link to="/profile" aria-label={translateUi('Your profile')} className="qube-avatar">
+              {(user?.displayName || user?.username || 'U')[0].toUpperCase()}
+            </Link>
+          </>
+        ) : (
+          <>
+            <LanguageSelect />
+            <Link
+              to="/login"
+              state={{ from: guestReturnTo(location) }}
+              className="salem-guest-signin"
+            >
+              {t('Sign in')}
+            </Link>
+            <Link
+              to="/register"
+              state={{ from: guestReturnTo(location) }}
+              className="salem-button salem-guest-register"
+            >
+              {t('Create account')}
+            </Link>
+          </>
         )}
-        <Link
-          to="/wallet"
-          className="qube-wallet-link"
-          aria-label={translateUi('Open your wallet')}
-        >
-          <Wallet size={17} aria-hidden="true" />
-          <span className="hidden sm:inline">{t('Wallet')}</span>
-        </Link>
-        <LanguageSelect />
-        <NotificationBell />
-        <Link to="/profile" aria-label={translateUi('Your profile')} className="qube-avatar">
-          {(user?.displayName || user?.username || 'U')[0].toUpperCase()}
-        </Link>
       </div>
     </header>
   );

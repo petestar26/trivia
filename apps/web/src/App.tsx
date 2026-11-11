@@ -23,10 +23,8 @@ import { lazy, Suspense } from 'react';
 import { useAuth } from '@/providers/auth-provider';
 import { Layout } from '@/components/layout/layout';
 import { HomePage } from '@/pages/home';
-import { WelcomePage, ExplorePage } from '@/pages/welcome';
 import { LoginPage } from '@/pages/login';
 import { RegisterPage } from '@/pages/register';
-import { ProtectedRoute } from '@/components/auth/protected-route';
 import { CasinoProvider } from '@/components/casino/CasinoProvider';
 import { GamesPage } from '@/pages/games';
 import { CasinoPage } from '@/pages/casino';
@@ -79,10 +77,11 @@ export function App() {
   const { isLoading } = useAuth();
   const location = useLocation();
 
-  // Public sign-in/activation, discovery and offline verification must remain
-  // reachable while the unrelated session probe is waiting on an unavailable API.
+  // All member-shell routes can render safe guest previews while the session
+  // resolves. Staff workspaces still wait for the session before their role gate.
   if (
     isLoading &&
+    /^\/(?:admin|agent)(?:\/|$)/.test(location.pathname) &&
     !/^\/(?:explore\/?|login\/?|register\/?|reset-password\/?|(?:admin\/login|agent\/(?:login|activate))\/?|games\/spin-win\/verify\/?)?$/.test(
       location.pathname
     )
@@ -96,8 +95,6 @@ export function App() {
 
   return (
     <Routes>
-      <Route path="/" element={<WelcomePage />} />
-      <Route path="/explore" element={<ExplorePage />} />
       <Route
         path="/games/spin-win/verify"
         element={
@@ -158,14 +155,9 @@ export function App() {
       </Route>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
-      <Route
-        path="/*"
-        element={
-          <ProtectedRoute>
-            <Layout />
-          </ProtectedRoute>
-        }
-      >
+      <Route path="/*" element={<Layout />}>
+        <Route index element={<Navigate to="/dashboard" replace />} />
+        <Route path="explore" element={<Navigate to="/dashboard" replace />} />
         <Route path="dashboard" element={<HomePage />} />
         <Route path="groups" element={<GroupsPage />} />
         <Route path="groups/invite/:token" element={<GroupInviteAcceptPage />} />

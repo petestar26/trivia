@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ArrowUpRight, ArrowRight, Users, Headphones, Wallet, Gift } from 'lucide-react';
 import { useAuth } from '@/providers/auth-provider';
 import { useLanguage } from '@/providers/language-provider';
+import { GuestGameCollection } from '@/components/member/guest-game-collection';
 import { GameCollection } from '@/components/member/game-collection';
 import { CasinoPreview } from '@/components/member/casino-preview';
 import { GameArtwork } from '@/components/member/game-artwork';
@@ -30,7 +31,7 @@ export function HomePage() {
     queryFn: async () => unwrapData<LoungeGroup[]>(await api.listGroups({ limit: 50 })),
     staleTime: 60_000,
   });
-  const active = (groups.data ?? [])
+  const active = (user ? (groups.data ?? []) : [])
     .filter((g) => g.status === 'ACTIVE' && (!g.isPrivate || g.isMember))
     .slice(0, 4);
   return (
@@ -38,8 +39,14 @@ export function HomePage() {
       <div className="salem-welcome">
         <span className="salem-eyebrow">{'SALEM BET'}</span>
         <p>
-          {translateUi('Welcome back,') + ' '}
-          <strong>{user?.displayName || user?.username || translateUi('player')}</strong>
+          {user ? (
+            <>
+              {translateUi('Welcome back,') + ' '}
+              <strong>{user.displayName || user.username}</strong>
+            </>
+          ) : (
+            translateUi('Look around. Make yourself at home.')
+          )}
         </p>
       </div>
       <section className="salem-hero">
@@ -91,7 +98,7 @@ export function HomePage() {
             <ArrowRight size={16} />
           </Link>
         </div>
-        <GameCollection />
+        {user ? <GameCollection /> : <GuestGameCollection />}
       </section>
       <CasinoPreview />
       <section className="salem-together" aria-labelledby="together-title">

@@ -14,6 +14,7 @@ import {
   Sparkles,
   Headphones,
 } from 'lucide-react';
+import { guestReturnTo } from '@/lib/guest-return-to';
 import { useAuth } from '@/providers/auth-provider';
 import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
@@ -49,7 +50,8 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
 
   const { user, logout } = useAuth();
   const { t } = useLanguage();
-  const { pathname } = useLocation();
+  const location = useLocation();
+  const { pathname } = location;
   const providerDemoAlias = pathname === '/games/provider-demos';
   return (
     <aside className="qube-sidebar fixed inset-y-0 left-0 z-50 w-64 h-full">
@@ -60,7 +62,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
         {translateUi('Salem Bet')}
         <span className="qube-brand-dot">•</span>
       </Link>
-      <nav aria-label={translateUi('Member navigation')} className="qube-navigation">
+      <nav aria-label={translateUi('Main navigation')} className="qube-navigation">
         {user &&
           ['ADMIN', 'SUPER_ADMIN'].includes(
             (user as typeof user & { role?: string }).role ?? ''
@@ -74,12 +76,14 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
             <p>{t(section.title)}</p>
             {section.items.map(({ name, href, icon: Icon }) => {
               const active =
-                href === '/casino'
-                  ? providerDemoAlias || pathname === '/casino' || pathname.startsWith('/casino/')
-                  : href === '/games'
-                    ? !providerDemoAlias &&
-                      (pathname === '/games' || pathname.startsWith('/games/'))
-                    : pathname === href || (href !== '/' && pathname.startsWith(`${href}/`));
+                href === '/dashboard' && ['/', '/explore'].includes(pathname)
+                  ? true
+                  : href === '/casino'
+                    ? providerDemoAlias || pathname === '/casino' || pathname.startsWith('/casino/')
+                    : href === '/games'
+                      ? !providerDemoAlias &&
+                        (pathname === '/games' || pathname.startsWith('/games/'))
+                      : pathname === href || (href !== '/' && pathname.startsWith(`${href}/`));
               return (
                 <Link
                   key={href}
@@ -109,21 +113,39 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
         </details>
       </nav>
       <div className="qube-account">
-        <Link to="/profile" onClick={onNavigate} className="qube-account-profile">
-          <span className="qube-avatar">
-            {(user?.displayName || user?.username || 'U')[0].toUpperCase()}
-          </span>
-          <span className="min-w-0">
-            <strong className="block truncate">{user?.displayName || user?.username}</strong>
-            <small className="block truncate">
-              <bdi dir="ltr">@{user?.username}</bdi>
-            </small>
-          </span>
-        </Link>
-        <button onClick={() => logout()} className="qube-signout">
-          <LogOut size={17} aria-hidden="true" />
-          {t('Sign out')}
-        </button>
+        {user ? (
+          <>
+            <Link to="/profile" onClick={onNavigate} className="qube-account-profile">
+              <span className="qube-avatar">
+                {(user?.displayName || user?.username || 'U')[0].toUpperCase()}
+              </span>
+              <span className="min-w-0">
+                <strong className="block truncate">{user?.displayName || user?.username}</strong>
+                <small className="block truncate">
+                  <bdi dir="ltr">@{user?.username}</bdi>
+                </small>
+              </span>
+            </Link>
+            <button onClick={() => logout()} className="qube-signout">
+              <LogOut size={17} aria-hidden="true" />
+              {t('Sign out')}
+            </button>
+          </>
+        ) : (
+          <div className="salem-guest-account">
+            <span className="salem-eyebrow">{t('YOUR SPACE AWAITS')}</span>
+            <strong>{t('Make yourself at home.')}</strong>
+            <p>{t('Browse freely. Sign in to join in.')}</p>
+            <Link
+              to="/login"
+              state={{ from: guestReturnTo(location) }}
+              onClick={onNavigate}
+              className="salem-button secondary"
+            >
+              {t('Sign in')}
+            </Link>
+          </div>
+        )}
       </div>
     </aside>
   );

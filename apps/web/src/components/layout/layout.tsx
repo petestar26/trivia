@@ -1,8 +1,8 @@
 import { Headphones } from 'lucide-react';
 import { useLanguage } from '@/providers/language-provider';
 import '@/pages/lounge.css';
-import { Link, Outlet, useLocation } from 'react-router-dom';
-import { useState, useCallback } from 'react';
+import { Link, Navigate, Outlet, useLocation } from 'react-router-dom';
+import { useState, useCallback, useEffect } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Sidebar } from './sidebar';
 import { MobileNavigation } from './mobile-navigation';
@@ -13,11 +13,28 @@ import { useAuth } from '@/providers/auth-provider';
 import { InstallAppButton, InstallAppCard } from '@/components/app-install';
 import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
+import { guestBrowseLocation } from '@/lib/guest-browse-location';
+import { GuestAuthProvider } from '@/components/auth/guest-auth-prompt';
+import { GuestBrowsePage } from '@/pages/guest-browse';
+import '@/pages/guest-browse.css';
+
 export function Layout() {
+  const { isAuthenticated } = useAuth();
+  const location = useLocation();
+  const safeGuestLocation = !isAuthenticated ? guestBrowseLocation(location) : null;
+  if (safeGuestLocation) return <Navigate to={safeGuestLocation} replace />;
+  return (
+    <GuestAuthProvider>
+      <LayoutContent />
+    </GuestAuthProvider>
+  );
+}
+
+function LayoutContent() {
   const { t: translateUi } = useInterfaceLanguage();
 
   useMemberTheme();
-  const { user } = useAuth();
+  const { user, isAuthenticated } = useAuth();
   useAutomaticRewards(user?.id);
   const { t } = useLanguage();
   const { pathname } = useLocation();
@@ -31,8 +48,9 @@ export function Layout() {
     !/^\/groups\/[^/]+/.test(pathname);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const closeMobileNav = useCallback(() => setMobileNavOpen(false), []);
+  useEffect(closeMobileNav, [pathname, closeMobileNav]);
   return (
-    <div className="qube-shell min-h-screen">
+    <div className="qube-shell min-h-screen" data-guest={!isAuthenticated}>
       <a
         href="#main-content"
         className="sr-only focus:not-sr-only focus:fixed focus:z-[100] focus:bg-white focus:p-4"
@@ -71,14 +89,15 @@ export function Layout() {
               <InstallAppButton whenReminderHidden={pathname === '/dashboard'} />
             </div>
           )}
-          <Outlet />
+          {/* Guest pages never mount member queries, sockets, or mutation effects. */}
+          {isAuthenticated ? <Outlet /> : <GuestBrowsePage />}
         </main>
         {showSupportShortcut && (
           <Link to="/support" className="salem-support-float" aria-label={t('Contact support')}>
             <Headphones size={20} />
           </Link>
         )}
-        <MobileNavigation />
+        <MobileNavigation guest={!isAuthenticated} />
       </div>
     </div>
   );

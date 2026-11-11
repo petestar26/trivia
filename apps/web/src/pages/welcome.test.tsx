@@ -1,4 +1,5 @@
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { WelcomePage, ExplorePage } from './welcome';
@@ -32,18 +33,20 @@ beforeEach(() => {
   auth.isLoading = false;
 });
 afterEach(cleanup);
-it.each(['/', '/explore'])(
+it.each(['/', '/explore', '/dashboard', '/groups'])(
   'actual app route %s remains public while the session probe is loading',
   (path) => {
     auth.isLoading = true;
     render(
-      <MemoryRouter initialEntries={[path]}>
-        <App />
-      </MemoryRouter>
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter initialEntries={[path]}>
+          <App />
+        </MemoryRouter>
+      </QueryClientProvider>
     );
-    expect(screen.getByRole('navigation', { name: 'Account' })).toBeInTheDocument();
+    expect(screen.getByRole('navigation', { name: 'Main navigation' })).toBeInTheDocument();
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', '/login');
+    expect(screen.getAllByRole('link', { name: 'Sign in' })[0]).toHaveAttribute('href', '/login');
   }
 );
 it.each([
@@ -66,7 +69,7 @@ it.each([
     expect(screen.getByLabelText('Email')).toBeInTheDocument();
   }
 );
-it.each(['/dashboard', '/admin', '/agent', '/groups'])(
+it.each(['/admin', '/agent'])(
   'does not expose protected %s while the session probe is loading',
   (path) => {
     auth.isLoading = true;

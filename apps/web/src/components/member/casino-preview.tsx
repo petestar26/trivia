@@ -22,7 +22,7 @@ export function CasinoPreview() {
         await api.get<{ enabled: boolean; launchReady: boolean }>('/provider-test/status')
       ),
   });
-  const allowed = status.data?.enabled === true && !status.isError;
+  const allowed = !!user?.id && status.data?.enabled === true && !status.isError;
   const games = useQuery({
     queryKey: ['provider-test-games', user?.id],
     enabled: allowed,
@@ -65,7 +65,7 @@ export function CasinoPreview() {
           </div>
           <p className="salem-footnote">{translateUi('Virtual ETB · No cash value')}</p>
         </>
-      ) : status.isPending || (allowed && games.isPending) ? (
+      ) : user && (status.isPending || (allowed && games.isPending)) ? (
         <p role="status">{t('Loading…')}</p>
       ) : (
         <div className="salem-casino-intro">
