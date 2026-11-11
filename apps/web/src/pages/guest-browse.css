@@ -217,79 +217,59 @@
 }
 /* Decorative only: no activity indicators, result simulation, or moving targets.
    Motion settles within two seconds and uses only compositor-friendly properties. */
+/* Original 3D-style pictures, not animated UI icons. Motion is decorative,
+   finite, transform-only, and never changes text, controls or account state. */
 .salem-guest-motion-art {
   position: relative;
   isolation: isolate;
   pointer-events: none;
+  overflow: hidden;
+  border-radius: 18px;
 }
-.salem-guest-motion-art::before,
-.salem-guest-motion-art::after {
-  content: '';
-  position: absolute;
-  z-index: -1;
-  width: 88px;
-  height: 88px;
-  border: 1px solid currentColor;
-  border-radius: 28px;
-  opacity: 0.14;
-  transform: rotate(-12deg);
+.salem-guest-picture {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-height: 260px;
+  object-fit: contain;
+  user-select: none;
 }
-.salem-guest-motion-art::after {
-  width: 112px;
-  height: 112px;
-  border-radius: 38px;
-  opacity: 0.07;
-  transform: rotate(12deg);
+.salem-guest-feature-art {
+  width: 100%;
+  max-height: 300px;
+  border: 0;
+  box-shadow: none;
+  background: radial-gradient(ellipse, #1e604744, transparent 70%);
 }
-.salem-guest-feature-art::before,
-.salem-guest-feature-art::after {
-  width: 72%;
-  height: 72%;
-  border-radius: 50%;
-}
-.salem-guest-feature-art::after {
-  width: 88%;
-  height: 88%;
+.salem-guest-category .salem-guest-motion-art {
+  height: clamp(140px, 15vw, 220px);
 }
 @media (prefers-reduced-motion: no-preference) {
-  .salem-guest-motion-art > svg {
-    animation: salem-art-welcome 1800ms ease-in-out 1;
-    transition: transform 240ms ease-out;
+  .salem-guest-picture[data-loaded='true'] {
+    animation: salem-picture-arrive 2600ms ease-in-out 1;
+    transition: transform 350ms ease-out;
   }
-  .salem-guest-motion-art::before,
-  .salem-guest-motion-art::after {
-    animation: salem-art-frame 1600ms ease-out 1;
-  }
-  .salem-guest-category:nth-child(even) .salem-guest-motion-art > svg {
-    animation-delay: 120ms;
-  }
-  .salem-guest-category:focus-within .salem-guest-motion-art > svg,
-  .salem-guest-feature:focus-within .salem-guest-motion-art > svg {
-    transform: translateY(-3px);
+  .salem-guest-category:focus-within .salem-guest-picture,
+  .salem-guest-feature:focus-within .salem-guest-picture {
+    transform: translateY(-4px) scale(1.025);
   }
 }
 @media (prefers-reduced-motion: no-preference) and (hover: hover) and (pointer: fine) {
-  .salem-guest-category:hover .salem-guest-motion-art > svg,
-  .salem-guest-feature:hover .salem-guest-motion-art > svg {
-    transform: translateY(-3px);
+  .salem-guest-category:hover .salem-guest-picture,
+  .salem-guest-feature:hover .salem-guest-picture {
+    transform: translateY(-4px) scale(1.025);
   }
 }
-@keyframes salem-art-welcome {
+@keyframes salem-picture-arrive {
   0%,
   100% {
-    transform: translateY(0) rotate(0);
+    transform: translateY(0) rotate(0) scale(1);
   }
   35% {
-    transform: translateY(-7px) rotate(-4deg);
+    transform: translateY(-7px) rotate(-2deg) scale(1.035);
   }
-  65% {
-    transform: translateY(-2px) rotate(3deg);
-  }
-}
-@keyframes salem-art-frame {
-  from {
-    opacity: 0;
-    scale: 0.86;
+  70% {
+    transform: translateY(-2px) rotate(1deg) scale(1.015);
   }
 }
 .salem-guest-status {
@@ -401,29 +381,13 @@
     min-height: 0;
   }
   .salem-guest-feature-art {
-    /* Keep the illustration on phones, without a large empty hero panel. */
-    width: 104px;
-    height: 104px;
+    width: min(100%, 260px);
+    height: 180px;
     justify-self: center;
-    gap: 0;
-    box-shadow: none;
+    aspect-ratio: auto;
   }
-  .salem-guest-feature-art > svg {
-    width: 46px;
-    height: 46px;
-  }
-  .salem-guest-feature-art > span {
-    display: none;
-  }
-  .salem-guest-category .salem-guest-motion-art::before {
-    width: 68px;
-    height: 68px;
-    border-radius: 22px;
-  }
-  .salem-guest-category .salem-guest-motion-art::after {
-    width: 88px;
-    height: 88px;
-    border-radius: 28px;
+  .salem-guest-category .salem-guest-motion-art {
+    height: 130px;
   }
   .salem-guest-benefits,
   .salem-guest-steps {

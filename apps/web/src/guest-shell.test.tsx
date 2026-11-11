@@ -81,6 +81,13 @@ describe('guest member shell', () => {
     expect(artwork).toHaveLength(path === '/casino' ? 4 : 1);
     artwork.forEach((element) => {
       expect(element).toHaveAttribute('aria-hidden', 'true');
+      const picture = element.querySelector('img');
+      expect(picture).toHaveAttribute('alt', '');
+      expect(picture).toHaveAttribute('loading', 'lazy');
+      expect(picture).toHaveAttribute('data-loaded', 'false');
+      fireEvent.load(picture!);
+      expect(picture).toHaveAttribute('data-loaded', 'true');
+      expect(picture?.getAttribute('src')).toMatch(/^\/artwork\/guest-3d\/[a-z]+\.webp$/);
       expect(element.querySelector('button, a, input, [tabindex], [role="status"]')).toBeNull();
     });
     expect(post).not.toHaveBeenCalled();

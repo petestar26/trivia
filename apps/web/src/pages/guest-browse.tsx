@@ -1,19 +1,14 @@
+import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import {
   ArrowRight,
   ArrowUpRight,
   Check,
   Dice5,
-  Gift,
-  Headphones,
-  Heart,
   LockKeyhole,
-  MessageCircle,
   ShieldCheck,
-  Sparkles,
   Trophy,
   Users,
-  Wallet,
 } from 'lucide-react';
 import { HomePage } from './home';
 import { GameArtwork } from '@/components/member/game-artwork';
@@ -41,7 +36,7 @@ const features: Record<
     title: string;
     kicker: string;
     copy: string;
-    icon: typeof Wallet;
+    artwork: string;
     action: string;
     points: string[];
   }
@@ -50,7 +45,7 @@ const features: Record<
     title: 'Good company. Great moments.',
     kicker: 'GROUPS',
     copy: 'A place for your people, your conversations, and your next shared game.',
-    icon: Users,
+    artwork: 'groups',
     action: 'Find a group',
     points: [
       'Discover groups after signing in',
@@ -62,7 +57,7 @@ const features: Record<
     title: 'Keep the conversation going.',
     kicker: 'MESSAGES',
     copy: 'Chat with your groups and pick up where you left off. Your conversations stay in your account.',
-    icon: MessageCircle,
+    artwork: 'messages',
     action: 'Open messages',
     points: [
       'Group conversations',
@@ -74,7 +69,7 @@ const features: Record<
     title: 'Your wallet. In your control.',
     kicker: 'WALLET',
     copy: 'See your available balance and review your transactions in one place. Your account details are only shown after sign-in.',
-    icon: Wallet,
+    artwork: 'wallet',
     action: 'Open wallet',
     points: [
       'Review your balance and history',
@@ -86,7 +81,7 @@ const features: Record<
     title: 'Make a small moment special.',
     kicker: 'GIFTS',
     copy: 'Explore collectible gifts and share a little appreciation with your group.',
-    icon: Gift,
+    artwork: 'gift',
     action: 'Explore gifts',
     points: [
       'Discover the gift collection',
@@ -98,7 +93,7 @@ const features: Record<
     title: 'A space for your rewards.',
     kicker: 'REWARDS',
     copy: 'See the rewards available to your account and follow your progress, all in one place.',
-    icon: Sparkles,
+    artwork: 'award',
     action: 'View my rewards',
     points: [
       'Account-specific reward details',
@@ -110,7 +105,7 @@ const features: Record<
     title: 'A little help, when you need it.',
     kicker: 'SUPPORT',
     copy: 'Connect with support from your account, so your question and its updates stay together.',
-    icon: Headphones,
+    artwork: 'messages',
     action: 'Contact support',
     points: [
       'Get help with your account',
@@ -122,7 +117,7 @@ const features: Record<
     title: 'Make it your own.',
     kicker: 'PROFILE',
     copy: 'Manage your profile and account settings in your own private space.',
-    icon: ShieldCheck,
+    artwork: 'groups',
     action: 'Open my profile',
     points: [
       'Your display name and profile',
@@ -134,7 +129,7 @@ const features: Record<
     title: 'Bring a little friendly competition.',
     kicker: 'CHALLENGES',
     copy: 'Explore challenges with your group. Check the rules and choose whether to take part.',
-    icon: Trophy,
+    artwork: 'award',
     action: 'Explore challenges',
     points: [
       'See the rules before joining',
@@ -146,7 +141,7 @@ const features: Record<
     title: 'Something to share. A reason to play.',
     kicker: 'COMPETITIONS',
     copy: 'Discover competitions in your groups and review the details before entering.',
-    icon: Trophy,
+    artwork: 'award',
     action: 'Explore competitions',
     points: [
       'Group competitions',
@@ -184,7 +179,7 @@ export function GuestBrowsePage() {
             title: 'Your games, all in one place.',
             kicker: 'HISTORY',
             copy: 'Your personal game records are available after signing in.',
-            icon: ShieldCheck,
+            artwork: 'groups',
             action: 'View my history',
             points: ['Your past rounds', 'Results linked to your account', 'Private by default'],
           }}
@@ -257,9 +252,27 @@ export function GuestBrowsePage() {
   );
 }
 
+/** Decorative, local-only artwork. It never represents account state or a live game. */
+function GuestPicture({ name }: { name: string }) {
+  const [loaded, setLoaded] = useState(false);
+  return (
+    <img
+      className="salem-guest-picture"
+      data-loaded={loaded}
+      onLoad={() => setLoaded(true)}
+      src={`/artwork/guest-3d/${name}.webp`}
+      alt=""
+      width={640}
+      height={640}
+      loading="lazy"
+      decoding="async"
+      draggable={false}
+    />
+  );
+}
+
 function FeatureOverview({ feature }: { feature: (typeof features)[string] }) {
   const { t } = useLanguage();
-  const Icon = feature.icon;
   return (
     <section className="salem-lounge salem-guest-browse">
       <div className="salem-guest-feature">
@@ -276,8 +289,7 @@ function FeatureOverview({ feature }: { feature: (typeof features)[string] }) {
           className="salem-guest-feature-art salem-guest-motion-art"
           aria-hidden="true"
         >
-          <Icon size={96} strokeWidth={1} />
-          <span>SALEM BET</span>
+          <GuestPicture name={feature.artwork} />
         </div>
       </div>
       <div className="salem-guest-benefits">
@@ -328,10 +340,10 @@ function FeatureOverview({ feature }: { feature: (typeof features)[string] }) {
 function GuestCasino() {
   const { t } = useLanguage();
   const categories = [
-    ['Slots', Dice5, 'Reels, themes, and new discoveries.'],
-    ['Live casino', Heart, 'Explore the live casino collection.'],
-    ['Table games', Trophy, 'Discover familiar table-game classics.'],
-    ['Crash', Sparkles, 'Explore the crash game collection.'],
+    ['Slots', 'slots', 'Reels, themes, and new discoveries.'],
+    ['Live casino', 'live', 'Explore the live casino collection.'],
+    ['Table games', 'table', 'Discover familiar table-game classics.'],
+    ['Crash', 'crash', 'Explore the crash game collection.'],
   ] as const;
   return (
     <section className="salem-lounge salem-guest-browse">
@@ -345,10 +357,10 @@ function GuestCasino() {
         </p>
       </header>
       <div className="salem-guest-category-grid">
-        {categories.map(([name, Icon, copy]) => (
+        {categories.map(([name, artwork, copy]) => (
           <article className="salem-guest-category" key={name}>
             <div className="salem-guest-motion-art" aria-hidden="true">
-              <Icon size={54} strokeWidth={1.1} />
+              <GuestPicture name={artwork} />
             </div>
             <span className="salem-eyebrow">{t('CASINO')}</span>
             <h2>{t(name)}</h2>
