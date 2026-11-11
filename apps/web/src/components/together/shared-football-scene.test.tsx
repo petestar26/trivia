@@ -6,6 +6,7 @@ import SharedFootballScene from './shared-football-scene';
 const engine = vi.hoisted(() => ({
   setMatch: vi.fn(),
   setReduced: vi.fn(),
+  setSafeArea: vi.fn(),
   start: vi.fn(),
   dispose: vi.fn(),
 }));

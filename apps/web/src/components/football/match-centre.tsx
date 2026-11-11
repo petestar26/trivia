@@ -218,7 +218,11 @@ export function BroadcastCaption({
 
   const last = display.events.at(-1);
   return (
-    <div className="vf-broadcast-caption" aria-label={translateUi('Match broadcast status')}>
+    <div
+      className="vf-broadcast-caption"
+      data-scene-overlay="bottom"
+      aria-label={translateUi('Match broadcast status')}
+    >
       <span>{translateUi('SALEM BET / SIMULATED MATCH')}</span>
       <strong>
         {display.fullTime

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pause, Play, RotateCcw } from 'lucide-react';
 import type { Engine } from '@/components/football/engine/engine';
+import { observeSceneOverlays } from '@/components/football/scene-overlays';
 import { useLanguage } from '@/providers/language-provider';
 import { createPreviewClock } from './preview-clock';
 import './football-preview.css';
@@ -11,6 +12,7 @@ export function FootballPreview() {
   const wrapper = useRef<HTMLDivElement>(null);
   const host = useRef<HTMLDivElement>(null);
   const engine = useRef<Engine | null>(null);
+  const stopOverlays = useRef<(() => void) | null>(null);
   const clock = useRef(createPreviewClock());
   const [visible, setVisible] = useState(false);
   const [foreground, setForeground] = useState(() => !document.hidden);
@@ -45,6 +47,8 @@ export function FootballPreview() {
   }, []);
 
   const showStill = useCallback(() => {
+    stopOverlays.current?.();
+    stopOverlays.current = null;
     engine.current?.dispose();
     engine.current = null;
     setReady(false);
@@ -78,6 +82,12 @@ export function FootballPreview() {
           onRenderError: showStill,
         });
         engine.current = scene;
+        // Keep the play clear of the label, controls and caption drawn over the card.
+        stopOverlays.current = observeSceneOverlays(
+          host.current,
+          (insets) => scene.setSafeArea(insets),
+          wrapper.current
+        );
         scene.setMatch({
           matchKey: 'salem-sports-football-preview-v1',
           homeClub: 1,
@@ -102,6 +112,8 @@ export function FootballPreview() {
 
   useEffect(
     () => () => {
+      stopOverlays.current?.();
+      stopOverlays.current = null;
       engine.current?.dispose();
       engine.current = null;
     },
@@ -110,13 +122,13 @@ export function FootballPreview() {
 
   const state = failed ? 'still' : ready ? (active ? 'playing' : 'paused') : 'poster';
   return (
-    <div className="sports-football" ref={wrapper} data-state={state}>
+    <div className="sports-football" ref={wrapper} data-state={state} data-scene-frame>
       <div className="sports-football-picture" aria-hidden="true">
         <img src="/art/ruby-grand/football-stadium.webp" alt="" loading="lazy" decoding="async" />
         <div className="sports-football-canvas" ref={host} />
         <div className="sports-football-vignette" />
       </div>
-      <div className="sports-football-controls">
+      <div className="sports-football-controls" data-scene-overlay="top">
         <span className="sports-football-label">{t('Football preview')}</span>
         <button
           type="button"
@@ -132,7 +144,9 @@ export function FootballPreview() {
           {t(failed ? 'Try again' : paused ? 'Resume animation' : 'Pause animation')}
         </button>
       </div>
-      <p className="sports-football-caption">{t('ONE WALLET. A WORLD OF SPORT.')}</p>
+      <p className="sports-football-caption" data-scene-overlay="bottom">
+        {t('ONE WALLET. A WORLD OF SPORT.')}
+      </p>
     </div>
   );
 }

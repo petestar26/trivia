@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BROADCAST_RIG, PITCH } from './director';
-import { buildStadium } from './stadium';
+import { buildStadium, NEAR_STAND } from './stadium';
+import { TURF } from './turf';
 import { buildTurf, MARKINGS } from './turf';
 import { buildCrowd, CROWD_SEAT, type CrowdRow } from './crowd';
 import { createContactShadows } from './contact-shadows';
@@ -56,6 +57,18 @@ describe('stadium', () => {
     // The previous stadium drew ~460k crowd triangles alone; the full bowl is now far lighter.
     expect(draws).toBeLessThan(80);
     expect(triangles).toBeLessThan(120_000);
+    stadium.dispose();
+  });
+
+  it('dresses the near side: turf run-off meets a near lower tier, so no void shows below the pitch', () => {
+    const stadium = buildStadium();
+    const stands = stadium.group.getObjectByName('stands') as THREE.Mesh;
+    stands.geometry.computeBoundingBox();
+    const box = stands.geometry.boundingBox!;
+    // The near tier starts where the turf run-off ends and climbs out of the broadcast view.
+    expect(NEAR_STAND.front).toBeLessThanOrEqual(PITCH.halfWidth + TURF.marginWidth);
+    expect(box.max.z).toBeGreaterThan(NEAR_STAND.front + 15);
+    expect(box.max.y).toBeGreaterThan(BROADCAST_RIG.y * 0.4);
     stadium.dispose();
   });
 

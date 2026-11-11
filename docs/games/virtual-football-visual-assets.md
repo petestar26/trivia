@@ -112,3 +112,15 @@ Review feedback found that goals were too distant, especially on phones, and the
 - **Players.** Unchanged. See `virtual-football-player-realism-assessment.md` for the assessment and the exact asset, motion and licence requirements.
 
 The measurements, matched three-way captures (`1436fba`, `04403e8` and this iteration's commit) and device/browser details for this iteration are reported in the pull request, tied to the exact captured commit.
+
+### Third iteration: no void beyond the near touchline, play kept clear of page overlays
+
+A review clip of the portrait lab showed black ground beyond the near touchline for about half a second as the goal push-in tilted the camera down. The same geometry reached the shipped stages: the turf ended 6 m past the near touchline, and nothing was built on the near side because the gantry looks over it. Any shot aimed close enough to the near touchline exposed the empty ground below the stage.
+
+- **Hard limit on the bottom edge** (`broadcast-framing.ts`). Rays through the bottom edge of the clear band (at five points across it) may not reach ground beyond 36 m from the halfway line, 2 m past the near touchline. The solver finds the steepest tilt that respects this limit and keeps every point the director asks for inside the band. If no tilt can do both, it widens the shot (up to 16 steps of 8 %) rather than giving up either. Tests run three full matches on thirteen stages and check every frame.
+- **Dressing as a second line of defence.** The turf now extends 12 m past each touchline, and a 24-row near lower tier, merged into the existing stands draw call, meets it. The asphalt apron is a neutral grey. Any operator overshoot therefore lands on grass or seats, never on the background. The reduced-motion overview now ends on seats instead of empty ground.
+- **Framing for the visible band, not the canvas.** The scoreboard and caption drawn over the 3D view cover up to 146 of 260 CSS px on a portrait phone. Overlays now mark themselves with `data-scene-overlay="top" | "bottom"` inside a `data-scene-frame`. `scene-overlays.ts` measures them, follows resizes, language changes and overlays appearing or disappearing, and passes the insets to the engine (`Engine.setSafeArea`).
+  - The engine renders with an off-centre projection (`setViewOffset`), so the composition sits in the clear band while the pitch still runs under the translucent overlays.
+  - This applies to the match page, the group game and the sports card.
+- **Ball always readable.** Live play and goals pass focus points to the framing: the ball always, plus the goalkeeper and goal mouth near the finish. The tilt keeps each focus point within 86 % of the clear band's half-height. Before this change, the whole-match test found the ball up to 2.2 band half-heights outside the clear band (behind the scoreboard or caption) on 330 × 260, 788 × 218 and 360 × 253 stages.
+- **Unchanged.** Event timing, the goal reveal moment, the cut and dissolve, the fixed camera position for a given stage, and all player assets and motion.

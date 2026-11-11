@@ -13,7 +13,13 @@ let motionChange: () => void;
 let options: EngineOptions;
 let scene: ReturnType<typeof makeScene>;
 function makeScene() {
-  return { setMatch: vi.fn(), start: vi.fn(), stop: vi.fn(), dispose: vi.fn() };
+  return {
+    setMatch: vi.fn(),
+    setSafeArea: vi.fn(),
+    start: vi.fn(),
+    stop: vi.fn(),
+    dispose: vi.fn(),
+  };
 }
 function visible(value: boolean) {
   act(() =>

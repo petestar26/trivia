@@ -21,7 +21,8 @@ export const TURF = Object.freeze({
   detailTile: 3.4,
   /** Turf beyond the touch/goal lines up to the perimeter. */
   marginLength: 8,
-  marginWidth: 6,
+  /** Run-off grass between the touchlines and the stands (and the main-stand wall on the near side). */
+  marginWidth: 12,
 });
 
 /** Distances used by the analytic markings (exported so tests can check the layout). */

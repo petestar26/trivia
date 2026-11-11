@@ -66,6 +66,8 @@ export interface Frame {
     zoom?: number;
     /** Metres the shot must cover across at the look-at point (the action that must stay in view). */
     span?: number;
+    /** World points that must stay clearly visible (the ball; goalkeeper and posts near a goal). */
+    focus?: Array<{ x: number; y: number; z: number }>;
   };
   mode: Mode;
   half: 1 | 2;
@@ -874,6 +876,12 @@ function goalSequence(matchKey: string, goal: ReleasedGoal, half: 1 | 2, t: numb
     near * Math.max(Math.abs(gx + a * 0.6 - camera.lx), Math.abs(keeper.x - camera.lx))
   );
   camera.span = 2 * reach + 5;
+  camera.focus = [{ ...ball }];
+  if (near >= 0.35)
+    camera.focus.push({ x: keeper.x, y: 0, z: keeper.z }, { x: keeper.x, y: 1.8, z: keeper.z });
+  if (near >= 0.6)
+    for (const zz of [-PITCH.goalHalfWidth, PITCH.goalHalfWidth])
+      camera.focus.push({ x: gx, y: 0, z: zz }, { x: gx, y: PITCH.goalHeight, z: zz });
   const crowd = t < M ? 0.4 : clamp(1 - (t - M) / 8, 0.55, 1);
   return { actors, ball, net, camera, scored: t >= M, crowd };
 }
@@ -1043,7 +1051,10 @@ export function directorFrame(input: DirectorInput): Frame {
   return {
     actors,
     ball,
-    camera: broadcastCamera({ x: ball.x * 0.9 + lead.x, z: ball.z + lead.z }),
+    camera: {
+      ...broadcastCamera({ x: ball.x * 0.9 + lead.x, z: ball.z + lead.z }),
+      focus: [{ ...ball }],
+    },
     mode: 'PLAY',
     half,
     goal: null,

@@ -806,7 +806,7 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
             )}
         </p>
         <section className="vf-stage" aria-label={translateUi('Match view')}>
-          <div className="vf-stage-frame">
+          <div className="vf-stage-frame" data-scene-frame>
             {text || !fixture ? (
               fixture && <LiveCentre fixture={fixture} week={stageWeek} />
             ) : (
@@ -829,7 +829,7 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
                     />
                   </Suspense>
                 </SceneLoadBoundary>
-                <div className="vf-board-overlay">
+                <div className="vf-board-overlay" data-scene-overlay="top">
                   <LiveBoard fixture={fixture} week={stageWeek} />
                 </div>
                 <LiveCaption fixture={fixture} week={stageWeek} />

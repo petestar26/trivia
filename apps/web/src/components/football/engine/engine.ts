@@ -16,7 +16,7 @@ import { ballTexture } from './ball';
 import { createContactShadows } from './contact-shadows';
 import { createFloodlitEnvironment, nightSkyTexture } from './environment';
 import { createCameraOperator, OPERATOR_GOAL, OPERATOR_PLAY } from './camera-operator';
-import { frameShot } from './broadcast-framing';
+import { clearBand, frameShot } from './broadcast-framing';
 
 /** Everything the renderer is allowed to know about a match: released facts only. */
 export interface MatchInput {
@@ -42,6 +42,12 @@ export interface EngineOptions {
   maxPixelRatio?: number;
   /** Low graphics quality retains the scene while omitting the extra shadow render pass. */
   shadows?: boolean;
+  /** CSS pixels covered by page overlays at the top and bottom of the view (see setSafeArea). */
+  safeArea?: SafeArea;
+}
+export interface SafeArea {
+  top: number;
+  bottom: number;
 }
 export interface Engine {
   canvas: HTMLCanvasElement;
@@ -52,6 +58,11 @@ export interface Engine {
   /** Deterministic single-frame render (used by tests, the lab and capture scripts). */
   renderAt(elapsedMs: number, dt?: number): Frame;
   resize(): void;
+  /**
+   * Overlays (scoreboard, caption) cover these CSS pixels of the view. The broadcast framing,
+   * and the reduced-motion overview, are composed for the clear band between them.
+   */
+  setSafeArea(area: SafeArea): void;
   info(): {
     triangles: number;
     calls: number;
@@ -232,7 +243,28 @@ export function createEngine(options: EngineOptions): Engine {
   let visible = true;
   let renderedOnce = false;
 
+  let safeArea: SafeArea = {
+    top: Math.max(0, options.safeArea?.top ?? 0),
+    bottom: Math.max(0, options.safeArea?.bottom ?? 0),
+  };
+  const stage = () => ({
+    width: host.clientWidth || 16,
+    height: host.clientHeight || 9,
+    insetTop: safeArea.top,
+    insetBottom: safeArea.bottom,
+  });
+  /** Off-centre projection: the framed band is the "virtual" view; overlaid strips extend it. */
+  const applyBand = () => {
+    const s = stage();
+    const band = clearBand(s);
+    camera.aspect = s.width / band.height;
+    if (band.top > 0 || band.bottom > 0)
+      camera.setViewOffset(s.width, band.height, 0, -band.top, s.width, s.height);
+    else camera.clearViewOffset();
+    return band;
+  };
   const fitReducedCamera = () => {
+    applyBand();
     const target = reducedPitchCamera(camera.aspect);
     camPos.set(target.x, target.y, target.z);
     camLook.set(target.lx, target.ly, target.lz);
@@ -247,7 +279,7 @@ export function createEngine(options: EngineOptions): Engine {
     const w = host.clientWidth;
     const h = host.clientHeight;
     if (!w || !h) return;
-    camera.aspect = w / h;
+    applyBand();
     if (reduced) fitReducedCamera();
     else camera.updateProjectionMatrix();
     renderer.setSize(w, h, false);
@@ -324,10 +356,7 @@ export function createEngine(options: EngineOptions): Engine {
       operator.cut(target);
     } else {
       // The director's framing intent, fitted to this stage's real CSS size and shape.
-      const target = frameShot(frame.camera, {
-        width: host.clientWidth || 16,
-        height: host.clientHeight || 9,
-      });
+      const target = frameShot(frame.camera, stage());
       if (cut || lastMode === null) operator.cut(target);
       else operator.follow(target, dt, frame.mode === 'GOAL' ? OPERATOR_GOAL : OPERATOR_PLAY);
     }
@@ -429,6 +458,14 @@ export function createEngine(options: EngineOptions): Engine {
     stop,
     renderAt,
     resize,
+    setSafeArea(area) {
+      const next = { top: Math.max(0, area.top || 0), bottom: Math.max(0, area.bottom || 0) };
+      if (Math.abs(next.top - safeArea.top) < 0.5 && Math.abs(next.bottom - safeArea.bottom) < 0.5)
+        return;
+      safeArea = next;
+      resize();
+      if (reduced && running && renderedOnce && match) renderScheduled(0.016);
+    },
     info: () => ({
       triangles: renderer.info.render.triangles,
       calls: renderer.info.render.calls,

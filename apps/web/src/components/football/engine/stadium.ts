@@ -49,6 +49,12 @@ export const STAND = Object.freeze({
 });
 /** Distance from the touch/goal lines to the front of each stand. */
 export const STAND_SETBACK = 5.5;
+/**
+ * The main (near) stand, under the broadcast gantry: a lower tier only, so it can never block
+ * the gantry. No camera frames it in play; it closes the bowl for the high reduced-motion
+ * overview and anything seen past the near run-off.
+ */
+export const NEAR_STAND = Object.freeze({ front: PITCH.halfWidth + 12, rows: 24 });
 
 const BRANDS: Array<[string, string, string]> = [
   ['SALEM BET', '#3b0a17', '#f2c6a8'],
@@ -408,7 +414,8 @@ export function buildStadium(options: StadiumOptions = {}): Stadium {
   group.add(turf.mesh);
   const apron = new THREE.Mesh(
     track(new THREE.PlaneGeometry(420, 320)),
-    mat(new THREE.MeshLambertMaterial({ color: '#1d2126' }))
+    // Concourse concrete beyond the stands (never black, should any view reach it).
+    mat(new THREE.MeshLambertMaterial({ color: '#33373d' }))
   );
   apron.rotation.x = -Math.PI / 2;
   apron.position.y = -0.02;
@@ -535,8 +542,37 @@ export function buildStadium(options: StadiumOptions = {}): Stadium {
       3
     ),
   ];
+  const nearHalf = endBack;
+  const near = new Builder();
+  {
+    const s = STAND;
+    near.box([-nearHalf, 0, -0.3], [nearHalf, s.frontWall, 0], DARK);
+    const aisles: Array<[number, number]> = [];
+    for (let x = -nearHalf + s.aisleEvery; x < nearHalf - 4; x += s.aisleEvery)
+      aisles.push([x - s.aisleWidth / 2, x + s.aisleWidth / 2]);
+    for (let r = 0; r < NEAR_STAND.rows; r++) {
+      const y = s.frontWall + r * s.lowerRise;
+      const prevY = y - s.lowerRise;
+      const za = r * s.rowDepth;
+      const zb = za + s.rowDepth;
+      let cursor = -nearHalf;
+      for (const [a0, a1] of [...aisles, [nearHalf, nearHalf] as [number, number]]) {
+        near.quad([cursor, y, za], [a0, y, za], [a0, y, zb], [cursor, y, zb], SEAT);
+        near.quad([cursor, prevY, za], [a0, prevY, za], [a0, y, za], [cursor, y, za], DARK);
+        if (a1 > a0) {
+          near.quad([a0, y, za], [a1, y, za], [a1, y, zb], [a0, y, zb], STEP);
+          near.quad([a0, prevY, za], [a1, prevY, za], [a1, y, za], [a0, y, za], CONCRETE);
+        }
+        cursor = a1;
+      }
+    }
+    const depth = NEAR_STAND.rows * s.rowDepth;
+    const top = s.frontWall + NEAR_STAND.rows * s.lowerRise;
+    near.box([-nearHalf, 0, depth], [nearHalf, top + 1.2, depth + 0.5], CONCRETE);
+  }
+  const nearGeometry = near.geometry(new THREE.Matrix4().makeTranslation(0, 0, NEAR_STAND.front));
   const structure = new THREE.Mesh(
-    track(mergeGeometries(stands.map((s) => s.geometry))!),
+    track(mergeGeometries([...stands.map((s) => s.geometry), nearGeometry])!),
     mat(
       // Large matte surfaces use per-pixel Lambert: no environment-reflection cost.
       new THREE.MeshLambertMaterial({
@@ -546,6 +582,7 @@ export function buildStadium(options: StadiumOptions = {}): Stadium {
     )
   );
   stands.forEach((s) => s.geometry.dispose());
+  nearGeometry.dispose();
   structure.name = 'stands';
   group.add(structure);
 

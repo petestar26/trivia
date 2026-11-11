@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from 'react';
 import { createEngine, type Engine, type MatchInput } from './engine/engine';
+import { observeSceneOverlays } from './scene-overlays';
 import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 /**
@@ -116,7 +117,10 @@ function SceneCanvas({
       timer = window.setTimeout(() => setCut(false), 120);
     };
     element.addEventListener('football-cut', onCut);
+    // Frame the action inside the band left clear by the page's scoreboard and caption.
+    const stopOverlays = observeSceneOverlays(element, (insets) => engine.setSafeArea(insets));
     return () => {
+      stopOverlays();
       window.clearTimeout(timer);
       element.removeEventListener('football-cut', onCut);
       engine.dispose();

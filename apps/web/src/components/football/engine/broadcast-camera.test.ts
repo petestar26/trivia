@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
-import { frameShot, type Stage } from './broadcast-framing';
+import { FRAMING, clearBand, frameGroundReach, frameShot, type Stage } from './broadcast-framing';
 import {
   BROADCAST_RIG,
   GOAL_SEQUENCE,
@@ -38,29 +38,47 @@ const frameAt = (t: number, goals: ReleasedGoal[], key: string) =>
     fullTime: null,
   });
 
-/** Real 3D stage sizes (CSS px) from the page/group/preview styles, plus lab shapes. */
-const STAGES = [
-  { name: 'desktop 1280x720', width: 1280, height: 720 },
-  { name: 'phone game page 390x292 (4:3)', width: 390, height: 292 },
-  { name: 'phone group game 390x222', width: 390, height: 222 },
-  { name: 'phone sports card 362x254', width: 362, height: 254 },
-  { name: 'landscape phone game page 844x265', width: 844, height: 265 },
-  { name: 'landscape phone full 844x390', width: 844, height: 390 },
-  { name: 'portrait expanded 390x844', width: 390, height: 844 },
-  { name: 'tablet portrait 768x1024', width: 768, height: 1024 },
+/**
+ * Real 3D stages measured in the built pages (CSS px) with the overlays that cover them, plus
+ * overlay-free lab shapes. Page: scoreboard band on top, caption at the bottom. Group: scoreboard.
+ * Sports card: label/pause controls on top, caption at the bottom.
+ */
+const STAGES: Array<Stage & { name: string }> = [
+  { name: 'desktop page 920x518', width: 920, height: 518, insetTop: 86, insetBottom: 79 },
+  { name: 'phone page portrait 330x260', width: 330, height: 260, insetTop: 78, insetBottom: 68 },
+  { name: 'small phone page 300x260', width: 300, height: 260, insetTop: 78, insetBottom: 68 },
+  { name: 'phone page landscape 788x218', width: 788, height: 218, insetTop: 86, insetBottom: 53 },
+  { name: 'tablet page portrait 696x522', width: 696, height: 522, insetTop: 86, insetBottom: 79 },
+  { name: 'phone group game 352x320', width: 352, height: 320, insetTop: 90, insetBottom: 0 },
+  { name: 'phone sports card 360x253', width: 360, height: 253, insetTop: 50, insetBottom: 28 },
+  { name: 'sports card 452x410', width: 452, height: 410, insetTop: 56, insetBottom: 37 },
+  { name: 'lab desktop 1280x720', width: 1280, height: 720 },
+  { name: 'lab portrait 390x844', width: 390, height: 844 },
+  { name: 'lab tablet portrait 768x1024', width: 768, height: 1024 },
+  { name: 'lab landscape 844x390', width: 844, height: 390 },
 ];
-function lens(shot: Frame['camera'], stage: Stage) {
-  const framed = frameShot(shot, stage);
-  const aspect = stage.width / stage.height;
-  const camera = new THREE.PerspectiveCamera(framed.fov, aspect, 0.5, 700);
+/** A camera built exactly as the engine builds it: framed band plus off-centre projection. */
+function stageCamera(framed: CameraShot, stage: Stage) {
+  const band = clearBand(stage);
+  const camera = new THREE.PerspectiveCamera(framed.fov, stage.width / band.height, 0.5, 700);
+  if (band.top || band.bottom)
+    camera.setViewOffset(stage.width, band.height, 0, -band.top, stage.width, stage.height);
   camera.position.set(framed.x, framed.y, framed.z);
   camera.lookAt(framed.lx, framed.ly, framed.lz);
   camera.updateMatrixWorld(true);
-  return camera;
+  return Object.assign(camera, { band, stage });
 }
-const inFrame = (camera: THREE.PerspectiveCamera, p: THREE.Vector3, margin = 0.97) => {
+type StageCamera = ReturnType<typeof stageCamera>;
+const lens = (shot: Frame['camera'], stage: Stage) => stageCamera(frameShot(shot, stage), stage);
+/** Inside the clear band between overlays (canvas NDC), with a small margin. */
+const inFrame = (camera: StageCamera, p: THREE.Vector3, margin = 0.97) => {
   const q = p.clone().project(camera);
-  return Math.abs(q.x) <= margin && Math.abs(q.y) <= margin && q.z > -1 && q.z < 1;
+  const h = camera.stage.height;
+  const top = 1 - (2 * camera.band.top) / h;
+  const bottom = -1 + (2 * camera.band.bottom) / h;
+  const mid = (top + bottom) / 2;
+  const halfBand = ((top - bottom) / 2) * margin;
+  return Math.abs(q.x) <= margin && Math.abs(q.y - mid) <= halfBand && q.z > -1 && q.z < 1;
 };
 /** Projected height of a 1.8 m player at (x, z), in CSS pixels. */
 const playerPx = (camera: THREE.PerspectiveCamera, stage: Stage, x: number, z: number) =>
@@ -158,23 +176,75 @@ describe('fixed broadcast framing', () => {
     }
     // Goal moment: the push-in roughly doubles player size on the phone page.
     const goal = frameAt(6 + GOAL_SEQUENCE.moment, CASES[0] ? [CASES[0].goal] : [], CASES[0].key);
-    const phone = { width: 390, height: 292 };
+    const phone = STAGES[1];
     expect(playerPx(lens(goal.camera, phone), phone, goal.ball.x, goal.ball.z)).toBeGreaterThan(36);
   });
 
-  it('fills small and portrait stages with pitch rather than stand', () => {
+  it('fills the clear band of small and portrait stages with pitch rather than stand', () => {
     for (const t of [3.2, 16, 37]) {
       const play = frameAt(t, [], 'vf-s1-w01-f05');
-      for (const stage of STAGES.filter((s) => s.height < 300 || s.width < s.height)) {
+      for (const stage of STAGES.filter((s) => clearBand(s).height < 300 || s.width < s.height)) {
         const camera = lens(play.camera, stage);
-        // The far advertising boards (top of the far touchline) sit in the top 18 % of the frame.
+        const h = stage.height;
+        const bandTop = 1 - (2 * camera.band.top) / h;
+        const bandHeight = (2 * camera.band.height) / h;
+        // The far advertising boards sit in the top fifth of the clear band, or above it under
+        // the scoreboard, so the band itself is mostly pitch.
         const boards = new THREE.Vector3(play.camera.lx, 0.9, -(PITCH.halfWidth + 3.2)).project(
           camera
         );
-        expect(boards.y, `${stage.name} t=${t}`).toBeGreaterThan(0.64);
+        expect(boards.y, `${stage.name} t=${t}`).toBeGreaterThan(bandTop - 0.2 * bandHeight);
         expect(inFrame(camera, new THREE.Vector3(play.ball.x, 0.11, play.ball.z))).toBe(true);
       }
     }
+  });
+
+  // Every frame of complete matches (live play, every goal variant, half-time, full time).
+  const MATCHES = ['vf-s1-w01-f01', 'vf-s1-w01-f05', 'vf-s2-w17-f03'].map((key) => ({
+    key,
+    goals: [
+      { n: 1, side: 'H', atMs: 6000 },
+      { n: 2, side: 'A', atMs: 19500 },
+      { n: 3, side: 'H', atMs: 40000 },
+      { n: 4, side: 'A', atMs: 51000 },
+    ] as ReleasedGoal[],
+  }));
+  const fullMatch = (key: string, goals: ReleasedGoal[], t: number) =>
+    directorFrame({
+      matchKey: key,
+      elapsedMs: Math.round(t * 1000),
+      status: status(t),
+      goals: goals.filter((g) => g.atMs <= t * 1000),
+      fullTime: t >= 60 ? { home: 2, away: 2 } : null,
+    });
+
+  it.each(STAGES)(
+    'never shows ground beyond the dressed near side at $name, in any frame',
+    (stage) => {
+      let worst = -Infinity;
+      for (const { key, goals } of MATCHES)
+        for (let t = -1; t <= 61; t += 0.1) {
+          const reach = frameGroundReach(frameShot(fullMatch(key, goals, t).camera, stage), stage);
+          worst = Math.max(worst, reach);
+        }
+      expect(worst).toBeLessThanOrEqual(FRAMING.nearGround + 1e-6);
+    }
+  );
+
+  it.each(STAGES)('keeps the live ball inside the clear band at $name, in any frame', (stage) => {
+    let checked = 0;
+    for (const { key, goals } of MATCHES)
+      for (let t = 0; t <= 60; t += 0.25) {
+        const f = fullMatch(key, goals, t);
+        if (f.mode !== 'PLAY' && f.mode !== 'GOAL') continue;
+        const camera = lens(f.camera, stage);
+        expect(
+          inFrame(camera, new THREE.Vector3(f.ball.x, f.ball.y, f.ball.z), 0.99),
+          `${key} t=${t.toFixed(2)} ${f.mode}`
+        ).toBe(true);
+        checked++;
+      }
+    expect(checked).toBeGreaterThan(500);
   });
 });
 
