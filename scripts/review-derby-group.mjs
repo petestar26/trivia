@@ -29,6 +29,7 @@ import {
   deriveTogetherOutcome,
   rankTogether,
   settleTogether,
+  DERBY_HORSES,
 } from '../packages/shared/dist/index.js';
 
 const require = createRequire(import.meta.url);
@@ -479,6 +480,44 @@ try {
       assert.equal(facts.tier, 'balanced');
       assert.equal(facts.adaptive, 'true', 'Automatic did not reach the horse scene');
       checks.push(`automatic: tier ${facts.tier}, adaptive, render scale ${facts.scale}`);
+      // The race-order strip wears the same cloth colours as the horses on the course.
+      const strip = await c.page.evaluate(() =>
+        [...document.querySelectorAll('.tg-race-order b')].map((b) => ({
+          n: Number(b.textContent),
+          bg: getComputedStyle(b).backgroundColor,
+        }))
+      );
+      const rgb = (hex) =>
+        `rgb(${[1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(', ')})`;
+      measurements.push({ stage: 'strip colours', strip });
+      assert.equal(strip.length, 8);
+      for (const { n, bg } of strip)
+        assert.equal(bg, rgb(DERBY_HORSES[n - 1].color), `#${n} ${bg}`);
+      checks.push('strip: race-order badges use the 3D horses’ cloth colours');
+    });
+    await scenario('camera persists across a quality change', async (make) => {
+      const c = await make(VIEWS.phone375);
+      await open(c.page, 12000);
+      await camera(c.page, 'Follow race');
+      await advance(c.page, 2000);
+      const before = await info(c.page);
+      // Changing the tier remounts the group course (as an Automatic step-down does).
+      await c.page.locator('.tg-stage-footer select').selectOption('low');
+      for (let i = 0; i < 800; i++) {
+        const now = await info(c.page);
+        if (now.tier === 'low' && now.runners) break;
+        await advance(c.page, 10, 10);
+        await c.page.waitForTimeout(10);
+      }
+      await advance(c.page, 2000);
+      const after = await info(c.page);
+      await shot(c.page, 'group-quality-change-follow-race-phone375');
+      measurements.push({ stage: 'quality change', before, after });
+      assert.equal(before.shot, 'chase');
+      assert.equal(after.tier, 'low');
+      assert.equal(after.pressed, 'Follow race');
+      assert.equal(after.shot, 'chase', `after the tier change the scene drew ${after.shot}`);
+      checks.push(`quality change: Follow race kept from ${before.tier} to ${after.tier}`);
     });
     await scenario('reduced motion', async (make) => {
       const c = await make({ ...VIEWS.phone375, reduced: true });
