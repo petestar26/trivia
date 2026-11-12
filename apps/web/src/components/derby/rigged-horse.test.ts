@@ -2,7 +2,13 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { continuousGallop, createRiggedHorse, type HorseAssets } from './rigged-horse';
+import {
+  continuousGallop,
+  createRiggedHorse,
+  raceGallop,
+  RIDER_FIT,
+  type HorseAssets,
+} from './rigged-horse';
 
 async function asset(name: string) {
   const bytes = readFileSync(`public/models/derby/${name}.glb`);
@@ -91,7 +97,7 @@ describe('shipped horse and jockey rigs', () => {
 it('bounds world stance slip across all four authored hooves and preserves suspension', async () => {
   const { measureHoofWindows, stanceOffset, sampledHoofSole } = await import('./authored-contact');
   const a = await assets();
-  const windows = measureHoofWindows(a.horse, continuousGallop(a.run));
+  const windows = measureHoofWindows(a.horse, raceGallop(a.run));
   const horse = createRiggedHorse(a, '#774532', '#aa2244', 0);
   const sample = (time: number) => {
     const travel = time * 15;
@@ -164,7 +170,7 @@ it('measures four real authored stance windows and visible sole clearance', asyn
   const { measureHoofWindows } = await import('./authored-contact');
   const a = await assets();
   const started = performance.now();
-  const windows = measureHoofWindows(a.horse, continuousGallop(a.run));
+  const windows = measureHoofWindows(a.horse, raceGallop(a.run));
   console.log(
     'authored contact calibration',
     performance.now() - started,
@@ -208,6 +214,8 @@ it('articulates rider knees/elbows against anchored boots/hands with frame-step 
     return result!;
   };
   const rig = riderSkeleton(one);
+  a.horse.updateMatrixWorld(true);
+  const restSpine = a.horse.getObjectByName('spine_2')!.getWorldPosition(new THREE.Vector3()).y;
   const knees: THREE.Quaternion[] = [],
     elbows: THREE.Quaternion[] = [];
   let maxBootError = 0,
@@ -224,30 +232,22 @@ it('articulates rider knees/elbows against anchored boots/hands with frame-step 
     const spine = model.worldToLocal(
       model.getObjectByName('spine_2')!.getWorldPosition(new THREE.Vector3())
     );
-    // Tack/saddle anchor height is exposed by the original saddle mesh, not a synthetic rider target.
-    const saddle = model.children.find(
-      (o) => o instanceof THREE.Mesh && Math.abs(o.position.z + 0.12) < 1e-8
-    )!;
-    const bounce = saddle.position.y - 1.52;
+    // The fitted stirrup and hand targets ride the saddle's measured vertical motion.
+    const bounce = spine.y - restSpine;
     const localFoot = model.worldToLocal(
       rig.getBoneByName('foot_l')!.getWorldPosition(new THREE.Vector3())
     );
     const localHand = model.worldToLocal(
       rig.getBoneByName('hand_l')!.getWorldPosition(new THREE.Vector3())
     );
+    const { FOOT, HAND } = RIDER_FIT;
     maxBootError = Math.max(
       maxBootError,
-      localFoot.distanceTo(new THREE.Vector3(0.38, 1.15 + bounce, -0.26))
+      localFoot.distanceTo(new THREE.Vector3(FOOT.x, FOOT.y + bounce + 0.035, FOOT.z - 0.05))
     );
     maxHandError = Math.max(
       maxHandError,
-      localHand.distanceTo(
-        new THREE.Vector3(
-          0.21 * 0.79,
-          1.65 - 0.917 * 0.79 + 1.14 * 0.79 + bounce * 0.85,
-          -0.12 + 0.77 * 0.79
-        )
-      )
+      localHand.distanceTo(new THREE.Vector3(HAND.x, HAND.y + bounce * 0.85, HAND.z))
     );
     expect(Number.isFinite(spine.y)).toBe(true);
   }
@@ -292,9 +292,9 @@ it('articulates rider knees/elbows against anchored boots/hands with frame-step 
 it('bounds visible skin penetration over the entire cycle while preserving positive authored clearance', async () => {
   const { measureHoofWindows, stanceOffset, sampledHoofSole } = await import('./authored-contact');
   const a = await assets();
-  const windows = measureHoofWindows(a.horse, continuousGallop(a.run));
+  const windows = measureHoofWindows(a.horse, raceGallop(a.run));
   const rawMixer = new THREE.AnimationMixer(a.horse);
-  rawMixer.clipAction(continuousGallop(a.run)).play();
+  rawMixer.clipAction(raceGallop(a.run)).play();
   const horse = createRiggedHorse(a, '#774532', '#aa2244', 0);
   const metrics = windows.map((w) => ({
     name: w.name,
@@ -344,10 +344,10 @@ it('bounds visible skin penetration over the entire cycle while preserving posit
 });
 
 it('keeps recovery weights C1 at the declared buffers and bounds phase-only rider response', async () => {
-  const { measureHoofWindows, hoofContactWeight, sampleHoofSupport } =
+  const { measureHoofWindows, hoofContactWeight, sampleHoofSupport, SOLE_CORRECTION_LIMIT } =
     await import('./authored-contact');
   const a = await assets(),
-    windows = measureHoofWindows(a.horse, continuousGallop(a.run));
+    windows = measureHoofWindows(a.horse, raceGallop(a.run));
   for (const w of windows) {
     expect(w.transitionWidth).toBeCloseTo(w.halfWidth * 0.75, 12);
     for (const edge of [
@@ -372,7 +372,8 @@ it('keeps recovery weights C1 at the declared buffers and bounds phase-only ride
       ...w.solveCompensationZ,
     ])
       expect(Number.isFinite(v)).toBe(true);
-    for (const v of w.soleCorrections) expect(Math.abs(v)).toBeLessThanOrEqual(0.050000001);
+    for (const v of w.soleCorrections)
+      expect(Math.abs(v)).toBeLessThanOrEqual(SOLE_CORRECTION_LIMIT + 1e-6);
     for (const v of [...w.solveCompensationX, ...w.solveCompensationZ])
       expect(Math.abs(v)).toBeLessThanOrEqual(0.050000001);
   }
@@ -392,7 +393,7 @@ it('keeps recovery weights C1 at the declared buffers and bounds phase-only ride
 it('keeps actual hoof positions and normalized limb rotations continuous at subframe buffer and loop boundaries', async () => {
   const { measureHoofWindows } = await import('./authored-contact');
   const a = await assets(),
-    windows = measureHoofWindows(a.horse, continuousGallop(a.run)),
+    windows = measureHoofWindows(a.horse, raceGallop(a.run)),
     horse = createRiggedHorse(a, '#774532', '#aa2244', 0);
   const sample = (time: number, name: string) => {
     const travel = time * 15;
@@ -433,4 +434,118 @@ it('keeps actual hoof positions and normalized limb rotations continuous at subf
   expect(maxPosition).toBeLessThan(0.01);
   expect(maxRotation).toBeLessThan(0.05);
   horse.dispose!();
+});
+
+describe('standing pose, fitted tack and attached rider', () => {
+  it('grounds every standing hoof (the CC0 Idle sank them up to 13 mm) without history', async () => {
+    const { HOOF_NAMES, sampledHoofSole } = await import('./authored-contact');
+    const a = await assets(),
+      horse = createRiggedHorse(a, '#774532', '#aa2244', 3);
+    const soles = () =>
+      HOOF_NAMES.map((name) => sampledHoofSole(horse.root.children[0], name) * 1.5 * 1000);
+    // The still pose (reduced motion, stale data) sits on a calibrated phase.
+    horse.animate(0, false);
+    horse.root.updateMatrixWorld(true);
+    const stillLowest = Math.min(...soles());
+    // The animated standing clip at arbitrary phases over two full cycles.
+    let lowest = Infinity;
+    for (let i = 1; i <= 160; i++) {
+      horse.animate(0, false, { idle: (i / 80) * a.idle.duration * 1.013 });
+      horse.root.updateMatrixWorld(true);
+      lowest = Math.min(lowest, ...soles());
+    }
+    console.log('lowest standing sole (mm): still', stillLowest, 'animated', lowest);
+    expect(stillLowest).toBeGreaterThan(-0.2);
+    expect(lowest).toBeGreaterThan(-1.5);
+    // A raised (pawing) hoof keeps its authored clearance.
+    horse.animate(0, false, { idle: 0 });
+    horse.root.updateMatrixWorld(true);
+    const still = soles();
+    for (let k = 0; k < 3; k++) {
+      horse.animate(5, false, { idle: 0 });
+      horse.root.updateMatrixWorld(true);
+      soles().forEach((v, i) => expect(v).toBeCloseTo(still[i], 6));
+    }
+    horse.dispose!();
+  });
+
+  it('skins the saddle cloth, saddle and girth to each runner’s own trunk bones', async () => {
+    const a = await assets(),
+      one = createRiggedHorse(a, '#774532', '#aa2244', 0),
+      two = createRiggedHorse(a, '#292323', '#3188ee', 1);
+    const tack = (horse: ReturnType<typeof createRiggedHorse>) => {
+      const result: THREE.SkinnedMesh[] = [];
+      horse.root.traverse((o) => {
+        if (
+          o instanceof THREE.SkinnedMesh &&
+          o.skeleton.getBoneByName('spine_2') &&
+          !/Horse/.test(o.name)
+        )
+          result.push(o);
+      });
+      return result;
+    };
+    const mine = tack(one),
+      theirs = tack(two);
+    expect(mine.length).toBeGreaterThanOrEqual(3);
+    mine.forEach((piece, i) => {
+      expect(piece.skeleton).not.toBe(theirs[i].skeleton);
+      expect(piece.geometry).toBe(theirs[i].geometry);
+      // Strongest joints are back/ribcage/shoulder bones, never lower legs.
+      const index = piece.geometry.getAttribute('skinIndex'),
+        weight = piece.geometry.getAttribute('skinWeight');
+      for (let v = 0; v < index.count; v++) {
+        let best = 0;
+        for (let k = 1; k < 4; k++)
+          if (weight.getComponent(v, k) > weight.getComponent(v, best)) best = k;
+        const bone = piece.skeleton.bones[index.getComponent(v, best)].name;
+        expect(bone).toMatch(/hips|spine|ribcage|scapula|humerus|pelvis/);
+      }
+    });
+    one.dispose!();
+    two.dispose!();
+  });
+
+  it('keeps the rider seated above the saddle through the whole stride', async () => {
+    const a = await assets(),
+      horse = createRiggedHorse(a, '#774532', '#aa2244', 2);
+    const model = horse.root.children[0];
+    let lowest = Infinity,
+      highest = -Infinity;
+    for (let i = 0; i <= 48; i++) {
+      const time = (i / 48) * a.run.duration;
+      horse.root.position.x = time * 15;
+      horse.animate((time * 15 * 0.74) / (1.04 / 0.22), true, { drive: i % 2 });
+      horse.root.updateMatrixWorld(true);
+      const pelvis = model.worldToLocal(
+        horse.root.getObjectByName('pelvis')!.getWorldPosition(new THREE.Vector3())
+      );
+      const back = model.worldToLocal(
+        model.getObjectByName('spine_2')!.getWorldPosition(new THREE.Vector3())
+      );
+      lowest = Math.min(lowest, pelvis.y - back.y);
+      highest = Math.max(highest, pelvis.y - back.y);
+    }
+    // Above the saddle (no sinking into the horse) and never floating away from it.
+    expect(lowest).toBeGreaterThan(0.3);
+    expect(highest).toBeLessThan(0.65);
+    horse.dispose!();
+  });
+
+  it('bounds each runner to a small, fixed number of draws', async () => {
+    const a = await assets(),
+      horse = createRiggedHorse(a, '#774532', '#aa2244', 0, { quality: 'balanced' });
+    let meshes = 0,
+      casters = 0;
+    horse.root.traverse((o) => {
+      if (o instanceof THREE.Mesh) {
+        meshes++;
+        if (o.castShadow) casters++;
+      }
+    });
+    expect(meshes).toBeLessThanOrEqual(20);
+    // Below High only the horse body and a few small rigid parts cast.
+    expect(casters).toBeLessThanOrEqual(2);
+    horse.dispose!();
+  });
 });

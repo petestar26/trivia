@@ -293,6 +293,53 @@
   align-items: center;
   gap: 5px;
 }
+.derby-race-footer {
+  flex-wrap: wrap;
+  align-items: center;
+}
+/* Broadcast camera choice, matching Dog Racing's controls. */
+.derby-cameras {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 20px;
+  border-bottom: 1px solid #304637;
+}
+.derby-cameras button {
+  padding: 6px 13px;
+  min-height: 36px;
+  border: 1px solid #455349;
+  border-radius: 7px;
+  background: transparent;
+  color: #cad5cc;
+  font-size: 11px;
+  font-weight: 600;
+}
+.derby-cameras button[aria-pressed='true'] {
+  background: #d6e2d4;
+  color: #1c2b20;
+  font-weight: 700;
+  border-color: #d6e2d4;
+}
+.derby-cameras button:focus-visible,
+.derby-quality select:focus-visible {
+  outline: 2px solid #f3d27a;
+  outline-offset: 2px;
+}
+.derby-quality select {
+  margin-left: 4px;
+  min-height: 28px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  border: 1px solid rgba(214, 226, 211, 0.35);
+  background: #13201a;
+  color: #e6efe2;
+  font: inherit;
+}
+.derby-display.game-arena--expanded .derby-cameras {
+  flex-shrink: 0;
+  padding: 6px 12px;
+}
 .derby-progress {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -987,5 +1034,24 @@
   .derby-display:not(.game-arena--expanded) .derby-countdown span {
     line-height: 1.2;
     font-size: 8px;
+  }
+}
+
+@media (max-width: 480px) {
+  .derby-cameras {
+    padding: 7px 10px;
+  }
+  .derby-cameras button {
+    padding: 6px 10px;
+    min-height: 34px;
+  }
+}
+@media (max-height: 480px) and (orientation: landscape) {
+  .derby-cameras {
+    padding: 4px 10px;
+  }
+  .derby-cameras button {
+    min-height: 30px;
+    padding: 4px 10px;
   }
 }
