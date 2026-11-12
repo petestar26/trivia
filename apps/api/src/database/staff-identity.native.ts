@@ -17,6 +17,7 @@ import { buildServer } from '../server.js';
  * Staff database identity on real PostgreSQL. Disposable local database only:
  * every role, database and account here is synthetic and removed afterwards.
  */
+const originalDatabaseUrl = process.env.DATABASE_URL;
 const base = new URL(process.env.DATABASE_URL ?? 'http://invalid');
 if (
   !['127.0.0.1', 'localhost'].includes(base.hostname) ||
@@ -101,18 +102,15 @@ beforeAll(async () => {
   await exec('REVOKE CREATE ON SCHEMA public FROM PUBLIC');
   await owner.$executeRaw`SELECT public.ledger_apply_runtime_grants(${roles.runtime})`;
 
-  // Staff: only what provisioning needs. UPDATE on users.status is granted on
-  // purpose so the owner-only users_privilege_guard, not a missing grant, is
-  // what refuses status changes below.
+  // Staff: exactly the grant set documented in staff-database-identity.md.
   await login('staff', 'NOCREATEROLE NOINHERIT');
   for (const sql of [
     `GRANT USAGE ON SCHEMA public TO "${roles.staff}"`,
     `GRANT SELECT, INSERT ON public.users, public.user_auth_identities, public.agents, public.agent_applications, public.agent_account_setups, public.audit_logs TO "${roles.staff}"`,
     `GRANT SELECT ON public.countries, public.sessions TO "${roles.staff}"`,
-    `GRANT UPDATE ("updatedAt", "status") ON public.users TO "${roles.staff}"`,
+    `GRANT UPDATE ("updatedAt") ON public.users TO "${roles.staff}"`,
     `GRANT UPDATE ("updatedAt") ON public.countries TO "${roles.staff}"`,
     `GRANT UPDATE ON public.agent_account_setups TO "${roles.staff}"`,
-    `GRANT DELETE ON public.sessions TO "${roles.staff}"`,
   ])
     await exec(sql);
 
@@ -282,13 +280,24 @@ describe('isolation across consumers', () => {
     await owner.session.create({
       data: { userId: member.id, refreshToken: randomUUID(), expiresAt: new Date(Date.now() + 60_000) },
     });
+    // Isolated status changes go only through the operator-installed boundary;
+    // without it they fail closed (503) and the direct update stays refused.
     await expect(
       setMemberAccountStatus(staffDb, admin.id, member.id, {
         status: 'SUSPENDED',
         reason: 'synthetic review',
         expectedUpdatedAt: member.updatedAt.toISOString(),
       })
-    ).rejects.toThrow(/only the database owner/);
+    ).rejects.toMatchObject({ statusCode: 503 });
+    // Even with UPDATE on users.status granted, the guard itself refuses.
+    await exec(`GRANT UPDATE ("status") ON public.users TO "${roles.staff}"`);
+    try {
+      await expect(
+        staffDb.$transaction((tx) => tx.user.update({ where: { id: member.id }, data: { status: 'SUSPENDED' } }))
+      ).rejects.toThrow(/only the database owner/);
+    } finally {
+      await exec(`REVOKE UPDATE ("status") ON public.users FROM "${roles.staff}"`);
+    }
     expect(await owner.user.findUniqueOrThrow({ where: { id: member.id } })).toMatchObject({ status: 'ACTIVE' });
     expect(await owner.session.count({ where: { userId: member.id } })).toBe(1);
     expect(
@@ -309,10 +318,13 @@ describe('isolation across consumers', () => {
 });
 
 describe('HTTP fail-closed behaviour, recovery and rollback', () => {
-  const STAFF_KEYS = ['STAFF_DATABASE_ISOLATION', 'STAFF_DATABASE_URL', 'STAFF_DATABASE_ROLE'] as const;
+  // DATABASE_URL is read here only by the staff resolver: the default client and
+  // the parsed API config were created at import time and keep the real URL.
+  const STAFF_KEYS = ['STAFF_DATABASE_ISOLATION', 'STAFF_DATABASE_URL', 'STAFF_DATABASE_ROLE', 'DATABASE_URL'] as const;
   async function serverWith(env: Partial<Record<(typeof STAFF_KEYS)[number], string>>) {
     const saved = Object.fromEntries(STAFF_KEYS.map((k) => [k, process.env[k]]));
     for (const key of STAFF_KEYS) {
+      if (key === 'DATABASE_URL' && env[key] === undefined) continue;
       if (env[key] === undefined) delete process.env[key];
       else process.env[key] = env[key];
     }
@@ -361,6 +373,25 @@ describe('HTTP fail-closed behaviour, recovery and rollback', () => {
       ).toBe(503);
       expect((await memberLogin(server)).statusCode).toBe(200);
     }
+  });
+
+  it('starts with a malformed login in either configured URL: staff 503, members and health unaffected', async () => {
+    // Raw strings: a URL setter would re-encode. %E0%A4%A is a truncated UTF-8 escape.
+    const host = `${base.hostname}:${base.port || '5432'}${base.pathname}`;
+    const malformedStaff = `postgresql://sid%E0%A4%A:${passwords.staff}@${host}`;
+    const malformedMain = `postgresql://owner%ZZ:unused@${host}`;
+    for (const env of [
+      { STAFF_DATABASE_ISOLATION: 'enforce', STAFF_DATABASE_URL: malformedStaff, STAFF_DATABASE_ROLE: roles.staff },
+      { STAFF_DATABASE_ISOLATION: 'enforce', STAFF_DATABASE_URL: urlFor('staff'), STAFF_DATABASE_ROLE: roles.staff, DATABASE_URL: malformedMain },
+    ]) {
+      const server = await serverWith(env);
+      expect((await server.inject({ url: '/health' })).statusCode).toBe(200);
+      expect((await memberLogin(server)).statusCode).toBe(200);
+      const staff = await createAgent(server, `badurl${Math.random().toString(36).slice(2, 6)}`);
+      expect(staff.statusCode).toBe(503);
+      expect(staff.body).not.toMatch(/sid|owner|%E0|%ZZ|INVALID_URL/);
+    }
+    expect(process.env.DATABASE_URL).toBe(originalDatabaseUrl);
   });
 
   it('rehearses activation, identity drift, outage, repair and rollback to dormant', async () => {

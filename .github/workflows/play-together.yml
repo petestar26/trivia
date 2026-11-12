@@ -15,6 +15,7 @@ on:
       - 'apps/api/src/auth/**'
       - 'apps/api/src/database/**'
       - 'apps/api/vitest.staff-native.config.ts'
+      - 'docs/deployment/staff-member-status-boundary.sql'
       - 'apps/api/src/providers/softaggregator/**'
       - 'apps/api/src/server.ts'
       - 'apps/api/src/routes/index.ts'

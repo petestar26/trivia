@@ -1,15 +1,23 @@
 import { z } from 'zod';
 import { ApiError } from '../middleware/api-error.js';
 import { assertPlatformAdminWith } from '../agents/agent-service.js';
-import type { TransactionalDatabase } from '../database/identity.js';
+import { DatabaseIdentityError, type TransactionalDatabase } from '../database/identity.js';
 import { getSocketServer } from '../realtime/broadcast.js';
+
+type StatusChange = { status: 'ACTIVE' | 'SUSPENDED'; reason: string; expectedUpdatedAt: string };
+type StatusResult = { userId: string; status: StatusChange['status']; updatedAt: string };
 
 /**
  * Suspend or reactivate a plain member. A restricted staff operation: the
  * caller supplies the staff database explicitly and this module imports no
- * client. The database's owner-only users_privilege_guard still applies, so a
- * non-owner staff identity cannot change status until an operator provides a
- * narrow, reviewed path for it (see docs/deployment/staff-database-identity.md).
+ * client.
+ *
+ * Dormant (legacy credential client): the direct update below, unchanged.
+ * Isolated staff identity: the owner-defined boundary
+ * public.staff_set_member_status (docs/deployment/staff-member-status-boundary.sql).
+ * users_privilege_guard still refuses a direct status change by any
+ * non-owner identity; the staff role gets EXECUTE on the boundary only, never
+ * ownership or UPDATE on users. A missing boundary or grant fails closed (503).
  */
 export async function setMemberAccountStatus(
   db: TransactionalDatabase,
@@ -32,8 +40,75 @@ export async function setMemberAccountStatus(
     );
   if (actorId === userId) throw ApiError.forbidden('You cannot change your own account status.');
   await db.$transaction((tx) => assertPlatformAdminWith(tx, actorId));
-  const { status, reason, expectedUpdatedAt } = parsed.data;
-  const result = await db.$transaction(async (tx) => {
+  const change = parsed.data;
+  const result = usesStatusBoundary(db)
+    ? await changeThroughBoundary(db, actorId, userId, change)
+    : await changeDirectly(db, actorId, userId, change);
+  if (change.status === 'SUSPENDED') {
+    try {
+      getSocketServer()?.in(`user:${userId}`).disconnectSockets(true);
+    } catch {
+      /* Current status is checked on private access. */
+    }
+  }
+  return result;
+}
+
+/** Only an isolated (guarded) staff identity uses the boundary. */
+function usesStatusBoundary(db: TransactionalDatabase): boolean {
+  return (db as { mode?: unknown }).mode === 'isolated';
+}
+
+const unavailable = () =>
+  ApiError.serviceUnavailable('Member status changes are temporarily unavailable');
+
+const outcomes: Record<string, () => ApiError> = {
+  INVALID: () =>
+    ApiError.badRequest(
+      'Choose an account status and provide a reason and the displayed account version.'
+    ),
+  SELF: () => ApiError.forbidden('You cannot change your own account status.'),
+  ACTOR_FORBIDDEN: () => ApiError.forbidden('Admin privileges required.'),
+  NOT_FOUND: () => ApiError.notFound('Account not found.'),
+  NOT_MANAGEABLE: () =>
+    ApiError.forbidden('Only active or suspended member accounts can be managed here.'),
+  CONFLICT: () =>
+    ApiError.conflict('This account changed. Refresh its details before continuing.'),
+};
+
+async function changeThroughBoundary(
+  db: TransactionalDatabase,
+  actorId: string,
+  userId: string,
+  { status, reason, expectedUpdatedAt }: StatusChange
+): Promise<StatusResult> {
+  let row: { outcome: string; updated_at: string | null } | undefined;
+  try {
+    [row] = await db.$transaction(
+      (tx) => tx.$queryRaw<{ outcome: string; updated_at: string | null }[]>`
+        SELECT outcome, updated_at FROM public.staff_set_member_status(
+          ${actorId}, ${userId}, ${status}, ${expectedUpdatedAt}, ${reason})`
+    );
+  } catch (error) {
+    if (error instanceof DatabaseIdentityError) throw error;
+    // 42883: boundary not installed; 42501: EXECUTE not granted. Fail closed.
+    const code = (error as { meta?: { code?: unknown } }).meta?.code;
+    if (code === '42883' || code === '42501') throw unavailable();
+    throw error;
+  }
+  if (row?.outcome === 'OK' && row.updated_at) return { userId, status, updatedAt: row.updated_at };
+  const refusal = row && outcomes[row.outcome];
+  if (refusal) throw refusal();
+  throw ApiError.internal('Member status change could not be confirmed.');
+}
+
+async function changeDirectly(
+  db: TransactionalDatabase,
+  actorId: string,
+  userId: string,
+  { status, reason, expectedUpdatedAt }: StatusChange
+): Promise<StatusResult> {
+  return db.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM users WHERE id=${actorId} FOR SHARE`;
     const actor = await tx.user.findUnique({
       where: { id: actorId },
@@ -68,12 +143,4 @@ export async function setMemberAccountStatus(
     });
     return { userId, status, updatedAt: updatedAt.toISOString() };
   });
-  if (status === 'SUSPENDED') {
-    try {
-      getSocketServer()?.in(`user:${userId}`).disconnectSockets(true);
-    } catch {
-      /* Current status is checked on private access. */
-    }
-  }
-  return result;
 }

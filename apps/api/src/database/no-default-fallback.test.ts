@@ -289,3 +289,54 @@ describe('restricted staff operations never fall back', () => {
     expect(credentialClient.$transaction).not.toHaveBeenCalled();
   });
 });
+
+describe('member status under an isolated staff identity uses only the boundary', () => {
+  const admin = '33333333-3333-4333-8333-333333333333';
+  const input = { status: 'SUSPENDED', reason: 'synthetic review', expectedUpdatedAt: new Date(0).toISOString() };
+  function isolated(result: { rows?: unknown[]; error?: unknown }) {
+    const tx = {
+      user: { findUnique: vi.fn(async () => ({ id: admin, role: 'ADMIN', status: 'ACTIVE' })), update: vi.fn() },
+      session: { deleteMany: vi.fn() },
+      $queryRaw: vi.fn(async () => {
+        if (result.error) throw result.error;
+        return result.rows;
+      }),
+    };
+    return { mode: 'isolated', tx, $transaction: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)) };
+  }
+
+  it('returns the boundary result and never updates users directly', async () => {
+    const db = isolated({ rows: [{ outcome: 'OK', updated_at: '2026-11-12T00:00:00.001Z' }] });
+    await expect(setMemberAccountStatus(db as never, admin, ids.member, input)).resolves.toEqual({
+      userId: ids.member,
+      status: 'SUSPENDED',
+      updatedAt: '2026-11-12T00:00:00.001Z',
+    });
+    expect(db.tx.user.update).not.toHaveBeenCalled();
+    expect(db.tx.session.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['INVALID', 400],
+    ['SELF', 403],
+    ['ACTOR_FORBIDDEN', 403],
+    ['NOT_FOUND', 404],
+    ['NOT_MANAGEABLE', 403],
+    ['CONFLICT', 409],
+    ['SOMETHING_NEW', 500],
+  ])('maps boundary outcome %s to HTTP %i', async (outcome, statusCode) => {
+    const db = isolated({ rows: [{ outcome, updated_at: null }] });
+    await expect(setMemberAccountStatus(db as never, admin, ids.member, input)).rejects.toMatchObject({ statusCode });
+  });
+
+  it.each(['42883', '42501'])('fails closed with 503 when the boundary is missing or not granted (%s)', async (code) => {
+    const error = Object.assign(new Error('synthetic raw query failure'), { code: 'P2010', meta: { code } });
+    const db = isolated({ error });
+    await expect(setMemberAccountStatus(db as never, admin, ids.member, input)).rejects.toMatchObject({ statusCode: 503 });
+  });
+
+  it('passes other database errors through unchanged', async () => {
+    const error = Object.assign(new Error('synthetic'), { code: 'P2010', meta: { code: '40001' } });
+    await expect(setMemberAccountStatus(isolated({ error }) as never, admin, ids.member, input)).rejects.toBe(error);
+  });
+});
