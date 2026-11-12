@@ -22,7 +22,7 @@ beforeEach(async () => {
   db.$transaction.mockImplementation(fn => fn(db));
   server = Fastify(); await server.register(cookie); await server.register(rateLimit);
   server.setErrorHandler((err: FastifyError, _req: FastifyRequest, reply: FastifyReply) => reply.code(err instanceof ApiError ? err.statusCode : err.statusCode ?? 500).send({ message: err.message }));
-  await server.register(authRoutes, { prefix: '/auth' });
+  await server.register(authRoutes, { prefix: '/auth', db: db as never, credentialDb: db as never });
 });
 afterEach(async () => { await server.close(); });
 const send = (route: string, payload: object) => server.inject({ method: 'POST', url: '/auth/' + route, payload });

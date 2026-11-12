@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { credentialDb } from '../agents/credential-database.js';
 import { afterAll, expect, it } from 'vitest';
 import { prisma } from '@socialplay/database';
 import { approveExistingMemberAgent } from '../agents/admin-account-service.js';
@@ -58,7 +59,7 @@ async function fixture() {
       agentPaymentEnabled: true,
     },
   });
-  const approved = await approveExistingMemberAgent(admin.id, {
+  const approved = await approveExistingMemberAgent(credentialDb, admin.id, {
     email: staff.email!,
     displayName: 'Fixture agent',
     countryId: country.id,

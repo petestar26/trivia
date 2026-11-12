@@ -9,7 +9,22 @@ import {
   reissueAgentPassword,
   approveExistingMemberAgent,
 } from './admin-account-service.js';
-export async function adminAgentAccountRoutes(server: FastifyInstance) {
+import type { StaffDatabase } from '../database/staff-database.js';
+import type { CredentialDatabase } from '../auth/change-password.js';
+
+export type AdminAgentAccountRouteOptions = {
+  /** Restricted staff provisioning. Required: there is no default. */
+  staffDb: StaffDatabase;
+  /** Agent self-activation (member-facing credential write). */
+  credentialDb: CredentialDatabase;
+};
+
+export async function adminAgentAccountRoutes(
+  server: FastifyInstance,
+  options: AdminAgentAccountRouteOptions
+) {
+  const { staffDb, credentialDb } = options ?? ({} as Partial<AdminAgentAccountRouteOptions>);
+  if (!staffDb || !credentialDb) throw new Error('STAFF_DATABASE_REQUIRED');
   server.addHook('onSend', async (_request, reply, payload) => {
     reply.header('Cache-Control', 'private, no-store');
     return payload;
@@ -18,7 +33,7 @@ export async function adminAgentAccountRoutes(server: FastifyInstance) {
     preHandler: [authenticate, requirePermission('agent:create')],
     bodyLimit: 8192,
     config: { rateLimit: { hook: 'preHandler', max: 20, timeWindow: '1 minute', keyGenerator: request => `agent-existing:${request.user!.sub}` } },
-  }, async (request, reply) => reply.status(201).send({ success: true, data: await approveExistingMemberAgent(request.user!.sub, request.body) }));
+  }, async (request, reply) => reply.status(201).send({ success: true, data: await approveExistingMemberAgent(staffDb, request.user!.sub, request.body) }));
   server.post(
     '/admin/accounts',
     {
@@ -36,12 +51,12 @@ export async function adminAgentAccountRoutes(server: FastifyInstance) {
     async (request, reply) =>
       reply
         .status(201)
-        .send({ success: true, data: await createAdminAgent(request.user!.sub, request.body) })
+        .send({ success: true, data: await createAdminAgent(staffDb, request.user!.sub, request.body) })
   );
   server.get(
     '/admin/accounts/pending',
     { preHandler: [authenticate, requirePermission('agent:create')] },
-    async (request) => ({ success: true, data: await listPendingAgentAccounts(request.user!.sub) })
+    async (request) => ({ success: true, data: await listPendingAgentAccounts(staffDb, request.user!.sub) })
   );
   server.post<{ Params: { userId: string } }>(
     '/admin/accounts/:userId/reissue',
@@ -59,7 +74,7 @@ export async function adminAgentAccountRoutes(server: FastifyInstance) {
     },
     async (request) => ({
       success: true,
-      data: await reissueAgentPassword(request.user!.sub, request.params.userId, request.body),
+      data: await reissueAgentPassword(staffDb, request.user!.sub, request.params.userId, request.body),
     })
   );
   server.post(
@@ -74,6 +89,6 @@ export async function adminAgentAccountRoutes(server: FastifyInstance) {
         },
       },
     },
-    async (request) => ({ success: true, data: await activateAdminAgent(request.body) })
+    async (request) => ({ success: true, data: await activateAdminAgent(credentialDb, request.body) })
   );
 }

@@ -4,6 +4,7 @@ import { ErrorCode } from '@socialplay/shared';
 import { quotesInviteTokenRoute, redactUrl } from './log-redaction.js';
 
 import { ApiError } from './api-error.js';
+import { DatabaseIdentityError } from '../database/identity.js';
 export { ApiError } from './api-error.js';
 export type { AppError } from './api-error.js';
 
@@ -52,6 +53,24 @@ export function errorHandler(
   }
 
   const requestId = request.headers['x-request-id'] as string || crypto.randomUUID();
+
+  // A guarded client refused its database identity (or could not verify it).
+  // Fail closed with 503. Log only the reason code: the cause of a connection
+  // failure can name hosts or roles.
+  if (error instanceof DatabaseIdentityError) {
+    request.log.error(
+      { code: 'DATABASE_IDENTITY_REFUSED', purpose: error.purpose, reason: error.reason, requestId },
+      'Database identity refused'
+    );
+    return reply.status(503).send({
+      success: false,
+      error: {
+        code: ErrorCode.SERVICE_UNAVAILABLE,
+        message: `${error.purpose} operations are temporarily unavailable`,
+      },
+      meta: { requestId },
+    });
+  }
 
   request.log.error({ err: errorSafeToLog(error), requestId }, 'Request error');
 

@@ -18,9 +18,10 @@ vi.mock('@socialplay/config', () => ({ config: {
 } }));
 vi.mock('../middleware', async () => {
   const { ApiError } = await import('../middleware/api-error.js');
-  return { ApiError, authenticate: async (request: any) => {
+  const authenticate = async (request: any) => {
     try { request.user = await request.jwtVerify(); } catch { throw ApiError.unauthorized('Expired'); }
-  } };
+  };
+  return { ApiError, authenticate, createAuthenticate: () => authenticate };
 });
 vi.mock('../rewards/activity-service', () => ({ safeRecordActivity: vi.fn() }));
 vi.mock('../referrals/referral-service.js', () => ({ canonicalizeReferralCode: vi.fn(), isValidReferralCode: vi.fn(), generateUniqueReferralCode: vi.fn() }));
@@ -39,7 +40,7 @@ beforeEach(async () => {
   server.setErrorHandler((error, _request, reply) => {
     reply.code(error instanceof ApiError ? error.statusCode : error.statusCode ?? 500).send({ error: { message: error.message } });
   });
-  await server.register(authRoutes, { prefix: '/auth' });
+  await server.register(authRoutes, { prefix: '/auth', db: db as never, credentialDb: db as never });
   token = generateTokens('alice', 'fixture@example.test', 'fixture', ['USER'], 0).refreshToken;
   db.session.findUnique.mockResolvedValue({ id: 'session', userId: 'alice', expiresAt: new Date(Date.now() + 60000),
     user: { id: 'alice', email: 'fixture@example.test', username: 'fixture', role: 'USER', status: 'ACTIVE', tokenVersion: 0 } });

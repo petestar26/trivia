@@ -2,7 +2,7 @@ import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import { config } from '@socialplay/config';
 import { passwordSchema } from '@socialplay/shared';
-import { credentialDb as db } from '../agents/credential-database.js';
+import type { TransactionalDatabase } from '../database/identity.js';
 import { hashPassword } from '../utils/auth.js';
 import { ApiError } from '../middleware/api-error.js';
 import { getSocketServer } from '../realtime/broadcast.js';
@@ -45,7 +45,8 @@ export function readResetToken(token: string): Claims {
 }
 
 /** Only the explicit owner CLI calls this. No public reset-link issuance route. */
-export async function issueOwnerReset(userId: string, email: string) {
+export async function issueOwnerReset(db: TransactionalDatabase, userId: string, email: string) {
+  if (!db) throw new Error('CREDENTIAL_DATABASE_REQUIRED');
   try {
     return await db.$transaction(async (tx) => {
       const [owner] = await tx.$queryRaw<{ allowed: boolean }[]>`SELECT EXISTS (
@@ -94,7 +95,8 @@ export async function issueOwnerReset(userId: string, email: string) {
   }
 }
 
-export async function completePasswordReset(input: unknown) {
+export async function completePasswordReset(db: TransactionalDatabase, input: unknown) {
+  if (!db) throw new Error('CREDENTIAL_DATABASE_REQUIRED');
   const parsed = z
     .object({
       token: z.string().max(2048),

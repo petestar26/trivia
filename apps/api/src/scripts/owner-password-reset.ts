@@ -6,7 +6,7 @@ const [userId, email] = process.argv.slice(2);
 try {
   if (!userId || !email || process.argv.length !== 4)
     throw new Error('Exact account ID and email required');
-  console.log(JSON.stringify(await issueOwnerReset(userId, email)));
+  console.log(JSON.stringify(await issueOwnerReset(credentialDb, userId, email)));
 } catch {
   console.error('OWNER_PASSWORD_RESET_REFUSED');
   process.exitCode = 1;

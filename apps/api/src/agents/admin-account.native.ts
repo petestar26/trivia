@@ -1,12 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import { beforeAll, afterAll, expect, it, vi } from 'vitest';
+import { beforeAll, afterAll, expect, it } from 'vitest';
 import { prisma as owner, PrismaClient } from '@socialplay/database';
-const state = vi.hoisted(() => ({ db: null as any }));
-vi.mock('./credential-database.js', () => ({
-  get credentialDb() {
-    return state.db;
-  },
-}));
+// The restricted test role is passed explicitly: the service imports no client.
+const state = { db: null as any };
 import {
   createAdminAgent,
   activateAdminAgent,
@@ -75,7 +71,7 @@ function input(tag: string) {
 }
 it('creates separate agents without sessions or balances, safely rejects duplicate and elevated account requests', async () => {
   const args = input('create');
-  const result = await createAdminAgent(adminId, args);
+  const result = await createAdminAgent(state.db, adminId, args);
   expect(JSON.stringify(result)).not.toContain(temp);
   const user = await owner.user.findUniqueOrThrow({
     where: { id: result.userId },
@@ -86,32 +82,32 @@ it('creates separate agents without sessions or balances, safely rejects duplica
   expect(await owner.session.count({ where: { userId: user.id } })).toBe(0);
   expect(await owner.wallet.count({ where: { userId: user.id } })).toBe(0);
   expect(await owner.agentPaymentAccount.count({ where: { agentId: result.agentId } })).toBe(0);
-  await expect(createAdminAgent(adminId, args)).rejects.toMatchObject({ statusCode: 409 });
+  await expect(createAdminAgent(state.db, adminId, args)).rejects.toMatchObject({ statusCode: 409 });
   await expect(
-    createAdminAgent(adminId, { ...input('role'), role: 'ADMIN' })
+    createAdminAgent(state.db, adminId, { ...input('role'), role: 'ADMIN' })
   ).rejects.toMatchObject({ statusCode: 400 });
-  await expect(createAdminAgent(user.id, input('unauthorized'))).rejects.toMatchObject({
+  await expect(createAdminAgent(state.db, user.id, input('unauthorized'))).rejects.toMatchObject({
     statusCode: 403,
   });
   expect(await owner.user.count({ where: { username: args.username } })).toBe(1);
-  const safe = await listPendingAgentAccounts(adminId);
+  const safe = await listPendingAgentAccounts(state.db, adminId);
   expect(JSON.stringify(safe)).not.toContain('credentialHash');
 });
 it('allows exactly one activation through the restricted role and preserves normal status protection', async () => {
   const args = input('race');
-  const result = await createAdminAgent(adminId, args);
+  const result = await createAdminAgent(state.db, adminId, args);
   await expect(
     state.db.user.update({ where: { id: result.userId }, data: { status: 'ACTIVE' } })
   ).rejects.toThrow();
   await expect(
-    activateAdminAgent({ email: args.email, temporaryPassword: 'incorrect', newPassword: fresh })
+    activateAdminAgent(state.db, { email: args.email, temporaryPassword: 'incorrect', newPassword: fresh })
   ).rejects.toMatchObject({ statusCode: 401 });
   await expect(
-    activateAdminAgent({ email: args.email, temporaryPassword: temp, newPassword: temp })
+    activateAdminAgent(state.db, { email: args.email, temporaryPassword: temp, newPassword: temp })
   ).rejects.toMatchObject({ statusCode: 400 });
   const results = await Promise.allSettled(
     [1, 2].map(() =>
-      activateAdminAgent({ email: args.email, temporaryPassword: temp, newPassword: fresh })
+      activateAdminAgent(state.db, { email: args.email, temporaryPassword: temp, newPassword: fresh })
     )
   );
   expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
@@ -128,25 +124,25 @@ it('allows exactly one activation through the restricted role and preserves norm
   expect(await verifyPassword(fresh, user.passwordHash!)).toBe(true);
   expect(await owner.session.count({ where: { userId: user.id } })).toBe(0);
   await expect(
-    reissueAgentPassword(adminId, user.id, { temporaryPassword: temp })
+    reissueAgentPassword(state.db, adminId, user.id, { temporaryPassword: temp })
   ).rejects.toMatchObject({ statusCode: 409 });
 });
 it('rejects expired credentials; reissue invalidates the original and permits activation once', async () => {
   const args = input('expired');
-  const result = await createAdminAgent(adminId, args);
+  const result = await createAdminAgent(state.db, adminId, args);
   await owner.agentAccountSetup.update({
     where: { userId: result.userId },
     data: { expiresAt: new Date(0) },
   });
   await expect(
-    activateAdminAgent({ email: args.email, temporaryPassword: temp, newPassword: fresh })
+    activateAdminAgent(state.db, { email: args.email, temporaryPassword: temp, newPassword: fresh })
   ).rejects.toMatchObject({ statusCode: 401 });
   const replacement = 'ReplacementFixture!44';
-  await reissueAgentPassword(adminId, result.userId, { temporaryPassword: replacement });
+  await reissueAgentPassword(state.db, adminId, result.userId, { temporaryPassword: replacement });
   await expect(
-    activateAdminAgent({ email: args.email, temporaryPassword: temp, newPassword: fresh })
+    activateAdminAgent(state.db, { email: args.email, temporaryPassword: temp, newPassword: fresh })
   ).rejects.toMatchObject({ statusCode: 401 });
-  await activateAdminAgent({
+  await activateAdminAgent(state.db, {
     email: args.email,
     temporaryPassword: replacement,
     newPassword: fresh,
@@ -154,24 +150,24 @@ it('rejects expired credentials; reissue invalidates the original and permits ac
 });
 it('fails closed on suspended admin, inactive country and multibyte passwords exceeding bcrypt capacity', async () => {
   await owner.user.update({ where: { id: adminId }, data: { status: 'SUSPENDED' } });
-  await expect(createAdminAgent(adminId, input('suspended'))).rejects.toMatchObject({
+  await expect(createAdminAgent(state.db, adminId, input('suspended'))).rejects.toMatchObject({
     statusCode: 403,
   });
   await owner.user.update({ where: { id: adminId }, data: { status: 'ACTIVE' } });
   await owner.country.update({ where: { id: countryId }, data: { isActive: false } });
-  await expect(createAdminAgent(adminId, input('inactive'))).rejects.toMatchObject({
+  await expect(createAdminAgent(state.db, adminId, input('inactive'))).rejects.toMatchObject({
     statusCode: 400,
   });
   await owner.country.update({ where: { id: countryId }, data: { isActive: true } });
   await expect(
-    createAdminAgent(adminId, { ...input('bytes'), temporaryPassword: 'Aa1!' + 'é'.repeat(35) })
+    createAdminAgent(state.db, adminId, { ...input('bytes'), temporaryPassword: 'Aa1!' + 'é'.repeat(35) })
   ).rejects.toMatchObject({ statusCode: 400 });
 });
 
 it.each(['UTC', 'America/Los_Angeles', 'Asia/Vientiane'])('enforces activation expiry through the runtime function in %s', async (zone) => {
   for (const expired of [true, false]) {
     const args = input(`tz_${randomUUID().slice(0,8)}`);
-    const result = await createAdminAgent(adminId, args);
+    const result = await createAdminAgent(state.db, adminId, args);
     const setup = await owner.agentAccountSetup.update({where:{userId:result.userId},data:{expiresAt:new Date(Date.now()+(expired ? -3600000 : 3600000))}});
     const rows = await state.db.$transaction(async (tx: any) => {
       await tx.$queryRaw`SELECT set_config('TimeZone',${zone},true)`;

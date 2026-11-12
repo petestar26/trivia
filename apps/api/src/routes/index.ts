@@ -47,8 +47,20 @@ import { providerDemoRoutes } from '../providers/softaggregator/routes.js';
 import { providerTestRoutes } from '../providers/softaggregator/test-routes.js';
 import { sportsRoutes } from '../providers/softaggregator/sports-routes.js';
 import { triviaPracticeRoutes } from '../games/trivia-practice/routes.js';
+import { prisma } from '@socialplay/database';
+import { credentialDb } from '../agents/credential-database.js';
+import { resolveStaffDatabase } from '../database/staff-database.js';
 
 export async function registerRoutes(server: FastifyInstance): Promise<void> {
+  // Composition root: the only place auth, session, referral and staff routes
+  // receive database clients. Members use the default runtime client; credential
+  // writes use the logger-free client; staff operations use the staff database,
+  // which stays dormant (the credential client) unless STAFF_DATABASE_ISOLATION
+  // is set, and then fails closed rather than falling back.
+  const staffDb = resolveStaffDatabase(process.env, { legacy: credentialDb });
+  server.addHook('onClose', async () => {
+    await staffDb.$disconnect();
+  });
   await server.register(providerDemoRoutes, { prefix: '/provider-demo' });
   await server.register(providerTestRoutes, { prefix: '/provider-test' });
   await server.register(sportsRoutes, { prefix: '/sportsbook' });
@@ -58,8 +70,8 @@ export async function registerRoutes(server: FastifyInstance): Promise<void> {
   await server.register(supportRoutes, { prefix: '/support' });
   await server.register(memberRewardRoutes, { prefix: '/member-rewards' });
   await server.register(memberProfileRoutes, { prefix: '/member-profile' });
-  await server.register(workspaceRoutes, { prefix: '/workspaces' });
-  await server.register(authRoutes, { prefix: '/auth' });
+  await server.register(workspaceRoutes, { prefix: '/workspaces', staffDb });
+  await server.register(authRoutes, { prefix: '/auth', db: prisma, credentialDb });
   await server.register(socialGroupRoutes, { prefix: '/groups' });
   await server.register(groupRoutes, { prefix: '/groups' });
   await server.register(groupPvpRoutes, { prefix: '/groups' });
@@ -88,7 +100,7 @@ export async function registerRoutes(server: FastifyInstance): Promise<void> {
   await server.register(gameRoutes, { prefix: '/games' });
   await server.register(challengeRoutes, { prefix: '/challenges' });
   await server.register(competitionRoutes, { prefix: '/competitions' });
-  await server.register(adminAgentAccountRoutes, { prefix: '/agents' });
+  await server.register(adminAgentAccountRoutes, { prefix: '/agents', staffDb, credentialDb });
   await server.register(agentRoutes, { prefix: '/agents' });
   await server.register(agentOrderRoutes, { prefix: '/agent-orders' });
   await server.register(paymentRoomRoutes, { prefix: '/payment-orders' });

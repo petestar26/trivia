@@ -8,6 +8,10 @@ export default defineConfig({
       'src/agents/payment-readiness.native.ts',
       'src/auth/password-reset.native.ts',
       'src/member-rewards/rewards.native.ts',
+      // Staff database identity guard and explicit-client isolation.
+      'src/database/identity.test.ts',
+      'src/database/no-default-fallback.test.ts',
+      'src/database/staff-identity.native.ts',
     ],
     fileParallelism: false,
     pool: 'forks',

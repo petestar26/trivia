@@ -1,11 +1,20 @@
 import { z } from 'zod';
 import { passwordSchema } from '@socialplay/shared';
-import { credentialDb } from '../agents/credential-database.js';
+import type { Prisma } from '@socialplay/database';
+import type { TransactionalDatabase } from '../database/identity.js';
 import { ApiError } from '../middleware/api-error.js';
 import { hashPassword, verifyPassword } from '../utils/auth.js';
 import { getSocketServer } from '../realtime/broadcast.js';
 
-export async function changeOwnPassword(userId: string, input: unknown) {
+/** Logger-free credential client; supplied by the caller, never imported here. */
+export type CredentialDatabase = TransactionalDatabase & Pick<Prisma.TransactionClient, 'user'>;
+
+export async function changeOwnPassword(
+  credentialDb: CredentialDatabase,
+  userId: string,
+  input: unknown
+) {
+  if (!credentialDb) throw new Error('CREDENTIAL_DATABASE_REQUIRED');
   const parsed = z
     .object({
       currentPassword: z.string().min(1).max(512),

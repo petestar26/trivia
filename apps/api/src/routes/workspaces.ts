@@ -3,8 +3,16 @@ import { prisma } from '@socialplay/database';
 import { authenticate, requireRole, ApiError } from '../middleware/index.js';
 import { z } from 'zod';
 import { adminAgents, adminAccountDetails, agentOverview, setMemberAccountStatus } from '../workspaces/service.js';
+import type { StaffDatabase } from '../database/staff-database.js';
 
-export async function workspaceRoutes(server: FastifyInstance) {
+export type WorkspaceRouteOptions = {
+  /** Restricted staff writes (member status). Required: there is no default. */
+  staffDb: StaffDatabase;
+};
+
+export async function workspaceRoutes(server: FastifyInstance, options: WorkspaceRouteOptions) {
+  const staffDb = options?.staffDb;
+  if (!staffDb) throw new Error('STAFF_DATABASE_REQUIRED');
   server.addHook('onSend', async (_req, reply, payload) => {
     reply.header('Cache-Control', 'private, no-store');
     return payload;
@@ -42,7 +50,7 @@ export async function workspaceRoutes(server: FastifyInstance) {
     config: { rateLimit: { hook: 'preHandler', max: 20, timeWindow: '1 minute', keyGenerator: request => `member-status:${request.user!.sub}` } },
   }, async request => {
     if (!z.string().uuid().safeParse(request.params.id).success) throw ApiError.badRequest('Invalid account reference.');
-    return { success: true, data: await setMemberAccountStatus(request.user!.sub, request.params.id, request.body) };
+    return { success: true, data: await setMemberAccountStatus(staffDb, request.user!.sub, request.params.id, request.body) };
   });
   server.get('/admin/overview', { preHandler: admin }, async () => {
     const [members, agents, groups, games, applications, accounts, countries, support] =

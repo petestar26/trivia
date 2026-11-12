@@ -10,6 +10,8 @@ const m = vi.hoisted(() => ({
   existing: vi.fn(),
 }));
 vi.mock('@socialplay/database', () => ({ prisma: { user: { findUnique: m.findUnique } } }));
+// Sentinel clients prove each route forwards the explicitly injected database.
+const clients = vi.hoisted(() => ({ staff: { mode: 'dormant', name: 'staff' }, credential: { name: 'credential' } }));
 vi.mock('./admin-account-service.js', () => ({
   createAdminAgent: m.create,
   listPendingAgentAccounts: m.pending,
@@ -41,7 +43,11 @@ beforeEach(async () => {
     reply.status(e.statusCode ?? 500).send({ message: e.message })
   );
   await app.register(rateLimit, { global: false });
-  await app.register(adminAgentAccountRoutes, { prefix: '/agents' });
+  await app.register(adminAgentAccountRoutes, {
+    prefix: '/agents',
+    staffDb: clients.staff as never,
+    credentialDb: clients.credential as never,
+  });
 });
 afterEach(() => app.close());
 it.each([
@@ -70,7 +76,7 @@ it('approves an existing member only as the authenticated administrator and keep
   const response = await app.inject({ method: 'POST', url: '/agents/admin/accounts/existing', headers: { authorization: 'fixture' }, payload: input });
   expect(response.statusCode).toBe(201);
   expect(response.headers['cache-control']).toBe('private, no-store');
-  expect(m.existing).toHaveBeenCalledWith('actor', input);
+  expect(m.existing).toHaveBeenCalledWith(clients.staff, 'actor', input);
 });
 it('keeps activation responses private and rate limits anonymous credential attempts', async () => {
   for (let i = 0; i < 5; i++) {
@@ -86,6 +92,8 @@ it('keeps activation responses private and rate limits anonymous credential atte
     (await app.inject({ method: 'POST', url: '/agents/activate-account', payload: {} })).statusCode
   ).toBe(429);
   expect(m.activate).toHaveBeenCalledTimes(5);
+  // Self-activation is member-facing: credential client, never the staff identity.
+  expect(m.activate).toHaveBeenCalledWith(clients.credential, {});
 });
 it('passes only the authenticated actor to account creation and never caches the response', async () => {
   const response = await app.inject({
@@ -96,5 +104,14 @@ it('passes only the authenticated actor to account creation and never caches the
   });
   expect(response.statusCode).toBe(201);
   expect(response.headers['cache-control']).toBe('private, no-store');
-  expect(m.create).toHaveBeenCalledWith('actor', { username: 'agent' });
+  expect(m.create).toHaveBeenCalledWith(clients.staff, 'actor', { username: 'agent' });
+});
+it('refuses to register without explicit staff and credential databases', async () => {
+  for (const options of [{}, { staffDb: clients.staff }, { credentialDb: clients.credential }]) {
+    const bare = Fastify();
+    await expect(
+      bare.register(adminAgentAccountRoutes as never, { prefix: '/agents', ...options }).ready()
+    ).rejects.toThrow('STAFF_DATABASE_REQUIRED');
+    await bare.close();
+  }
 });
