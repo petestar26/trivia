@@ -126,7 +126,7 @@ Inspected before changing: the CC0 Idle pose sank the soles 13.1 mm (front-left)
 
 ### The Emerald Course and cameras
 
-`racecourse.ts` builds an original straight turf course entirely from code and canvas: gradient sky with soft clouds, mown turf stripes, plastic running rails, distance poles, numbered starting stalls whose doors open with the published start, a winning post and judge's box on the far side, course boards ("SALEM BET", "EMERALD COURSE"), a clipped hedge, marquees, a three-tier grandstand with crowd and a big screen by the finish, chunked instanced trees and hills. Matte scenery uses Lambert shading below High; the sky-derived image light is applied only to coats, silks and tack (scene-wide it doubled software-render time for little gain). The old finish arch, which crossed the frame at the finish, is gone.
+`racecourse.ts` builds an original straight turf course entirely from code and canvas: gradient sky with soft clouds, mown turf stripes, plastic running rails, distance poles, numbered starting stalls whose doors open with the published start, a winning post and judge's box on the far side, course boards ("SALEM BET", "EMERALD COURSE"), a clipped hedge, marquees, a three-tier grandstand with crowd and a big screen by the finish, chunked instanced low-crowned trees and hills. Matte scenery uses Lambert shading below High; the sky-derived image light is applied only to coats, silks and tack (scene-wide it doubled software-render time for little gain). The old finish arch, which crossed the frame at the finish, is gone.
 
 `broadcast-camera.ts` replaces the single fixed three-quarter view. Trackside (default) cuts on public race phases: a slow drift across the stalls before the start, a three-quarter view of the break, a side-on tracking shot with a long lens down the straight, a head-on three-quarter view of the final furlong with the grandstand behind, then side-on past the post. Follow race (from behind and above, once the field is clear of the stalls) and Aerial are offered on the Derby page beside a graphics-quality picker, using the same labels as Dog Racing. Every shot is solved to contain all six/eight runner silhouettes (tail to nose, hooves to cap, real lanes) on any stage; changes of shot ease on a critically damped spring; a widening field widens the view immediately. After easing, every hoof and head sightline is tested against every course structure and the camera lifts only as far as needed; runners inside the stalls are framed through them. Reduced motion holds one still overview refreshed once per second.
 
@@ -147,6 +147,8 @@ Badges keep the stable per-scene layout, leaders and runner IDs, but are drawn i
 
 The course is 56 draws; each runner is at most 20 meshes, with at most two shadow casters below High. Standing runners render at 20 fps; reduced motion at 1 fps; drawing stops while the course is scrolled away or the tab is hidden. Automatic quality uses the Dog Racing frame governor (resolution first, then one tier down). The Derby chunk grows from 14.6 KB to 27.3 KB gzipped. Model bytes are unchanged (`horse.glb` 337,128 bytes, `jockey.glb` 533,136 bytes, SHA-256 as above); the 307,172-byte backdrop is no longer requested, so a Derby session downloads about 295 KB less.
 
+Measured per rendered frame of the eight-runner mid-race view (main and shadow passes, headless Chromium with SwiftShader): the deployed scene drew 250 draws / 329k triangles on every setting (the old page ignored graphics quality); now High 345 / 348k, Balanced (Automatic's starting tier) 201 / 211k, Low 183 / 175k.
+
 ### Assets and licences
 
 No new binary asset, font, image, model, shader library or runtime host. All new geometry, textures (canvas), shaders and camera logic are original code in this repository. The CC0 Mesh2Motion horse/human and their clips are unchanged. Canvas text uses the device's system fonts.
@@ -154,6 +156,15 @@ No new binary asset, font, image, model, shader library or runtime host. All new
 ### Review tooling
 
 `apps/web/derby-lab.html` (dev only, not in the production build) renders the real rigs, course and director at fixed phases. `scripts/review-derby-visuals.mjs` drives a built loopback preview with Playwright: every API response is a local fixture, published progress comes from the API's own `derbyPositions`, page time and fixture time advance together on a paused clock, external hosts and any non-GET API request fail the run. It captures race moments for six and eight runners at 1440×1000, 375×812, 320×568 and 844×390 (plus expanded views), camera presets, reduced motion, quality tiers, reconnect, model/backdrop download failure, WebGL context loss/restoration, no-WebGL fallback and the reset into the next race, normal-speed and quarter-speed clips, and per-frame draw/triangle counts.
+
+### Evidence
+
+Curated before/after comparisons and close-ups are in `docs/games/derby-media/` (see its README for provenance). Results of the full synthetic review on both builds:
+
+- Six and eight runners at 1440×1000, 375×812, 320×568 and 844×390, at the stalls, the off, early, mid, late, on the line and the official result, plus expanded arena views: all render, no horizontal overflow, no fallback.
+- Trackside, Follow race and Aerial on desktop and phone, mid-race and final furlong: all render.
+- Reduced motion (still overview), High/Balanced/Low tiers, reconnect (paused heading while the API is unreachable, then resumes), model and backdrop download failure (procedural runners keep racing), WebGL context loss (fallback) and restoration (scene rebuilt), no WebGL (accessible fallback) and the reset into the next race (stalls shot): all pass. The only console error is three.js reporting the deliberately disabled WebGL context.
+- Normal-speed clips of the same race and default camera for both builds (30 fps phone/landscape clips with quarter-speed versions; the 52-second full race at 25 fps before and 12.5 fps after, because the richer software-rendered scene does not fit one capture job at 25 fps — scene state at a race time does not depend on capture rate, so the 12.5 fps frames coincide with every other 25 fps frame).
 
 ### Remaining limitations
 
