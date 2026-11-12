@@ -27,4 +27,15 @@ Synthetic, loopback-only captures from `scripts/review-derby-visuals.mjs` (see `
 | `after-aerial-desktop-mid.webp` | "Aerial" camera mid-race |
 | `compare-race-6-phone375-mid.mp4` | 10 s, normal speed, 30 fps, six runners mid-race on a 375 px phone, before on the left, after on the right |
 
+### Group horse racing (camera and adaptive-quality fix)
+
+Captured with `scripts/review-derby-group.mjs` from a synthetic settled group round (shared outcome/presentation code, invalid beacon signature, events disclosed only up to the fixture time). **BEFORE FIX** is the previous PR head `8779ec6`; **AFTER FIX** is `05d6b4d`. Same renderer caveats as above: simulated, software-rendered video, not phone performance.
+
+| File | What it shows |
+| --- | --- |
+| `compare-group-phone375-mid.webp` | 375×812 phone, mid-race: group horse racing had no camera controls; now Trackside, Follow race and Aerial |
+| `compare-group-desktop-mid-stage.webp` | The same on desktop |
+| `group-clip-frames-after-fix.webp` | Frames from the after-fix clips: group countdown over the stalls, the break, side tracking, the stands, the head-on finish; Aerial (desktop) and Follow race (phone) |
+| `group-follow-race-phone375.mp4` | 6 s, normal speed (25 fps simulated), Follow race on a 375 px phone mid-race |
+
 Full-length evidence (both builds: every race moment for 6/8 runners at 1440×1000, 375×812, 320×568 and 844×390, expanded views, camera presets, quality tiers, reconnect, asset failure, context loss/restoration, no-WebGL, reset; a 52-second full-race comparison and 30 fps clips with quarter-speed versions; per-frame workload counts) was produced outside the repository and shared with the requester; it is not committed.
