@@ -1,15 +1,6 @@
 import { useId } from 'react';
 import { useTogetherText } from '@/lib/i18n/together-text';
-const runnerColors = [
-  '#f3e8d5',
-  '#373f49',
-  '#cb3d49',
-  '#3f8fda',
-  '#dc9e30',
-  '#38877b',
-  '#a06bc4',
-  '#e296ba',
-];
+import { raceRunnerColors } from './race-runners';
 
 /** Lightweight authored vector broadcast. Positions are only released server checkpoints. */
 export function RaceBroadcast2D({
@@ -75,7 +66,8 @@ export function RaceBroadcast2D({
       {positions.map((p, i) => {
         const x = 65 + Math.min(1, p) * 860,
           y = 206 + i * 43,
-          step = reduced ? 0 : Math.sin(elapsed / 75 + i) * 10;
+          step = reduced ? 0 : Math.sin(elapsed / 75 + i) * 10,
+          runner = raceRunnerColors(dogs, i);
         return (
           <g key={i} transform={`translate(${x} ${y})`}>
             <ellipse cx="-9" cy="16" rx={dogs ? 26 : 30} ry="5" fill="#000" opacity=".25" />
@@ -89,7 +81,7 @@ export function RaceBroadcast2D({
                   fill="none"
                 />
                 <path d="M-28 0L-45-7" stroke="#584437" strokeWidth="3" />
-                <path d="M-14-10H3L9 2H-16Z" fill={runnerColors[i]} />
+                <path d="M-14-10H3L9 2H-16Z" fill={runner.color} />
               </g>
             ) : (
               <g fill={i % 3 === 0 ? '#d3c1a2' : i % 2 ? '#463026' : '#916041'}>
@@ -101,9 +93,9 @@ export function RaceBroadcast2D({
                   fill="none"
                 />
                 <path d="M-29-8L-40 1L-45-7" stroke="#382e28" strokeWidth="5" fill="none" />
-                <path d="M-20-17L-14-31L2-30L10-18" fill={runnerColors[i]} />
+                <path d="M-20-17L-14-31L2-30L10-18" fill={runner.color} />
                 <circle cx="-3" cy="-35" r="6" fill="#e9c8a4" />
-                <path d="M-10-38Q-3-45 4-38" fill={runnerColors[i]} />
+                <path d="M-10-38Q-3-45 4-38" fill={runner.color} />
               </g>
             )}
             <rect
@@ -112,13 +104,13 @@ export function RaceBroadcast2D({
               width="18"
               height="15"
               rx="3"
-              fill={runnerColors[i]}
+              fill={runner.color}
               stroke="#fff8"
             />
             <text
               x="-4"
               y={dogs ? -6 : -7}
-              fill={i === 1 ? 'white' : '#162223'}
+              fill={runner.ink}
               fontSize="11"
               fontWeight="800"
               textAnchor="middle"

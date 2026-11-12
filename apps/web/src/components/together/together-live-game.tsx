@@ -14,6 +14,8 @@ import { DrawStage } from './draw-stage';
 import { DiceStage, BlackjackStage, NumberStage } from './table-stages';
 import { FlightStage } from './flight-stages';
 import { RaceBroadcast2D, PitchBroadcast2D } from './lightweight-sports';
+import { raceRunnerColors } from './race-runners';
+import type { RaceCamera } from './shared-race-scene';
 import './together-live-game.css';
 import './shared-stages.css';
 import './original-scenes.css';
@@ -49,6 +51,8 @@ export function TogetherLiveGame({
   const [replayAt, setReplayAt] = useState<number | null>(null),
     [frame, setFrame] = useState(performance.now()),
     [match, setMatch] = useState(0);
+  // Held above the tier-keyed scene so an Automatic quality step keeps the chosen view.
+  const [raceCamera, setRaceCamera] = useState<RaceCamera>('trackside');
   const [reduced, setReduced] = useState(
     () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
   );
@@ -178,6 +182,8 @@ export function TogetherLiveGame({
                     quality={tier}
                     adaptive={adaptive}
                     onSlow={degrade}
+                    camera={raceCamera}
+                    onCamera={setRaceCamera}
                     fallback={raceFallback}
                   />
                 </Suspense>
@@ -191,17 +197,8 @@ export function TogetherLiveGame({
                       <small>{num(index + 1)}</small>
                       <b
                         style={{
-                          background: [
-                            '#eee8d6',
-                            '#303d4e',
-                            '#b53142',
-                            '#3979be',
-                            '#bd9130',
-                            '#328a72',
-                            '#9364b1',
-                            '#c5779e',
-                          ][i],
-                          color: i === 0 ? '#1b2530' : 'white',
+                          background: raceRunnerColors(dogs, i).color,
+                          color: raceRunnerColors(dogs, i).ink,
                         }}
                       >
                         {num(i + 1)}

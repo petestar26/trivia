@@ -5,6 +5,9 @@ import { useTogetherText } from '@/lib/i18n/together-text';
 import '@/pages/games/thunder-derby.css';
 import '@/pages/games/dog-racing.css';
 
+/** The three broadcast views both courses offer under the same labels. */
+export type RaceCamera = DogCamera & DerbyCameraMode;
+
 /** Render the original racecourse and cameras with already disclosed group positions. */
 export default function SharedRaceScene({
   roundId,
@@ -17,6 +20,8 @@ export default function SharedRaceScene({
   complete,
   adaptive = false,
   onSlow,
+  camera: chosen,
+  onCamera,
 }: {
   roundId: string;
   positions: number[];
@@ -31,10 +36,17 @@ export default function SharedRaceScene({
   /** Automatic quality: either race scene adapts resolution and reports sustained overload. */
   adaptive?: boolean;
   onSlow?: () => void;
+  /** Optional: the view held by the page, so it survives a quality-tier remount. */
+  camera?: RaceCamera;
+  onCamera?: (camera: RaceCamera) => void;
 }) {
   const { t } = useTogetherText();
-  // Both courses offer the same three broadcast views under the same labels.
-  const [camera, setCamera] = useState<DogCamera & DerbyCameraMode>('trackside');
+  const [own, setOwn] = useState<RaceCamera>('trackside');
+  const camera = chosen ?? own;
+  const setCamera = (mode: RaceCamera) => {
+    setOwn(mode);
+    onCamera?.(mode);
+  };
   const round = {
     id: roundId,
     positions,
