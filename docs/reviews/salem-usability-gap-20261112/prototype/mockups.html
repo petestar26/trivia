@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Salem proposals</title>
+<style>
+:root{--bg:#07110d;--panel:#0f1f18;--panel2:#13281f;--line:#24453a;--text:#eef3ee;--muted:#9fb3a8;--gold:#e2c27a;--green:#3fd39a;--warn:#e9a24b;--off:#6c7d75}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.45 Inter,system-ui,sans-serif}
+.screen{width:1200px;padding:36px 44px;display:none}.screen.on{display:block}
+.eyebrow{color:var(--gold);letter-spacing:.18em;font-size:12px;font-weight:700}
+h1{font-size:40px;margin:6px 0 4px;letter-spacing:-.02em}h2{font-size:20px;margin:0 0 10px}h3{margin:0;font-size:16px}
+.sub{color:var(--muted);margin:0 0 22px}.badge{display:inline-block;border:1px dashed var(--gold);color:var(--gold);font-size:11px;padding:2px 8px;border-radius:99px;margin-left:8px;vertical-align:middle}
+.grid{display:grid;gap:16px}.g3{grid-template-columns:repeat(3,1fr)}.g2{grid-template-columns:1.4fr 1fr}.g4{grid-template-columns:repeat(4,1fr)}
+.card{background:linear-gradient(160deg,var(--panel2),var(--panel));border:1px solid var(--line);border-radius:18px;padding:18px 20px}
+.k{color:var(--muted);font-size:12px}.v{font-size:26px;font-weight:700;color:var(--gold);margin:4px 0}.s{color:var(--muted);font-size:12.5px}
+.pill{font-size:11.5px;padding:3px 10px;border-radius:99px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+.pill.ok{border-color:#2f7d5d;color:var(--green)}.pill.warn{border-color:#7a5524;color:var(--warn)}.pill.off{color:var(--off)}
+.row{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.bar{height:8px;border-radius:9px;background:#1d3a2f;overflow:hidden;margin:10px 0 4px}.bar i{display:block;height:100%;background:linear-gradient(90deg,var(--green),var(--gold))}
+.steps{margin:10px 0 0;padding:0;list-style:none}.steps li{display:flex;gap:10px;align-items:center;padding:7px 0;border-top:1px solid #1b3329;font-size:13.5px}
+.dot{width:18px;height:18px;border-radius:50%;border:2px solid var(--off);flex:none}.dot.done{background:var(--green);border-color:var(--green)}.dot.todo{border-color:var(--warn)}
+.btn{display:inline-block;background:linear-gradient(180deg,#5ee3ad,#2fb984);color:#06261a;font-weight:700;padding:9px 16px;border-radius:11px;font-size:14px}
+.btn.sec{background:none;border:1px solid var(--line);color:var(--text)}
+table{width:100%;border-collapse:collapse;font-size:13.5px}td,th{padding:9px 6px;border-top:1px solid #1b3329;text-align:left}th{color:var(--muted);font-weight:500;font-size:12px}
+.tabs{display:flex;gap:8px;margin:0 0 16px}.tabs span{padding:8px 14px;border-radius:12px;border:1px solid var(--line);font-size:13.5px}.tabs span.on{background:#1e5a43;border-color:#2f8c66}
+.note{border-left:3px solid var(--gold);padding:8px 12px;background:#14231c;border-radius:6px;color:var(--muted);font-size:13px;margin-top:14px}
+.search{border:1px solid var(--line);border-radius:12px;padding:10px 14px;color:var(--muted);background:#0b1813}
+.prov{display:flex;justify-content:space-between;align-items:center;padding:12px 14px;border:1px solid var(--line);border-radius:14px;background:var(--panel)}
+.prov b{font-size:15px}.mono{width:38px;height:38px;border-radius:10px;background:#1c3d30;display:grid;place-items:center;color:var(--gold);font-weight:700;margin-right:12px}
+.az{display:flex;gap:6px;color:var(--muted);font-size:12.5px;margin:12px 0}.az b{color:var(--text)}
+.frame{border:1px solid var(--line);border-radius:18px;overflow:hidden}.fhead{display:flex;justify-content:space-between;padding:12px 16px;background:#0c1a14;border-bottom:1px solid var(--line);font-size:13px}
+.fbody{height:250px;display:grid;place-items:center;color:var(--muted);background:repeating-linear-gradient(45deg,#0d1b15,#0d1b15 12px,#0f2019 12px,#0f2019 24px);text-align:center;padding:20px}
+.menu a{display:flex;justify-content:space-between;padding:11px 4px;border-top:1px solid #1b3329;color:var(--text);text-decoration:none;font-size:14.5px}.menu small{color:var(--muted)}
+.foot{margin-top:18px;color:var(--off);font-size:11.5px}
+</style></head><body>
+
+<section class="screen" id="rewards">
+<span class="eyebrow">YOUR MEMBERSHIP</span><span class="badge">PROPOSAL · synthetic data</span>
+<h1>Rewards hub</h1><p class="sub">One place for what you've earned, what's waiting, and exactly what's needed next. Reads existing reward, task and wallet data only.</p>
+<div class="grid g4">
+ <div class="card"><div class="k">Bonus Birr · bets only</div><div class="v">ETB 0.00</div><div class="s">Can't be withdrawn, gifted or used for Sports</div></div>
+ <div class="card"><div class="k">Waiting to be credited</div><div class="v">ETB 15.00</div><div class="s">3 daily rewards saved</div></div>
+ <div class="card"><div class="k">Next bonus expiry</div><div class="v" style="color:var(--muted)">—</div><div class="s">Shown per credited reward</div></div>
+ <div class="card"><div class="k">Playthrough left</div><div class="v" style="color:var(--muted)">—</div><div class="s">Appears once a bonus is credited</div></div>
+</div>
+<div class="grid g2" style="margin-top:16px">
+ <div class="card">
+  <div class="row"><h2>Why your rewards are waiting</h2><span class="pill warn">Action needed</span></div>
+  <p class="s" style="margin:0">Rewards are credited automatically once your account can receive bonus Birr.</p>
+  <ul class="steps">
+   <li><span class="dot done"></span>Account active</li>
+   <li><span class="dot todo"></span>Add a payout account (sets your payment country) <span style="margin-left:auto" class="btn sec">Add payout account</span></li>
+   <li><span class="dot"></span>Bonus rewards open in your country — <span class="s">checked automatically</span></li>
+  </ul>
+ </div>
+ <div class="card">
+  <h2>Ways to earn</h2>
+  <div class="row" style="padding:8px 0;border-top:1px solid #1b3329"><span>Daily activity · ETB 5.00</span><span class="pill ok">Today recorded</span></div>
+  <div class="row" style="padding:8px 0;border-top:1px solid #1b3329"><span>Gift purchase</span><span class="pill off">Not available</span></div>
+  <div class="row" style="padding:8px 0;border-top:1px solid #1b3329"><span>Invite a friend · 2 joined</span><span class="pill off">Not available</span></div>
+  <div class="row" style="padding:8px 0;border-top:1px solid #1b3329"><span>Tasks &amp; achievements · 4 of 9</span><span class="pill ok">Open</span></div>
+ </div>
+</div>
+<div class="card" style="margin-top:16px">
+ <div class="row"><h2>History</h2><div class="tabs" style="margin:0"><span class="on">All</span><span>Waiting</span><span>Credited</span><span>Expired</span></div></div>
+ <table><tr><th>Reward</th><th>Earned</th><th>Amount</th><th>Status</th><th>Expires</th></tr>
+ <tr><td>Daily activity</td><td>12 Nov</td><td>ETB 5.00</td><td><span class="pill warn">Waiting · needs payout account</span></td><td>Set when credited</td></tr>
+ <tr><td>Daily activity</td><td>11 Nov</td><td>ETB 5.00</td><td><span class="pill warn">Waiting · needs payout account</span></td><td>Set when credited</td></tr>
+ <tr><td>Daily activity</td><td>10 Nov</td><td>ETB 5.00</td><td><span class="pill warn">Waiting · needs payout account</span></td><td>Set when credited</td></tr>
+ </table>
+ <div class="note">Gift and invite cards show “Not available” — not a countdown or teaser — until a real-Birr gift purchase is reachable in the app and the offer is approved and enabled.</div>
+</div>
+<p class="foot">Synthetic mockup. Amounts, names and states are illustrative only.</p>
+</section>
+
+<section class="screen" id="providers">
+<span class="eyebrow">SALEM BET COLLECTION</span><span class="badge">PROPOSAL · synthetic data</span>
+<h1>Providers</h1><p class="sub">Searchable directory with live counts from the current catalogue. Text names only — no studio logos until permission is confirmed.</p>
+<div class="grid" style="grid-template-columns:1fr 260px;align-items:center"><div class="search">⌕ Search providers…</div><div class="tabs" style="margin:0"><span class="on">A–Z</span><span>Most games</span></div></div>
+<div class="az"><b>All</b> A B C D E · · · Z</div>
+<div class="grid g3">
+ <div class="prov"><div class="row"><span class="mono">A</span><div><b>Aurora Studio</b><div class="s">Slots 14 · Table 4 · Keno 2</div></div></div><span class="pill">20 games</span></div>
+ <div class="prov"><div class="row"><span class="mono">B</span><div><b>Basalt Games</b><div class="s">Slots 9 · Crash 6 · Instant 3</div></div></div><span class="pill">18 games</span></div>
+ <div class="prov"><div class="row"><span class="mono">C</span><div><b>Cedar Play</b><div class="s">Slots 12 · Keno 4 · Instant 4</div></div></div><span class="pill">20 games</span></div>
+ <div class="prov"><div class="row"><span class="mono">D</span><div><b>Dune Labs</b><div class="s">Crash 6 · Keno 6 · Slots 7</div></div></div><span class="pill">19 games</span></div>
+ <div class="prov"><div class="row"><span class="mono">E</span><div><b>Ember Live</b><div class="s">Live 12 · Table 7</div></div></div><span class="pill">19 games</span></div>
+ <div class="prov" style="border-style:dashed"><div><b style="color:var(--muted)">Selecting a provider</b><div class="s">filters the lobby and keeps the category counts accurate</div></div></div>
+</div>
+<div class="card" style="margin-top:16px"><div class="row"><h3>Aurora Studio · 20 games</h3><span class="s">URL: /casino?provider=aurora-studio&amp;category=slots</span></div>
+<div class="tabs" style="margin:12px 0 0"><span>All 20</span><span class="on">Slots 14</span><span>Table games 4</span><span>Keno 2</span></div></div>
+<p class="foot">Synthetic mockup. Provider names are invented placeholders.</p>
+</section>
+
+<section class="screen" id="sports">
+<span class="eyebrow">SALEM BET SPORTS</span><span class="badge">PROPOSAL · two paths</span>
+<h1>Sports, inside Salem</h1><p class="sub">Path A needs written provider approval to frame. Path B ships today without it.</p>
+<div class="grid" style="grid-template-columns:1fr 1fr">
+ <div><h2>A · Framed (only if provider allows salem.bet)</h2>
+  <div class="frame"><div class="fhead"><span>☰ Salem navigation stays visible</span><span>Cash ETB 0.00 · <span style="color:var(--gold)">Open in new tab ↗</span></span></div>
+  <div class="fbody">Provider sportsbook frame<br><small>Rendered only when the provider sends a frame-ancestors allowance for salem.bet.<br>No fixtures or odds are drawn by Salem.</small></div></div>
+  <div class="note">Fallback is automatic: if the frame is refused, the existing click-to-open new tab is shown.</div></div>
+ <div><h2>B · Handoff (works now)</h2>
+  <div class="card"><div class="row"><h3>Sportsbook is open in another tab</h3><span class="pill ok">Connected</span></div>
+   <p class="s">Your cash balance updates here while you play. Bonus Birr can't be used for Sports.</p>
+   <div class="row" style="margin:12px 0"><div><div class="k">Cash balance</div><div class="v">ETB 0.00</div></div><span class="btn">Return to sportsbook ↗</span></div>
+   <ul class="steps"><li><span class="dot done"></span>Last stake · 18:42 · ETB 50.00</li><li><span class="dot done"></span>Last payout · 19:55 · ETB 92.00</li></ul>
+   <div class="row" style="margin-top:10px"><span class="btn sec">Bet history</span><span class="btn sec">Help with a bet</span></div>
+  </div></div>
+</div>
+<p class="foot">Synthetic mockup. Times and amounts are illustrative only.</p>
+</section>
+
+<section class="screen" id="account" style="width:420px;padding:28px 24px">
+<span class="eyebrow">ACCOUNT</span><span class="badge">PROPOSAL</span>
+<h1 style="font-size:30px">Your account</h1>
+<div class="card menu" style="padding:6px 16px">
+ <a>Wallet &amp; balance <small>ETB 0.00 ›</small></a>
+ <a>Transactions <small>›</small></a>
+ <a>Payment requests <small><span class="pill warn">1 pending</span> ›</small></a>
+ <a>Bet history <small>Games · Sports · Casino ›</small></a>
+ <a>Payout accounts <small><span class="pill warn">None yet</span> ›</small></a>
+ <a>Rewards <small>ETB 15.00 waiting ›</small></a>
+ <a>Support <small>›</small></a>
+ <a>Profile &amp; security <small>›</small></a>
+</div>
+<div class="note">“1 pending” reads the existing deposit/withdrawal lists. Wording to be agreed with the deposit-review owner.</div>
+<p class="foot">Synthetic mockup.</p>
+</section>
+<script>document.getElementById(location.hash.slice(1)||'rewards').classList.add('on')</script>
+</body></html>
