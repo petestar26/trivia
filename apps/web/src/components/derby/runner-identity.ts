@@ -133,14 +133,70 @@ const COATS: readonly CoatSpec[] = [
 // numbered badge and progress row. Distinct patterns and caps keep runners
 // separable for colour-blind viewers and in small phone views.
 const SILKS: readonly Omit<SilkSpec, 'body'>[] = [
-  { accent: '#ffffff', pattern: 'hoops', sleeves: 'body', cap: '#ffffff', capAccent: '#e95c59', capPattern: 'plain' },
-  { accent: '#f6c55e', pattern: 'sash', sleeves: 'accent', cap: '#f6c55e', capAccent: '#4d8dff', capPattern: 'plain' },
-  { accent: '#1d2b4f', pattern: 'crossbelts', sleeves: 'hoops', cap: '#1d2b4f', capAccent: '#e8edf2', capPattern: 'quartered' },
-  { accent: '#17151c', pattern: 'quartered', sleeves: 'body', cap: '#17151c', capAccent: '#8c85a7', capPattern: 'hooped' },
-  { accent: '#1b1b1b', pattern: 'chevrons', sleeves: 'accent', cap: '#f6c55e', capAccent: '#1b1b1b', capPattern: 'peak' },
-  { accent: '#ffffff', pattern: 'braces', sleeves: 'hoops', cap: '#ffffff', capAccent: '#4dd5a1', capPattern: 'quartered' },
-  { accent: '#ffffff', pattern: 'halved', sleeves: 'accent', cap: '#ec8dc2', capAccent: '#ffffff', capPattern: 'hooped' },
-  { accent: '#ffffff', pattern: 'stripes', sleeves: 'body', cap: '#af8aff', capAccent: '#ffffff', capPattern: 'plain' },
+  {
+    accent: '#ffffff',
+    pattern: 'hoops',
+    sleeves: 'body',
+    cap: '#ffffff',
+    capAccent: '#e95c59',
+    capPattern: 'plain',
+  },
+  {
+    accent: '#f6c55e',
+    pattern: 'sash',
+    sleeves: 'accent',
+    cap: '#f6c55e',
+    capAccent: '#4d8dff',
+    capPattern: 'plain',
+  },
+  {
+    accent: '#1d2b4f',
+    pattern: 'crossbelts',
+    sleeves: 'hoops',
+    cap: '#1d2b4f',
+    capAccent: '#e8edf2',
+    capPattern: 'quartered',
+  },
+  {
+    accent: '#17151c',
+    pattern: 'quartered',
+    sleeves: 'body',
+    cap: '#17151c',
+    capAccent: '#8c85a7',
+    capPattern: 'hooped',
+  },
+  {
+    accent: '#1b1b1b',
+    pattern: 'chevrons',
+    sleeves: 'accent',
+    cap: '#f6c55e',
+    capAccent: '#1b1b1b',
+    capPattern: 'peak',
+  },
+  {
+    accent: '#ffffff',
+    pattern: 'braces',
+    sleeves: 'hoops',
+    cap: '#ffffff',
+    capAccent: '#4dd5a1',
+    capPattern: 'quartered',
+  },
+  {
+    accent: '#ffffff',
+    pattern: 'halved',
+    sleeves: 'accent',
+    cap: '#ec8dc2',
+    capAccent: '#ffffff',
+    capPattern: 'hooped',
+  },
+  {
+    accent: '#ffffff',
+    pattern: 'stripes',
+    sleeves: 'body',
+    cap: '#af8aff',
+    capAccent: '#ffffff',
+    capPattern: 'plain',
+  },
 ];
 
 /** WCAG relative luminance of a #rrggbb colour. */

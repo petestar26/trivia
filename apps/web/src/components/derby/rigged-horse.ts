@@ -102,8 +102,8 @@ function bodyOf(model: THREE.Object3D) {
 function legChain(model: THREE.Object3D, name: string) {
   const side = name.endsWith('_l') ? 'l' : 'r',
     family = name.startsWith('front') ? 'front' : 'back';
-  return ['ankle', 'lower', 'upper', 'foot'].map(
-    (joint) => model.getObjectByName(`${family}_leg_${joint}_${side}`)!
+  return ['ankle', 'lower', 'upper', 'foot'].map((joint) =>
+    model.getObjectByName(`${family}_leg_${joint}_${side}`)!
   );
 }
 /**
@@ -131,7 +131,9 @@ export function measureIdleLift(source: THREE.Object3D, clip: THREE.AnimationCli
       const saved = chains.flat().map((joint) => joint.quaternion.clone());
       HOOF_NAMES.forEach((name, hoof) => {
         if (lifts[hoof][i] <= 0) return;
-        const target = model.worldToLocal(model.getObjectByName(name)!.getWorldPosition(new THREE.Vector3()));
+        const target = model.worldToLocal(
+          model.getObjectByName(name)!.getWorldPosition(new THREE.Vector3())
+        );
         target.y += lifts[hoof][i];
         solveHoofTarget(model, name, target);
       });
@@ -270,7 +272,11 @@ export function createRiggedHorse(
   const visor = own(new THREE.MeshStandardMaterial({ color: '#151719', roughness: 0.25 }));
   const brow = own(new THREE.MeshStandardMaterial({ color: look.cloth, roughness: 0.45 }));
   const coatMaterial = own(
-    createCoatMaterial(bodyOf(assets.horse).material as THREE.MeshStandardMaterial, coatSpec, quality)
+    createCoatMaterial(
+      bodyOf(assets.horse).material as THREE.MeshStandardMaterial,
+      coatSpec,
+      quality
+    )
   );
   const body = bodyOf(model);
   model.traverse((object) => {
@@ -454,7 +460,12 @@ export function createRiggedHorse(
     leathers: THREE.Mesh[] = [];
   const leatherGeometry = own(new THREE.BoxGeometry(0.022, 1, 0.006));
   for (let side = 0; side < 2; side++) {
-    const iron = addMesh(model, new THREE.TorusGeometry(0.045, 0.008, 6, 14), steel, vector(0, 0, 0));
+    const iron = addMesh(
+      model,
+      new THREE.TorusGeometry(0.045, 0.008, 6, 14),
+      steel,
+      vector(0, 0, 0)
+    );
     iron.scale.set(1, 0.8, 1);
     irons.push(iron);
     const strip = new THREE.Mesh(leatherGeometry, leather);
@@ -466,8 +477,19 @@ export function createRiggedHorse(
   const headBone = model.getObjectByName('head')!;
   model.updateMatrixWorld(true);
   const tubes: THREE.Mesh[] = [];
-  function tube(points: THREE.Vector3[], radius: number, material: THREE.Material, parent: THREE.Object3D) {
-    const geometry = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points), 12, radius, 5, false);
+  function tube(
+    points: THREE.Vector3[],
+    radius: number,
+    material: THREE.Material,
+    parent: THREE.Object3D
+  ) {
+    const geometry = new THREE.TubeGeometry(
+      new THREE.CatmullRomCurve3(points),
+      12,
+      radius,
+      5,
+      false
+    );
     return addMesh(parent, geometry, material, vector(0, 0, 0));
   }
   // Bridle in the horse rest frame, bound to the head joint. The browband carries the
@@ -476,22 +498,40 @@ export function createRiggedHorse(
   model.add(bridle);
   for (const side of [-1, 1]) {
     tube(
-      [vector(side * 0.13, 1.82, 1.08), vector(side * 0.16, 1.65, 1.25), vector(side * 0.105, 1.48, 1.4)],
+      [
+        vector(side * 0.13, 1.82, 1.08),
+        vector(side * 0.16, 1.65, 1.25),
+        vector(side * 0.105, 1.48, 1.4),
+      ],
       0.013,
       strap,
       bridle
     );
     tubes.push(
       tube(
-        [vector(side * 0.1, 1.48, 1.4), vector(side * 0.2, 1.58, 0.9), vector(side * 0.2, 1.65, 0.55)],
+        [
+          vector(side * 0.1, 1.48, 1.4),
+          vector(side * 0.2, 1.58, 0.9),
+          vector(side * 0.2, 1.65, 0.55),
+        ],
         0.009,
         strap,
         model
       )
     );
   }
-  tube([vector(-0.13, 1.83, 1.1), vector(0, 1.9, 1.2), vector(0.13, 1.83, 1.1)], 0.016, brow, bridle);
-  tube([vector(-0.11, 1.5, 1.39), vector(0, 1.55, 1.45), vector(0.11, 1.5, 1.39)], 0.014, strap, bridle);
+  tube(
+    [vector(-0.13, 1.83, 1.1), vector(0, 1.9, 1.2), vector(0.13, 1.83, 1.1)],
+    0.016,
+    brow,
+    bridle
+  );
+  tube(
+    [vector(-0.11, 1.5, 1.39), vector(0, 1.55, 1.45), vector(0.11, 1.5, 1.39)],
+    0.014,
+    strap,
+    bridle
+  );
   model.updateMatrixWorld(true);
   headBone.attach(bridle);
   const bitPoints = [vector(-0.1, 1.48, 1.4), vector(0.1, 1.48, 1.4)].map((p) =>
@@ -541,11 +581,13 @@ export function createRiggedHorse(
     const clipSeconds = travel / (10 * 1.5);
     const offset = index * assets.run.duration * 0.137;
     const idleTime =
-      (((options.idle ?? 0) * 0.8 + index * 0.61) % assets.idle.duration + assets.idle.duration) %
+      ((((options.idle ?? 0) * 0.8 + index * 0.61) % assets.idle.duration) + assets.idle.duration) %
       assets.idle.duration;
     mixer.setTime(moving ? clipSeconds + offset : options.idle ? idleTime : 0);
     model.updateMatrixWorld(true);
-    if (moving) for (const contact of contacts) constrainHoof(model, contact, clipSeconds + offset, assets.run.duration);
+    if (moving)
+      for (const contact of contacts)
+        constrainHoof(model, contact, clipSeconds + offset, assets.run.duration);
     else {
       // The CC0 standing clip sinks the hooves up to 13 mm into the turf. Lift each
       // penetrating sole with the same three-joint hoof solver; positive clearance
@@ -568,7 +610,9 @@ export function createRiggedHorse(
     const strideAngle = (clipSeconds / assets.run.duration) * Math.PI * 2 + index * 0.861;
     // The rider floats over the stride: legs absorb most of the saddle's movement.
     rider.position.y = riderBaseY + bounce * (moving ? 0.32 - 0.1 * support.load : 0.55);
-    rider.rotation.x = moving ? (Math.sin(strideAngle - 0.35) * 0.6 + support.pitch * 0.4) * 0.04 : 0;
+    rider.rotation.x = moving
+      ? (Math.sin(strideAngle - 0.35) * 0.6 + support.pitch * 0.4) * 0.04
+      : 0;
     rider.rotation.z = moving ? (Math.sin(strideAngle) * 0.5 + support.roll * 0.5) * 0.012 : 0;
     rider.position.z =
       SEAT.z + (moving ? (Math.sin(strideAngle - 0.35) * 0.5 + support.pitch * 0.5) * 0.018 : 0);
@@ -600,7 +644,9 @@ export function createRiggedHorse(
         bone(`foot_${side}`),
         bone(`ball_${side}`),
         worldPosition(bone(`foot_${side}`)).add(
-          model.localToWorld(vector(sign * 0.02, -0.035, 0.16)).sub(model.localToWorld(vector(0, 0, 0)))
+          model
+            .localToWorld(vector(sign * 0.02, -0.035, 0.16))
+            .sub(model.localToWorld(vector(0, 0, 0)))
         )
       );
       solveLimb(

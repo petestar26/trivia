@@ -16,7 +16,12 @@ export type DirectorInput = {
   time: number;
 };
 /** Conservative runner silhouette around its root: tail to nose, hooves to cap. */
-export const RUNNER_SILHOUETTE = Object.freeze({ back: -2.75, front: 2.45, top: 3.55, halfWidth: 0.62 });
+export const RUNNER_SILHOUETTE = Object.freeze({
+  back: -2.75,
+  front: 2.45,
+  top: 3.55,
+  halfWidth: 0.62,
+});
 
 const UP = new THREE.Vector3(0, 1, 0);
 /**
@@ -26,7 +31,9 @@ const UP = new THREE.Vector3(0, 1, 0);
  */
 export function directorFov(aspect: number) {
   const across = THREE.MathUtils.degToRad(46);
-  const needed = THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(across / 2) / Math.max(0.3, aspect)));
+  const needed = THREE.MathUtils.radToDeg(
+    2 * Math.atan(Math.tan(across / 2) / Math.max(0.3, aspect))
+  );
   return THREE.MathUtils.clamp(needed, 24, 58);
 }
 
@@ -59,7 +66,11 @@ export function fitDistance(
 }
 
 /** Corners of every runner's silhouette (actual lane and displayed position only). */
-export function runnerPoints(positions: readonly number[], field: number, out: THREE.Vector3[] = []) {
+export function runnerPoints(
+  positions: readonly number[],
+  field: number,
+  out: THREE.Vector3[] = []
+) {
   out.length = 0;
   positions.forEach((x, i) => {
     const z = laneZ(i, field);
@@ -237,12 +248,19 @@ export function createBroadcastDirector(obstacles: readonly CameraObstacle[] = [
     },
     /** True while a change of shot is still settling. */
     moving() {
-      return offset.lengthSq() > 1e-3 || velocity.lengthSq() > 1e-3 || lookVelocity.lengthSq() > 1e-3;
+      return (
+        offset.lengthSq() > 1e-3 || velocity.lengthSq() > 1e-3 || lookVelocity.lengthSq() > 1e-3
+      );
     },
     get shot() {
       return current;
     },
-    update(camera: THREE.PerspectiveCamera, mode: DerbyCameraMode, input: DirectorInput, dt: number) {
+    update(
+      camera: THREE.PerspectiveCamera,
+      mode: DerbyCameraMode,
+      input: DirectorInput,
+      dt: number
+    ) {
       const fov = directorFov(camera.aspect);
       if (Math.abs(camera.fov - fov) > 1e-6) {
         camera.fov = fov;
@@ -251,7 +269,10 @@ export function createBroadcastDirector(obstacles: readonly CameraObstacle[] = [
       points = runnerPoints(input.positions, input.field, points);
       const next = shot(mode, input, camera.aspect);
       direction.copy(next.direction).normalize();
-      let distance = Math.max(next.minimum, fitDistance(points, next.look, direction, fov, camera.aspect));
+      let distance = Math.max(
+        next.minimum,
+        fitDistance(points, next.look, direction, fov, camera.aspect)
+      );
       // Widen immediately for a spreading field; ease a contracting lens within one shot.
       if (ready && next.name === current && dt > 0 && distance < lastFit)
         distance += (lastFit - distance) * Math.exp(-Math.min(dt, 0.25) * 2.5);
@@ -289,7 +310,10 @@ export function createBroadcastDirector(obstacles: readonly CameraObstacle[] = [
       camera.position.y = Math.max(0.8, camera.position.y);
       camera.lookAt(look);
       camera.updateMatrixWorld(true);
-      return { shot: current, center: (Math.max(...input.positions) + Math.min(...input.positions)) / 2 };
+      return {
+        shot: current,
+        center: (Math.max(...input.positions) + Math.min(...input.positions)) / 2,
+      };
     },
   };
 }

@@ -476,7 +476,11 @@ describe('standing pose, fitted tack and attached rider', () => {
     const tack = (horse: ReturnType<typeof createRiggedHorse>) => {
       const result: THREE.SkinnedMesh[] = [];
       horse.root.traverse((o) => {
-        if (o instanceof THREE.SkinnedMesh && o.skeleton.getBoneByName('spine_2') && !/Horse/.test(o.name))
+        if (
+          o instanceof THREE.SkinnedMesh &&
+          o.skeleton.getBoneByName('spine_2') &&
+          !/Horse/.test(o.name)
+        )
           result.push(o);
       });
       return result;
@@ -492,7 +496,8 @@ describe('standing pose, fitted tack and attached rider', () => {
         weight = piece.geometry.getAttribute('skinWeight');
       for (let v = 0; v < index.count; v++) {
         let best = 0;
-        for (let k = 1; k < 4; k++) if (weight.getComponent(v, k) > weight.getComponent(v, best)) best = k;
+        for (let k = 1; k < 4; k++)
+          if (weight.getComponent(v, k) > weight.getComponent(v, best)) best = k;
         const bone = piece.skeleton.bones[index.getComponent(v, best)].name;
         expect(bone).toMatch(/hips|spine|ribcage|scapula|humerus|pelvis/);
       }
@@ -513,9 +518,7 @@ describe('standing pose, fitted tack and attached rider', () => {
       horse.animate((time * 15 * 0.74) / (1.04 / 0.22), true, { drive: i % 2 });
       horse.root.updateMatrixWorld(true);
       const pelvis = model.worldToLocal(
-        horse.root
-          .getObjectByName('pelvis')!
-          .getWorldPosition(new THREE.Vector3())
+        horse.root.getObjectByName('pelvis')!.getWorldPosition(new THREE.Vector3())
       );
       const back = model.worldToLocal(
         model.getObjectByName('spine_2')!.getWorldPosition(new THREE.Vector3())

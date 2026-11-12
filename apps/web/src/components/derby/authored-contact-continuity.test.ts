@@ -4,12 +4,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { HOOF_NAMES, measureHoofWindows, type HoofWindow } from './authored-contact';
 import { CONTACT_FRACTION, STRIDE_SECONDS } from './gallop';
-import {
-  createRiggedHorse,
-  raceGallop,
-  type HorseAssets,
-  type RaceHorse,
-} from './rigged-horse';
+import { createRiggedHorse, raceGallop, type HorseAssets, type RaceHorse } from './rigged-horse';
 import { createStrideClock } from './stride-clock';
 
 async function asset(name: string) {

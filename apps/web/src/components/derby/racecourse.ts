@@ -74,7 +74,10 @@ export function createRacecourse(
     parameters: THREE.MeshStandardMaterialParameters
   ): THREE.MeshStandardMaterial | THREE.MeshLambertMaterial => {
     if (high) return new THREE.MeshStandardMaterial(parameters);
-    const lambert: THREE.MeshLambertMaterialParameters & { roughness?: number; metalness?: number } = {
+    const lambert: THREE.MeshLambertMaterialParameters & {
+      roughness?: number;
+      metalness?: number;
+    } = {
       ...(parameters as THREE.MeshLambertMaterialParameters),
     };
     delete lambert.roughness;
@@ -187,7 +190,10 @@ export function createRacecourse(
       const envScene = new THREE.Scene();
       envScene.add(new THREE.Mesh(skyGeometry, skyMaterial));
       const groundGeometry = new THREE.CircleGeometry(1000, 24).rotateX(-Math.PI / 2);
-      const groundMaterial = new THREE.MeshBasicMaterial({ color: '#5d7040', side: THREE.DoubleSide });
+      const groundMaterial = new THREE.MeshBasicMaterial({
+        color: '#5d7040',
+        side: THREE.DoubleSide,
+      });
       const ground = new THREE.Mesh(groundGeometry, groundMaterial);
       ground.position.y = -4;
       envScene.add(ground);
@@ -218,9 +224,7 @@ export function createRacecourse(
     return m;
   }
   const standard = (color: string, roughness = 0.8, metalness = 0) =>
-    mat(`${color}:${roughness}:${metalness}`, () =>
-      surface({ color, roughness, metalness })
-    );
+    mat(`${color}:${roughness}:${metalness}`, () => surface({ color, roughness, metalness }));
   // Static pieces are queued per material and merged into one draw each.
   const queue = new Map<THREE.Material, THREE.BufferGeometry[]>();
   function put(
@@ -242,7 +246,10 @@ export function createRacecourse(
     if (!copy.getAttribute('uv'))
       copy.setAttribute(
         'uv',
-        new THREE.Float32BufferAttribute(new Float32Array(copy.getAttribute('position').count * 2), 2)
+        new THREE.Float32BufferAttribute(
+          new Float32Array(copy.getAttribute('position').count * 2),
+          2
+        )
       );
     const list = queue.get(material) ?? [];
     list.push(copy);
@@ -289,9 +296,7 @@ export function createRacecourse(
   }
   const groundTexture = grassTexture('#5e7a3c', false, 11);
   groundTexture.repeat.set(300, 160);
-  const groundMaterial = keep(
-    surface({ color: '#cfd8bf', map: groundTexture, roughness: 0.97 })
-  );
+  const groundMaterial = keep(surface({ color: '#cfd8bf', map: groundTexture, roughness: 0.97 }));
   const groundGeometry = keep(new THREE.PlaneGeometry(2600, 1400).rotateX(-Math.PI / 2));
   const ground = new THREE.Mesh(groundGeometry, groundMaterial);
   ground.position.set(COURSE_LENGTH / 2, 0, 0);
@@ -302,10 +307,10 @@ export function createRacecourse(
   const turfTexture = grassTexture('#4f7a33', true, 23);
   const turfLength = COURSE_RUN_OUT + 260;
   turfTexture.repeat.set(turfLength / 24, 3);
-  const turfMaterial = keep(
-    surface({ color: '#d8e6c4', map: turfTexture, roughness: 0.93 })
+  const turfMaterial = keep(surface({ color: '#d8e6c4', map: turfTexture, roughness: 0.93 }));
+  const turfGeometry = keep(
+    new THREE.PlaneGeometry(turfLength, RAIL_Z * 2 + 4).rotateX(-Math.PI / 2)
   );
-  const turfGeometry = keep(new THREE.PlaneGeometry(turfLength, RAIL_Z * 2 + 4).rotateX(-Math.PI / 2));
   const turf = new THREE.Mesh(turfGeometry, turfMaterial);
   turf.position.set(-130 + turfLength / 2, RUNNER_GROUND_Y - 0.001, 0);
   turf.receiveShadow = !low;
@@ -328,9 +333,19 @@ export function createRacecourse(
     const z = side * RAIL_Z;
     // Plastic running rail: a continuous rounded top bar on slim posts.
     for (let x = railStart; x < railEnd; x += 60)
-      put(round, railWhite, x + 30, RAIL_HEIGHT, z, { rz: Math.PI / 2, sx: 0.09, sy: 60, sz: 0.09 });
+      put(round, railWhite, x + 30, RAIL_HEIGHT, z, {
+        rz: Math.PI / 2,
+        sx: 0.09,
+        sy: 60,
+        sz: 0.09,
+      });
     for (let x = railStart; x < railEnd; x += 60)
-      put(round, railWhite, x + 30, RAIL_HEIGHT - 0.45, z, { rz: Math.PI / 2, sx: 0.04, sy: 60, sz: 0.04 });
+      put(round, railWhite, x + 30, RAIL_HEIGHT - 0.45, z, {
+        rz: Math.PI / 2,
+        sx: 0.04,
+        sy: 60,
+        sz: 0.04,
+      });
   }
   // Posts are instanced: one draw for both rails.
   const postsPerSide = Math.ceil((railEnd - railStart) / 3);
@@ -359,7 +374,11 @@ export function createRacecourse(
       const x = (COURSE_LENGTH * i) / 10;
       put(round, railWhite, x, 1.6, side * (RAIL_Z + 0.25), { sx: 0.09, sy: 3.2, sz: 0.09 });
       for (let b = 0; b < 3; b++)
-        put(round, poleRed, x, 0.55 + b * 1.05, side * (RAIL_Z + 0.25), { sx: 0.1, sy: 0.4, sz: 0.1 });
+        put(round, poleRed, x, 0.55 + b * 1.05, side * (RAIL_Z + 0.25), {
+          sx: 0.1,
+          sy: 0.4,
+          sz: 0.1,
+        });
     }
   // Winning post and judge's box on the far side, never between camera and runners.
   const disc = keep(new THREE.CylinderGeometry(0.7, 0.7, 0.08, 24));
@@ -416,7 +435,8 @@ export function createRacecourse(
   {
     const hedge = surface({ color: '#2f4a26', roughness: 0.95 });
     keep(hedge);
-    for (let x = railStart; x < railEnd; x += 60) box(hedge, x + 30, 0.9, -RAIL_Z - 5, 60, 1.8, 1.6);
+    for (let x = railStart; x < railEnd; x += 60)
+      box(hedge, x + 30, 0.9, -RAIL_Z - 5, 60, 1.8, 1.6);
   }
 
   // ---- Starting stalls --------------------------------------------------------
@@ -441,25 +461,38 @@ export function createRacecourse(
     h: number,
     d: number
   ) => {
-    const g = unitBox.clone().applyMatrix4(new THREE.Matrix4().compose(
-      new THREE.Vector3(x, y, z),
-      new THREE.Quaternion(),
-      new THREE.Vector3(w, h, d)
-    ));
+    const g = unitBox
+      .clone()
+      .applyMatrix4(
+        new THREE.Matrix4().compose(
+          new THREE.Vector3(x, y, z),
+          new THREE.Quaternion(),
+          new THREE.Vector3(w, h, d)
+        )
+      );
     const list = gateQueue.get(material) ?? [];
     list.push(g);
     gateQueue.set(material, list);
   };
   // End towers, a deep top beam with number boards, and slim posts between stalls.
   for (const side of [-1, 1]) {
-    gatePut(gateGreen, 0, gateTop / 2, side * (halfSpan + 0.35), gateFront - gateBack + 0.6, gateTop, 0.7);
+    gatePut(
+      gateGreen,
+      0,
+      gateTop / 2,
+      side * (halfSpan + 0.35),
+      gateFront - gateBack + 0.6,
+      gateTop,
+      0.7
+    );
     gatePut(gatePad, 0, gateTop - 0.4, side * (halfSpan + 0.72), gateFront - gateBack, 0.18, 0.04);
   }
   gatePut(gateGreen, gateFront, gateTop, 0, 0.4, 0.55, halfSpan * 2 + 1.4);
   gatePut(gateGreen, gateBack, gateTop, 0, 0.4, 0.55, halfSpan * 2 + 1.4);
   for (let i = 0; i <= field; i++) {
     const z = (i - field / 2) * stallWidth;
-    for (const x of [gateFront, gateBack]) gatePut(gateGreen, x, gateTop / 2, z, 0.14, gateTop, 0.14);
+    for (const x of [gateFront, gateBack])
+      gatePut(gateGreen, x, gateTop / 2, z, 0.14, gateTop, 0.14);
     // Light rails between stalls at chest height keep the runners visible.
     gatePut(gatePad, 0, 1.55, z, gateFront - gateBack, 0.12, 0.08);
     gatePut(gatePad, 0, 2.45, z, gateFront - gateBack, 0.1, 0.06);
@@ -528,7 +561,9 @@ export function createRacecourse(
       new THREE.BoxGeometry(0.06, 0.08, 1.02).translate(0, 2.55, 0.51),
       new THREE.BoxGeometry(0.06, 0.08, 1.02).translate(0, 0.55, 0.51),
       new THREE.BoxGeometry(0.06, 0.08, 1.02).translate(0, 1.55, 0.51),
-      ...[0.25, 0.5, 0.75].map((f) => new THREE.BoxGeometry(0.04, 2.0, 0.04).translate(0, 1.55, f * 1.02)),
+      ...[0.25, 0.5, 0.75].map((f) =>
+        new THREE.BoxGeometry(0.04, 2.0, 0.04).translate(0, 1.55, f * 1.02)
+      ),
     ];
     const merged = mergeGeometries(parts)!;
     parts.forEach((g) => g.dispose());
@@ -566,14 +601,29 @@ export function createRacecourse(
       ctx.fillStyle = '#3d3b36';
       ctx.fillRect(0, 0, 512, 128);
       const rand = random(7);
-      const shirts = ['#d9d4c8', '#3b4f6b', '#8c4a45', '#b8a26a', '#4d6650', '#26262b', '#a8775a', '#7d8fa6', '#cfc3ae', '#5d4a5a', '#e6e1d6', '#2f3b48'];
+      const shirts = [
+        '#d9d4c8',
+        '#3b4f6b',
+        '#8c4a45',
+        '#b8a26a',
+        '#4d6650',
+        '#26262b',
+        '#a8775a',
+        '#7d8fa6',
+        '#cfc3ae',
+        '#5d4a5a',
+        '#e6e1d6',
+        '#2f3b48',
+      ];
       for (let row = 0; row < 8; row++)
         for (let i = 0; i < 60; i++) {
           const x = i * 8.6 + (row % 2) * 4 + rand() * 2,
             y = row * 16 + 4;
           ctx.fillStyle = shirts[Math.floor(rand() * shirts.length)];
           ctx.fillRect(x, y + 5, 6.2, 9);
-          ctx.fillStyle = ['#e2b58f', '#8d5a3c', '#c78d63', '#5a3826', '#f0c9a4'][Math.floor(rand() * 5)];
+          ctx.fillStyle = ['#e2b58f', '#8d5a3c', '#c78d63', '#5a3826', '#f0c9a4'][
+            Math.floor(rand() * 5)
+          ];
           ctx.beginPath();
           ctx.arc(x + 3.1, y + 3.4, 2.6, 0, Math.PI * 2);
           ctx.fill();
@@ -711,9 +761,7 @@ export function createRacecourse(
     parts.forEach((g) => g.dispose());
     return keep(merged);
   })();
-  const treeMaterial = keep(
-    surface({ vertexColors: true, roughness: 0.95 })
-  );
+  const treeMaterial = keep(surface({ vertexColors: true, roughness: 0.95 }));
   const treeCount = high ? 440 : low ? 150 : 300;
   // Trees are instanced in chunks along the course so off-screen chunks are culled.
   const treeChunks = 10;
@@ -742,8 +790,14 @@ export function createRacecourse(
       });
     }
     treeZones.push(
-      new THREE.Box3(new THREE.Vector3(-280, 0, -260), new THREE.Vector3(COURSE_RUN_OUT + 280, 16, -88)),
-      new THREE.Box3(new THREE.Vector3(-280, 0, 90), new THREE.Vector3(COURSE_RUN_OUT + 280, 16, 250))
+      new THREE.Box3(
+        new THREE.Vector3(-280, 0, -260),
+        new THREE.Vector3(COURSE_RUN_OUT + 280, 16, -88)
+      ),
+      new THREE.Box3(
+        new THREE.Vector3(-280, 0, 90),
+        new THREE.Vector3(COURSE_RUN_OUT + 280, 16, 250)
+      )
     );
   }
   const trees: THREE.InstancedMesh[] = [];
@@ -838,7 +892,10 @@ export function createRacecourse(
     },
     {
       name: 'marquees',
-      box: new THREE.Box3(new THREE.Vector3(70, 0, -RAIL_Z - 29), new THREE.Vector3(440, 7, -RAIL_Z - 9.5)),
+      box: new THREE.Box3(
+        new THREE.Vector3(70, 0, -RAIL_Z - 29),
+        new THREE.Vector3(440, 7, -RAIL_Z - 9.5)
+      ),
     },
     {
       name: 'screen',

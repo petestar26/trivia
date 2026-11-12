@@ -37,6 +37,7 @@ const parts = new Set(
   (process.env.DERBY_REVIEW_PARTS ?? 'stills,states,clips,perf').split(',').filter(Boolean)
 );
 const onlyClips = process.env.DERBY_REVIEW_CLIPS?.split(',').filter(Boolean);
+const skip = new Set((process.env.DERBY_REVIEW_SKIP ?? '').split(',').filter(Boolean));
 await mkdir(output, { recursive: true });
 
 const bundled = await build({
@@ -319,15 +320,46 @@ async function sceneInfo(page) {
     };
   });
 }
+/** A screenshot can wait for a compositor frame that a paused page clock never
+ * schedules; nudge the clock one frame and retry rather than fail the run. */
+async function screenshot(page, options) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await page.screenshot({ ...options, timeout: 30000 });
+    } catch (error) {
+      if (attempt >= 3) throw error;
+      await page.clock.runFor(34).catch(() => {});
+      state.elapsed += 34;
+      await page.waitForTimeout(500);
+    }
+  }
+}
 async function shot(page, name, { scene = true, full = true } = {}) {
   if (full) {
-    await page.screenshot({ path: resolve(output, name + '.png') });
+    await screenshot(page, { path: resolve(output, name + '.png') });
     captures.push(name + '.png');
   }
   const box = await sceneBox(page);
   if (scene && box) {
-    await page.screenshot({ path: resolve(output, name + '-scene.png'), clip: box });
+    await screenshot(page, { path: resolve(output, name + '-scene.png'), clip: box });
     captures.push(name + '-scene.png');
+  }
+}
+/** Run one scenario; record a failure and keep going with the rest. */
+async function scenario(name, run) {
+  const contexts = [];
+  const make = async (options) => {
+    const c = await createContext(options);
+    contexts.push(c.ctx);
+    return c;
+  };
+  try {
+    await run(make);
+  } catch (error) {
+    errors.push(`${name}: ${String(error?.message ?? error).split('\n')[0]}`);
+  } finally {
+    for (const ctx of contexts) await ctx.close().catch(() => {});
+    state.offline = state.failModels = state.failBackdrop = false;
   }
 }
 /** The course shell's viewport rectangle. Clipping by box avoids Playwright's rAF
@@ -447,29 +479,32 @@ try {
   }
 
   if (parts.has('states')) {
+    const run = (name, body) => (skip.has(name) ? null : scenario(name, body));
     // Reduced motion: still image, one refresh per second.
-    for (const view of ['desktop', 'phone375']) {
-      const c = await createContext({ ...VIEWPORTS[view], reduced: true });
-      await open(c.page, { start: 21000, field: 8 });
-      await advance(c.page, 3000);
-      await shot(c.page, `state-reduced-motion-${view}`);
-      measurements.push({ stage: 'reduced ' + view, ...(await sceneInfo(c.page)) });
-      await c.ctx.close();
-    }
-    checks.push('reduced motion renders on desktop and phone');
+    await run('reduced', async (make) => {
+      for (const view of ['desktop', 'phone375']) {
+        const c = await make({ ...VIEWPORTS[view], reduced: true });
+        await open(c.page, { start: 21000, field: 8 });
+        await advance(c.page, 3000);
+        await shot(c.page, `state-reduced-motion-${view}`);
+        measurements.push({ stage: 'reduced ' + view, ...(await sceneInfo(c.page)) });
+      }
+      checks.push('reduced motion renders on desktop and phone');
+    });
     // Quality tiers.
-    for (const quality of ['high', 'balanced', 'low']) {
-      const c = await createContext({ ...VIEWPORTS.phone375, quality });
-      await open(c.page, { start: 21000, field: 8 });
-      await advance(c.page, 3000);
-      await shot(c.page, `state-quality-${quality}-phone375`);
-      measurements.push({ stage: 'quality ' + quality, ...(await sceneInfo(c.page)) });
-      await c.ctx.close();
-    }
-    checks.push('quality tiers render');
+    await run('quality', async (make) => {
+      for (const quality of ['high', 'balanced', 'low']) {
+        const c = await make({ ...VIEWPORTS.phone375, quality });
+        await open(c.page, { start: 21000, field: 8 });
+        await advance(c.page, 3000);
+        await shot(c.page, `state-quality-${quality}-phone375`);
+        measurements.push({ stage: 'quality ' + quality, ...(await sceneInfo(c.page)) });
+      }
+      checks.push('quality tiers render');
+    });
     // Reconnect: the API stops answering mid-race, then returns.
-    {
-      const c = await createContext(VIEWPORTS.desktop);
+    await run('reconnect', async (make) => {
+      const c = await make(VIEWPORTS.desktop);
       await open(c.page, { start: 16000, field: 6 });
       await advance(c.page, 2000);
       state.offline = true;
@@ -483,14 +518,13 @@ try {
       measurements.push({ stage: 'reconnect', paused, resumed });
       assert.match(paused.heading ?? '', /Reconnecting/i, 'reconnect heading not shown');
       assert.doesNotMatch(resumed.heading ?? '', /Reconnecting/i, 'reconnect did not recover');
-      await c.ctx.close();
       checks.push('reconnect: paused view while offline, resumes after');
-    }
+    });
     // Model and backdrop download failure: procedural runners remain.
-    {
+    await run('asset-failure', async (make) => {
       state.failModels = true;
       state.failBackdrop = true;
-      const c = await createContext(VIEWPORTS.desktop);
+      const c = await make(VIEWPORTS.desktop);
       await open(c.page, { start: 21000, field: 8, expectAuthored: false });
       await advance(c.page, 3000);
       const info = await sceneInfo(c.page);
@@ -498,14 +532,11 @@ try {
       measurements.push({ stage: 'asset failure', ...info });
       assert.equal(info.runners, 'procedural');
       assert.equal(info.fallback, false);
-      state.failModels = false;
-      state.failBackdrop = false;
-      await c.ctx.close();
       checks.push('asset failure: procedural runners keep racing');
-    }
+    });
     // Graphics context loss and restoration.
-    {
-      const c = await createContext(VIEWPORTS.desktop);
+    await run('context-loss', async (make) => {
+      const c = await make(VIEWPORTS.desktop);
       await open(c.page, { start: 21000, field: 8 });
       await advance(c.page, 1000);
       const lost = await c.page.evaluate(() => {
@@ -523,10 +554,7 @@ try {
       await c.page.evaluate(() => window.__derbyLose.restoreContext());
       await c.page.waitForTimeout(300);
       for (let i = 0; i < 300; i++) {
-        const runners = await c.page
-          .locator('.derby-scene')
-          .first()
-          .getAttribute('data-runners');
+        const runners = await c.page.locator('.derby-scene').first().getAttribute('data-runners');
         if (runners === 'authored-rigs' && !(await c.page.locator('.derby-scene-fallback').count()))
           break;
         await advance(c.page, 10, 10);
@@ -538,23 +566,21 @@ try {
       measurements.push({ stage: 'context loss', lost, during, after });
       assert.equal(during.fallback, true, 'context loss did not show the fallback');
       assert.equal(after.fallback, false, 'context restoration did not rebuild');
-      await c.ctx.close();
       checks.push('context loss shows fallback; restoration rebuilds the scene');
-    }
+    });
     // No WebGL at all.
-    {
-      const c = await createContext({ ...VIEWPORTS.phone375, noWebGL: true });
+    await run('no-webgl', async (make) => {
+      const c = await make({ ...VIEWPORTS.phone375, noWebGL: true });
       await open(c.page, { start: 21000, field: 6, expectAuthored: false });
       await advance(c.page, 1000);
       await shot(c.page, 'state-no-webgl');
       const info = await sceneInfo(c.page);
       assert.equal(info.fallback, true);
-      await c.ctx.close();
       checks.push('no WebGL: accessible fallback');
-    }
+    });
     // Reset into the next race after the result window.
-    {
-      const c = await createContext(VIEWPORTS.desktop);
+    await run('reset', async (make) => {
+      const c = await make(VIEWPORTS.desktop);
       await open(c.page, { start: 56000, field: 6 });
       await advance(c.page, 2000);
       await shot(c.page, 'state-result-window');
@@ -563,9 +589,8 @@ try {
       await shot(c.page, 'state-next-race-reset');
       measurements.push({ stage: 'reset', ...info });
       assert.match(info.heading ?? '', /starting gate/i, 'next race did not reset to the gate');
-      await c.ctx.close();
       checks.push('result window then reset to the next race gate');
-    }
+    });
   }
 
   if (parts.has('clips')) {
@@ -601,69 +626,72 @@ try {
         camera: 'Head-on',
       },
     ].filter((clip) => !onlyClips || onlyClips.includes(clip.name));
-    for (const clip of clips) {
-      const frames = resolve(output, 'frames-' + clip.name);
-      await rm(frames, { recursive: true, force: true });
-      await mkdir(frames, { recursive: true });
-      const opts = { ...VIEWPORTS[clip.view], scale: clip.view === 'desktop' ? 1 : 2 };
-      const c = await createContext(opts);
-      await open(c.page, { start: clip.from - 2000, field: clip.field });
-      if (clip.camera && !(await chooseCamera(c.page, clip.camera))) {
-        await c.ctx.close();
-        continue;
-      }
-      await advance(c.page, 2000);
-      const step = 1000 / clip.fps,
-        count = Math.round((clip.ms / 1000) * clip.fps),
-        box = await sceneBox(c.page);
-      let carried = 0;
-      const started = Date.now();
-      for (let i = 0; i < count; i++) {
-        carried += step;
-        const d = Math.floor(carried);
-        carried -= d;
-        await advance(c.page, d, d);
-        await c.page.screenshot({ path: resolve(frames, String(i).padStart(5, '0') + '.png'), clip: box });
-      }
-      const realSeconds = (Date.now() - started) / 1000;
-      const probe = await c.page.evaluate(() => {
-        const s = window.__derbyProbe.contexts.filter((x) => x.canvas.isConnected).at(-1);
-        return s ? { draws: s.frameDraws.slice(-60), triangles: s.frameTriangles.slice(-60) } : null;
+    for (const clip of clips)
+      await scenario('clip ' + clip.name, async (make) => {
+        const frames = resolve(output, 'frames-' + clip.name);
+        await rm(frames, { recursive: true, force: true });
+        await mkdir(frames, { recursive: true });
+        const opts = { ...VIEWPORTS[clip.view], scale: clip.view === 'desktop' ? 1 : 2 };
+        const c = await make(opts);
+        await open(c.page, { start: clip.from - 2000, field: clip.field });
+        if (clip.camera && !(await chooseCamera(c.page, clip.camera))) return;
+        await advance(c.page, 2000);
+        const step = 1000 / clip.fps,
+          count = Math.round((clip.ms / 1000) * clip.fps),
+          box = await sceneBox(c.page);
+        let carried = 0;
+        const started = Date.now();
+        for (let i = 0; i < count; i++) {
+          carried += step;
+          const d = Math.floor(carried);
+          carried -= d;
+          await advance(c.page, d, d);
+          await screenshot(c.page, {
+            path: resolve(frames, String(i).padStart(5, '0') + '.png'),
+            clip: box,
+          });
+        }
+        const realSeconds = (Date.now() - started) / 1000;
+        const probe = await c.page.evaluate(() => {
+          const s = window.__derbyProbe.contexts.filter((x) => x.canvas.isConnected).at(-1);
+          return s
+            ? { draws: s.frameDraws.slice(-60), triangles: s.frameTriangles.slice(-60) }
+            : null;
+        });
+        await c.ctx.close().catch(() => {});
+        const encode = (rate, out) =>
+          execFileSync('ffmpeg', [
+            '-y',
+            '-loglevel',
+            'error',
+            '-framerate',
+            String(rate),
+            '-i',
+            resolve(frames, '%05d.png'),
+            '-vf',
+            'pad=ceil(iw/2)*2:ceil(ih/2)*2',
+            '-c:v',
+            'libx264',
+            '-pix_fmt',
+            'yuv420p',
+            '-crf',
+            '23',
+            '-movflags',
+            '+faststart',
+            resolve(output, out),
+          ]);
+        encode(clip.fps, clip.name + '.mp4');
+        if (clip.ms <= 10000) encode(clip.fps / 4, clip.name + '-quarter-speed.mp4');
+        captures.push(clip.name + '.mp4');
+        measurements.push({
+          stage: 'clip ' + clip.name,
+          frames: count,
+          fps: clip.fps,
+          captureSeconds: realSeconds,
+          probe,
+        });
+        checks.push(`clip ${clip.name}: ${count} frames at ${clip.fps} fps`);
       });
-      await c.ctx.close();
-      const encode = (rate, out) =>
-        execFileSync('ffmpeg', [
-          '-y',
-          '-loglevel',
-          'error',
-          '-framerate',
-          String(rate),
-          '-i',
-          resolve(frames, '%05d.png'),
-          '-vf',
-          'pad=ceil(iw/2)*2:ceil(ih/2)*2',
-          '-c:v',
-          'libx264',
-          '-pix_fmt',
-          'yuv420p',
-          '-crf',
-          '23',
-          '-movflags',
-          '+faststart',
-          resolve(output, out),
-        ]);
-      encode(clip.fps, clip.name + '.mp4');
-      if (clip.ms <= 10000) encode(clip.fps / 4, clip.name + '-quarter-speed.mp4');
-      captures.push(clip.name + '.mp4');
-      measurements.push({
-        stage: 'clip ' + clip.name,
-        frames: count,
-        fps: clip.fps,
-        captureSeconds: realSeconds,
-        probe,
-      });
-      checks.push(`clip ${clip.name}: ${count} frames at ${clip.fps} fps`);
-    }
   }
 
   if (parts.has('perf')) {
@@ -675,25 +703,26 @@ try {
       ['phone375', 'balanced'],
       ['phone375', 'low'],
     ]) {
-      const c = await createContext({ ...VIEWPORTS[view], quality, scale: 2 });
-      await open(c.page, { start: 21000, field: 8 });
-      await advance(c.page, 2000);
-      const result = await c.page.evaluate(() => {
-        const s = window.__derbyProbe.contexts.filter((x) => x.canvas.isConnected).at(-1);
-        const gl = s?.gl;
-        const debug = gl?.getExtension('WEBGL_debug_renderer_info');
-        return s
-          ? {
-              drawsPerFrame: s.frameDraws.slice(-20),
-              trianglesPerFrame: s.frameTriangles.slice(-20),
-              texturesCreated: s.textures,
-              canvas: [s.canvas.width, s.canvas.height],
-              renderer: debug ? gl.getParameter(debug.UNMASKED_RENDERER_WEBGL) : null,
-            }
-          : null;
+      await scenario(`perf ${view} ${quality}`, async (make) => {
+        const c = await make({ ...VIEWPORTS[view], quality, scale: 2 });
+        await open(c.page, { start: 21000, field: 8 });
+        await advance(c.page, 2000);
+        const result = await c.page.evaluate(() => {
+          const s = window.__derbyProbe.contexts.filter((x) => x.canvas.isConnected).at(-1);
+          const gl = s?.gl;
+          const debug = gl?.getExtension('WEBGL_debug_renderer_info');
+          return s
+            ? {
+                drawsPerFrame: s.frameDraws.slice(-20),
+                trianglesPerFrame: s.frameTriangles.slice(-20),
+                texturesCreated: s.textures,
+                canvas: [s.canvas.width, s.canvas.height],
+                renderer: debug ? gl.getParameter(debug.UNMASKED_RENDERER_WEBGL) : null,
+              }
+            : null;
+        });
+        measurements.push({ stage: `perf ${view} ${quality}`, ...result });
       });
-      measurements.push({ stage: `perf ${view} ${quality}`, ...result });
-      await c.ctx.close();
     }
     checks.push('perf: draw/triangle workload recorded');
   }

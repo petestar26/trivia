@@ -25,6 +25,8 @@ A buffered, monotone cubic position interpolator uses only published server posi
 
 ## Racecourse
 
+> Superseded on 12 November 2026: the live scene now builds the Emerald Course from code (see the last section) and no longer requests this backdrop. The file and its provenance below are retained unchanged.
+
 `apps/web/public/art/ruby-grand/derby-racecourse.webp` is original artwork generated with the built-in image-generation tool, encoded as WebP (2172 × 724). It decorates the distant scenery; the turf, rails, horses and finish line remain real-time 3D geometry. Image load failure hides only the backdrop. Mobile pixel ratio is capped at 1.5 and rendering at approximately 30 fps; reduced motion holds a standing pose.
 
 Generation prompt:
@@ -85,3 +87,74 @@ The calibrated clearance override previously switched on at a negative raw sole 
 The additional clearance override now engages with a smoothstep over 0–0.003 model units of penetration (0–4.5 mm at the shipped 1.5 scale). It blends from the existing contact-weighted correction inside recovery, and from the authored pose outside contact. The extra target correction starts with zero value and slope at the sole-zero crossing; this is not a claim that every solved limb or the original Run loop is C1. Positive authored poses outside contact remain unchanged. The original solver retains three joints, six passes, 0.05 upward/recovery and 0.28 total correction limits, five calibration stages and the same phase/profile ownership.
 
 Regression coverage scans all twelve measured sole-profile zero crossings, all four hooves and eight runner offsets, shrinking epsilon from 0.1 ms to 10 ns, ordinary 60/30/15 Hz distance-clock steps, and stopped/reduced-motion/resume paths. The reviewed crossing falls to about 0.000056 mm at 10 ns; the maximum across all crossings is below 0.006 mm, including small numerical solver-pose differences. Dense 768-phase selected-sole measurements retain 1.180 mm central and 3.307 mm full-window stance range, 0.836 mm maximum running penetration and 131 suspension samples. These remain scoped samples rather than physical collision or device acceptance.
+
+## Broadcast realism follow-up (12 November 2026)
+
+Base: `codex/casino-catalogue-20261107` at `b7c98f2091e35e5df07bf1a50dfa2fdc9c704ecc` (the deployed Dog Racing release). Draft PR #60 (`feat/derby-gallop-broadcast`, `abc397f`) was compared first: its runtime commits through `aeec2ee` were already in this base, and its later commits only added the capture verifier and CI selection, both also present. Nothing from it needed re-applying. No local-only candidate or evidence archive referenced by earlier work was available in this environment; this work continues from the verified repository only.
+
+Everything below is presentation. Race outcomes, published positions and timing, odds, selections, tickets, balances, payouts, rules, shared-game logic, flags, backend and database are untouched. Shots, runner poses and badges use only already-published, displayed positions, the public running/finished flags and wall-clock time.
+
+### Natural gallop cadence
+
+Published progress maps linearly onto a 660-unit straight (`racecourse.ts`, `COURSE_LENGTH`) instead of 180 units. On the old scale runners travelled about 4.2 units/s while the authored Run clip is calibrated for 15 units/s, so every horse galloped at 0.28× its authored rate (about 0.65 strides/s). The distance-driven stride clock and hoof calibration are unchanged; at the new scale the clip plays at about 1.04× (about 2.4 strides/s). Gaps between runners scale by the same factor; their order and proportions do not change.
+
+### Gallop loop seam
+
+The CC0 Run export has thirteen 30 fps frames whose last frame is inconsistent per bone: some bones repeat their previous pose (a one-frame freeze), others repeat the first pose, so the step into the next cycle reached about twice a normal frame. `gallop-clip.ts` re-derives only that last frame from its neighbours across the seam (periodic cubic Hermite) and resamples moving tracks 4× with monotone (Steffen) cubics, which are C1 and never overshoot the authored keys (an ordinary Catmull-Rom dipped a planted hind hoof up to 30 mm below its stance). Authored frames 0–11, duration and bones are unchanged. Largest change of joint speed across the seam: 34.2 → 10.5 rad/s per sample (520 samples per cycle); the two worst joints at least halve.
+
+Calibration runs eight staged passes (was five) because the smoother loop's deepest hind stance needs them; in-stance sole corrections may reach 0.075 model units (outside-stance upward cap 0.05 and total cap 0.28 unchanged). It now runs in yielding slices (`measureHoofWindowsInSlices`) while the procedural runners keep racing. Node: about 150 ms warm, 270–390 ms first call (contended container; not a phone measurement). Shipped-skin sampling in the existing tests, before (documented `aeec2ee` values) → after:
+
+| Measurement | Before | After |
+| --- | ---: | ---: |
+| Central-half stance hoof world-X slip (worst hoof) | 1.180 mm | 0.99 mm |
+| Complete stance window slip (worst hoof) | 3.307 mm | 3.67 mm |
+| Worst selected-sole running penetration | 0.836 mm | 0.12 mm |
+| Largest jump across any sole-zero crossing, 8 runner offsets | 0.0053 mm | 0.0052 mm |
+
+The full-window slip bound (4 mm) is unchanged; one hoof's eased landing/lift is 0.4 mm longer than before.
+
+### Standing hooves
+
+Inspected before changing: the CC0 Idle pose sank the soles 13.1 mm (front-left), 8.7 mm (front-right) and 4.3 mm (both hinds) into the turf, as documented. Standing runners now play the Idle clip slowly (breathing, ears, a pawing fore) and each penetrating sole is lifted with the existing three-joint hoof solver. Lifts are calibrated per standing phase (64 phases, secant steps against the measured skin, because a hind sole rises only about a third as far as its hoof joint). Measured on the shipped skin: still pose soles +0.5 to +1.2 mm, animated standing cycle worst +1.15 mm; positive (raised) clearance is untouched. Because `AnimationMixer` skips writing unchanged joints, the previous frame's grounding is undone before sampling, so the standing pose has no history (identical across repeated and stale frames, which a test checks).
+
+### Runners and riders
+
+- **Coats** (`horse-coat.ts`): the CC0 horse is palette-mapped; its UV cells identify coat, lower legs, hooves, muzzle, mane/tail and eyes. A shader computes coat colour with gentle unevenness, black/darker points below knee and hock, white socks per leg, star/blaze/stripe-and-snip on the face, dapples for greys, dark horn hooves (pale under socks), and per-region roughness; High adds a soft clearcoat sheen. No texture is added.
+- **Identity** (`runner-identity.ts`): eight distinct coats; silks keep each runner's interface colour as the body colour with a distinct pattern (hoops, sash, crossbelts, quartered, chevrons, braces, halved, stripes), sleeves and cap. Number ink is chosen for at least 4.5:1 contrast on every cloth colour.
+- **Tack** (`tack.ts`): saddle cloth, racing saddle and girth are generated once per asset set by casting rays from the spine to the actual bind-pose skin; every vertex takes the interpolated skin weights of the triangle below it, so the tack bends exactly with the back (no rigid pucks, no gaps). The cloth carries the runner's number on both sides. Stirrup irons hang under the boots with leathers to the saddle bars; the browband carries the cloth colour.
+- **Rider**: a flat-backed racing crouch with short leathers, head up and hands on the reins either side of the crest at about 80% arm reach (the old hand target was out of reach, leaving straight arms). Boots and hands land on their targets within 1e-7 model units through the stride; knees and elbows flex as the rider floats over the stride; the pelvis stays 0.30–0.65 model units above the back. Hands push in time with the stride over the closing stages (from 60% of the course) and sit still after the post.
+
+### The Emerald Course and cameras
+
+`racecourse.ts` builds an original straight turf course entirely from code and canvas: gradient sky with soft clouds, mown turf stripes, plastic running rails, distance poles, numbered starting stalls whose doors open with the published start, a winning post and judge's box on the far side, course boards ("SALEM BET", "EMERALD COURSE"), a clipped hedge, marquees, a three-tier grandstand with crowd and a big screen by the finish, chunked instanced trees and hills. Matte scenery uses Lambert shading below High; the sky-derived image light is applied only to coats, silks and tack (scene-wide it doubled software-render time for little gain). The old finish arch, which crossed the frame at the finish, is gone.
+
+`broadcast-camera.ts` replaces the single fixed three-quarter view. Trackside (default) cuts on public race phases: a slow drift across the stalls before the start, a three-quarter view of the break, a side-on tracking shot with a long lens down the straight, a head-on three-quarter view of the final furlong with the grandstand behind, then side-on past the post. Follow race (from behind and above, once the field is clear of the stalls) and Aerial are offered on the Derby page beside a graphics-quality picker, using the same labels as Dog Racing. Every shot is solved to contain all six/eight runner silhouettes (tail to nose, hooves to cap, real lanes) on any stage; changes of shot ease on a critically damped spring; a widening field widens the view immediately. After easing, every hoof and head sightline is tested against every course structure and the camera lifts only as far as needed; runners inside the stalls are framed through them. Reduced motion holds one still overview refreshed once per second.
+
+### Numbers
+
+Badges keep the stable per-scene layout, leaders and runner IDs, but are drawn in each runner's cloth colour with contrasting ink and a dark keyline, and are no longer tone-mapped (they were washed out to pastels). Saddle cloths and stall boards repeat the numbers in the scene.
+
+### Cost and quality tiers
+
+| | High | Balanced | Low |
+| --- | --- | --- | --- |
+| Drawing-buffer budget | 1.15 MP | 0.38 MP | 0.22 MP |
+| Frame cap while racing | 60 fps | 30 fps | 30 fps |
+| Shadows | soft, 2048, runners + tack + riders | PCF 1024, horse bodies | none (blob shadows) |
+| Scenery shading | Standard | Lambert | Lambert |
+| Image light on runners | yes | yes | no |
+| Course triangles (before culling) | 91k | 71k | 49k |
+
+The course is 56 draws; each runner is at most 20 meshes, with at most two shadow casters below High. Standing runners render at 20 fps; reduced motion at 1 fps; drawing stops while the course is scrolled away or the tab is hidden. Automatic quality uses the Dog Racing frame governor (resolution first, then one tier down). The Derby chunk grows from 14.6 KB to 27.3 KB gzipped. Model bytes are unchanged (`horse.glb` 337,128 bytes, `jockey.glb` 533,136 bytes, SHA-256 as above); the 307,172-byte backdrop is no longer requested, so a Derby session downloads about 295 KB less.
+
+### Assets and licences
+
+No new binary asset, font, image, model, shader library or runtime host. All new geometry, textures (canvas), shaders and camera logic are original code in this repository. The CC0 Mesh2Motion horse/human and their clips are unchanged. Canvas text uses the device's system fonts.
+
+### Review tooling
+
+`apps/web/derby-lab.html` (dev only, not in the production build) renders the real rigs, course and director at fixed phases. `scripts/review-derby-visuals.mjs` drives a built loopback preview with Playwright: every API response is a local fixture, published progress comes from the API's own `derbyPositions`, page time and fixture time advance together on a paused clock, external hosts and any non-GET API request fail the run. It captures race moments for six and eight runners at 1440×1000, 375×812, 320×568 and 844×390 (plus expanded views), camera presets, reduced motion, quality tiers, reconnect, model/backdrop download failure, WebGL context loss/restoration, no-WebGL fallback and the reset into the next race, normal-speed and quarter-speed clips, and per-frame draw/triangle counts.
+
+### Remaining limitations
+
+Evidence is from headless Chromium with SwiftShader (software WebGL) in a Linux container: it establishes correctness, framing and workload counts, not phone frame rate, heat, touch or Safari behaviour. No physical device was used. The horse and human meshes remain the stylised CC0 rigs (3,414 and 13,757 triangles); detail such as muscle definition is shading, not geometry. The authored Run clip is still a single gallop cycle at one speed; the field's finishing spread reflects the published positions only. Contact and standing measurements are on selected sole vertices (at least 50% hoof-chain weight), not full collision.

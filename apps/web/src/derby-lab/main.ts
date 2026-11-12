@@ -7,7 +7,10 @@ import {
 } from '../components/derby/rigged-horse';
 import { runnerLook } from '../components/derby/runner-identity';
 import { createRacecourse, laneZ, RUNNER_GROUND_Y } from '../components/derby/racecourse';
-import { createBroadcastDirector, type DerbyCameraMode } from '../components/derby/broadcast-camera';
+import {
+  createBroadcastDirector,
+  type DerbyCameraMode,
+} from '../components/derby/broadcast-camera';
 
 // Dev-only review of the Derby rigs and course. Query parameters:
 //   ?n=1..8 runners  ?view=side|quarter|front|rear|top|jockey|hoof|saddle|wide
@@ -127,7 +130,14 @@ function frame(next: Partial<typeof state> = {}) {
     shot = director.update(
       camera,
       state.mode,
-      { positions, field, running: state.running, finished: state.finished, reduced: false, time: state.idle },
+      {
+        positions,
+        field,
+        running: state.running,
+        finished: state.finished,
+        reduced: false,
+        time: state.idle,
+      },
       0
     ).shot;
   } else aim(state.view);

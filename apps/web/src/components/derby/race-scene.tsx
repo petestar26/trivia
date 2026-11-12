@@ -483,8 +483,7 @@ export default function RaceScene({
           const phase = strides[i](travelled, moving);
           const progress = displayed[i] / COURSE_LENGTH;
           // Riders push in the closing stages and sit still once past the post.
-          const drive =
-            progress < 1 ? THREE.MathUtils.smoothstep(progress, 0.6, 0.92) : 0;
+          const drive = progress < 1 ? THREE.MathUtils.smoothstep(progress, 0.6, 0.92) : 0;
           horse.animate(phase, moving && travelled > 0.0001, { idle: idleSeconds, drive });
         });
         const framed = director.update(

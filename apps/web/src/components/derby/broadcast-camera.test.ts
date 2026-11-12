@@ -65,7 +65,8 @@ describe('Derby broadcast director', () => {
             const progress = Math.max(0, Math.min(1.06, (t / 45) * 1.06));
             const positions = Array.from(
               { length: field },
-              (_, i) => courseX(progress) - (progress > 0.6 ? ((i * 3) % field) * (progress - 0.6) * 9 : 0)
+              (_, i) =>
+                courseX(progress) - (progress > 0.6 ? ((i * 3) % field) * (progress - 0.6) * 9 : 0)
             );
             const running = t >= 0 && t < 45;
             director.update(
@@ -80,7 +81,15 @@ describe('Derby broadcast director', () => {
               points,
               course.obstacles.filter((o) => !points.some((p) => o.box.containsPoint(p)))
             );
-            expect(blocked, `${mode} ${aspect.toFixed(2)} t=${t.toFixed(1)} ${director.shot}`).toEqual([]);
+            expect(
+              blocked,
+              `${mode} ${aspect.toFixed(2)} t=${t.toFixed(1)} ${director.shot}`
+            ).toEqual([]);
+            // Never inside scenery or below the turf.
+            expect(course.obstacles.filter((o) => o.box.containsPoint(camera.position))).toEqual(
+              []
+            );
+            expect(camera.position.y).toBeGreaterThan(0.75);
             expectFramed(camera, positions, field);
           }
         }
@@ -159,6 +168,8 @@ describe('Derby broadcast director', () => {
     expect(clearSightlines(position, points, [{ name: 'rail', box, margin: 0 }])).toBe(true);
     // The sightline enters the box at z = 10, half way: it must clear y = 1 there.
     expect(position.y).toBeCloseTo(2, 9);
-    expect(blockedSightlines(position.clone().setY(2.01), points, [{ name: 'rail', box }])).toEqual([]);
+    expect(blockedSightlines(position.clone().setY(2.01), points, [{ name: 'rail', box }])).toEqual(
+      []
+    );
   });
 });
