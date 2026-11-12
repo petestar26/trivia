@@ -7,7 +7,10 @@ export type RaceRunnerColor = { color: string; ink: string };
 /** WCAG AA for normal-size text; the strip and 2D numbers are small. */
 export const MIN_INK_CONTRAST = 4.5;
 
-/** The course's own ink when it reaches AA, otherwise the higher-contrast of black and white (always ≥ 4.58:1). */
+/**
+ * The course's own ink when it reaches AA, otherwise the higher-contrast of black and white (always ≥ 4.58:1).
+ * Every current horse and dog ink already reaches AA, so the fallback is a guard against future palette changes.
+ */
 function legibleInk(color: string, ink: string) {
   if (contrastRatio(color, ink) >= MIN_INK_CONTRAST) return ink;
   return contrastRatio(color, '#000000') >= contrastRatio(color, '#ffffff') ? '#000000' : '#ffffff';

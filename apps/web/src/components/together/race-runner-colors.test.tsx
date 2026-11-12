@@ -83,6 +83,10 @@ describe.each(games)('group $name runner colours', ({ game, dogs, scene }) => {
       DERBY_HORSES.forEach((h, i) => expect(raceRunnerColor(false, i).color).toBe(h.color));
   });
 
+  it('draws numbers in the same ink as the 3D course (the black/white fallback is only a guard)', () => {
+    for (let i = 0; i < 8; i++) expect(raceRunnerColor(dogs, i)).toEqual(scene(i));
+  });
+
   it('colours the race-order strip by runner number, not by place', async () => {
     const { container } = render(
       <TogetherLiveGame round={round(game)} userId="me" serverNow={25000} finalResult={null} />
