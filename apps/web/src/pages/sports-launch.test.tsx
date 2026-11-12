@@ -1,6 +1,8 @@
 import { StrictMode } from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
+import { createLaunchIntent } from '@/lib/launch-intent';
+import { installMemoryStorage } from '@/test/memory-storage';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 const f = vi.hoisted(() => ({
   post: vi.fn(),
@@ -21,21 +23,42 @@ const ready = (url = 'https://sports.example.com/session') => ({
   success: true,
   data: { mode: 'real-wallet', url },
 });
+function Address() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  return (
+    <>
+      <button onClick={() => navigate('/sports/open?other=route')}>Change launch route</button>
+      <output data-testid="address">{location.pathname + location.search}</output>
+    </>
+  );
+}
+// The member's click on "Browse sports" creates the intent, then the new tab opens.
+let entry = '/sports/open';
+const clickedFromSports = (userId = 'member') => {
+  entry = `/sports/open?intent=${createLaunchIntent('sports', userId)}`;
+};
 const tree = () => (
   <StrictMode>
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[entry]}>
+      <Address />
       <SportsLaunchPage />
     </MemoryRouter>
   </StrictMode>
 );
+let storage: ReturnType<typeof installMemoryStorage>;
 beforeEach(() => {
+  storage = installMemoryStorage();
   vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: false }));
   f.post.mockResolvedValue(ready());
+  clickedFromSports();
 });
 afterEach(() => {
   cleanup();
   vi.resetAllMocks();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
+  storage.restore();
   f.user = { id: 'member' };
 });
 it('requests one real-wallet session and redirects despite StrictMode replay', async () => {
@@ -90,6 +113,7 @@ it('does not redirect after the member leaves the launch page', async () => {
       })
   );
   const view = render(tree());
+  await waitFor(() => expect(f.post).toHaveBeenCalledTimes(1));
   view.unmount();
   await act(async () => resolve(ready()));
   expect(f.navigate).not.toHaveBeenCalled();
@@ -103,8 +127,11 @@ it('discards the previous account session if the signed-in member changes', asyn
       })
   );
   const view = render(tree());
+  await waitFor(() => expect(f.post).toHaveBeenCalledTimes(1));
   f.user = { id: 'another-member' };
   view.rerender(tree());
+  // The first member's click intent does not carry over: the new member chooses.
+  fireEvent.click(await screen.findByRole('button', { name: 'Browse sports' }));
   await waitFor(() => expect(f.navigate).toHaveBeenCalledTimes(1));
   await act(async () => resolve(ready('https://sports.example.com/old-session')));
   expect(f.navigate).toHaveBeenCalledTimes(1);
@@ -115,4 +142,108 @@ it('does not request a session for a signed-out visitor', () => {
   render(tree());
   expect(screen.getByText('Sign in to browse sports.')).toBeInTheDocument();
   expect(f.post).not.toHaveBeenCalled();
+});
+
+it('spends the one-time intent so the retained URL cannot replay it', async () => {
+  render(tree());
+  await waitFor(() => expect(f.navigate).toHaveBeenCalledTimes(1));
+  expect(screen.getByTestId('address')).toHaveTextContent(/intent=/);
+  expect(storage.memory.size).toBe(0);
+});
+it.each([
+  ['a pasted or bookmarked link', () => (entry = '/sports/open')],
+  ['a reused intent after Back or reload', () => storage.memory.clear()],
+  ['another member’s intent', () => clickedFromSports('another-member')],
+  ['a malformed intent', () => (entry = '/sports/open?intent=not-a-real-intent')],
+])('waits for a click instead of launching from %s', async (_label, arrange) => {
+  arrange();
+  render(tree());
+  const choose = await screen.findByRole('button', { name: 'Browse sports' });
+  expect(screen.getByText('The sportsbook opens only when you choose it.')).toBeVisible();
+  expect(f.post).not.toHaveBeenCalled();
+  fireEvent.click(choose);
+  await waitFor(() => expect(f.navigate).toHaveBeenCalledTimes(1));
+  expect(f.post).toHaveBeenCalledTimes(1);
+});
+it('does not launch from an intent older than a minute', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  clickedFromSports();
+  vi.setSystemTime(Date.now() + 61_000);
+  render(tree());
+  expect(await screen.findByRole('button', { name: 'Browse sports' })).toBeVisible();
+  expect(f.post).not.toHaveBeenCalled();
+});
+
+it('does not redirect an old response after same-account session revision changes', async () => {
+  let resolve!: (value: unknown) => void;
+  f.post.mockImplementationOnce(
+    () =>
+      new Promise((done) => {
+        resolve = done;
+      })
+  );
+  render(tree());
+  await waitFor(() => expect(f.post).toHaveBeenCalledTimes(1));
+  localStorage.setItem(
+    'socialplay.session-boundary',
+    JSON.stringify({ revision: 'relogin', signedOut: false })
+  );
+  await act(async () => resolve(ready()));
+  expect(f.navigate).not.toHaveBeenCalled();
+});
+it('does not redirect a pending response after navigation within the same launch page', async () => {
+  let resolve!: (value: unknown) => void;
+  f.post.mockImplementationOnce(
+    () =>
+      new Promise((done) => {
+        resolve = done;
+      })
+  );
+  render(tree());
+  await waitFor(() => expect(f.post).toHaveBeenCalledTimes(1));
+  fireEvent.click(screen.getByRole('button', { name: 'Change launch route' }));
+  await screen.findByRole('button', { name: 'Browse sports' });
+  await act(async () => resolve(ready()));
+  expect(f.navigate).not.toHaveBeenCalled();
+  expect(f.post).toHaveBeenCalledTimes(1);
+});
+
+it('returns to a fresh-click sports page after BFCache restoration', async () => {
+  render(tree());
+  await waitFor(() => expect(f.navigate).toHaveBeenCalledTimes(1));
+  await act(async () => {
+    window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true }));
+    window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
+  });
+  const browse = await screen.findByRole('button', { name: 'Browse sports' });
+  expect(f.post).toHaveBeenCalledTimes(1);
+  expect(f.navigate).toHaveBeenCalledTimes(1);
+  fireEvent.click(browse);
+  await waitFor(() => expect(f.post).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(f.navigate).toHaveBeenCalledTimes(2));
+});
+
+it('discards a pending sports launch across BFCache while permitting a fresh click', async () => {
+  let finishOld!: (value: unknown) => void;
+  f.post.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finishOld = resolve;
+      })
+  );
+  render(tree());
+  await waitFor(() => expect(f.post).toHaveBeenCalledTimes(1));
+  await act(async () => {
+    window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true }));
+    window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
+  });
+  const browse = await screen.findByRole('button', { name: 'Browse sports' });
+  expect(f.navigate).not.toHaveBeenCalled();
+  expect(f.post).toHaveBeenCalledTimes(1);
+  fireEvent.click(browse);
+  await waitFor(() => expect(f.navigate).toHaveBeenCalledTimes(1));
+  expect(f.post).toHaveBeenCalledTimes(2);
+  await act(async () => finishOld(ready('https://sports.example.com/stale')));
+  expect(f.navigate).toHaveBeenCalledTimes(1);
+  expect(f.navigate).toHaveBeenCalledWith('https://sports.example.com/session');
 });

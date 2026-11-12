@@ -3,6 +3,14 @@ import * as THREE from 'three';
 import type * as ThreeModule from 'three';
 import { PITCH, GOAL_SEQUENCE, directorFrame, type ReleasedGoal } from './director';
 import { createEngine, type Engine, type MatchInput } from './engine';
+import { frameShot } from './broadcast-framing';
+
+import { TURF } from './turf';
+
+/** Dressed near-side ground: grass run-off up to the main stand (live play may reach it under lag). */
+const NEAR_RUN_OFF = PITCH.halfWidth + TURF.marginWidth - 0.5;
+/** The reduced overview may also show the main stand's lower tier (NEAR_STAND in stadium.ts). */
+const STADIUM_NEAR_DRESSED = 60.5;
 import { statusAt } from '@/lib/football/reveal';
 
 const rosterState = vi.hoisted(() => ({ details: [] as string[] }));
@@ -402,4 +410,145 @@ it('reports the actually selected roster detail counts without changing renderer
     reviewPlayers: 0,
     playerDetails: { high: 2, mid: 1, low: 2 },
   });
+});
+
+/** Real page stages (CSS px) with their overlays, plus overlay-free shapes. */
+const liveStages = [
+  ...viewports.map((v) => ({ ...v, top: 0, bottom: 0 })),
+  { name: 'lab phone portrait', width: 390, height: 844, top: 0, bottom: 0 },
+  { name: 'phone page portrait', width: 330, height: 260, top: 78, bottom: 68 },
+  { name: 'phone page landscape', width: 788, height: 218, top: 86, bottom: 53 },
+  { name: 'phone group game', width: 352, height: 320, top: 90, bottom: 0 },
+  { name: 'desktop page', width: 920, height: 518, top: 86, bottom: 79 },
+];
+/** Inside the clear band between overlays (canvas NDC). */
+function insideBand(
+  camera: ThreeModule.PerspectiveCamera,
+  stage: { height: number; top: number; bottom: number },
+  point: THREE.Vector3,
+  label: string
+) {
+  const q = point.clone().project(camera);
+  const top = 1 - (2 * stage.top) / stage.height;
+  const bottom = -1 + (2 * stage.bottom) / stage.height;
+  expect(Math.abs(q.x), `${label}: x=${q.x}`).toBeLessThan(1);
+  expect(q.y, `${label}: y=${q.y}`).toBeLessThan(top);
+  expect(q.y, `${label}: y=${q.y}`).toBeGreaterThan(bottom);
+}
+/** Furthest ground toward the camera that the rendered canvas's bottom edge shows. */
+function renderedGroundReach(camera: ThreeModule.PerspectiveCamera) {
+  let worst = -Infinity;
+  for (const x of [-1, -0.5, 0, 0.5, 1]) {
+    const dir = new THREE.Vector3(x, -1, 0.5).unproject(camera).sub(camera.position);
+    if (dir.y >= 0) return Infinity;
+    worst = Math.max(worst, camera.position.z + (dir.z * camera.position.y) / -dir.y);
+  }
+  return worst;
+}
+describe.each(liveStages)('live broadcast camera at $name', (stage) => {
+  it.each(scoringGoals)(
+    'holds one camera position, keeps ball and keeper in the clear band and never shows the near void through the $side goal at $atMs',
+    (goal) => {
+      const { engine } = setup(false, stage.width, stage.height);
+      engine.setSafeArea({ top: stage.top, bottom: stage.bottom });
+      engine.setMatch({ ...match, goals: [goal] });
+      const start = goal.atMs;
+      const rig = frameShot(
+        directorFrame({ ...match, goals: [], elapsedMs: 1000, status: 'FIRST_HALF' }).camera,
+        { width: stage.width, height: stage.height, insetTop: stage.top, insetBottom: stage.bottom }
+      );
+      const keeper = goal.side === 'H' ? 11 : 0;
+      let checked = 0;
+      // Live play into the sequence and through the celebration, at 30 fps with operator lag.
+      for (
+        let ms = start - 3000;
+        ms <= start + GOAL_SEQUENCE.length * 1000 + 600;
+        ms += 1000 / 30
+      ) {
+        const frame = engine.renderAt(ms, 1 / 30);
+        const camera = renderedCamera();
+        // The camera never moves on its gantry for a given stage; only aim and zoom change.
+        expect(camera.position.x).toBeCloseTo(rig.x, 9);
+        expect(camera.position.y).toBeCloseTo(rig.y, 9);
+        expect(camera.position.z).toBeCloseTo(rig.z, 9);
+        expect(renderedGroundReach(camera), `near ground ${ms}`).toBeLessThanOrEqual(NEAR_RUN_OFF);
+        if (frame.mode === 'PLAY' || frame.mode === 'GOAL')
+          insideBand(
+            camera,
+            stage,
+            new THREE.Vector3(frame.ball.x, frame.ball.y, frame.ball.z),
+            `ball ${ms}`
+          );
+        if (frame.mode === 'GOAL') {
+          if (
+            ms >= start + (GOAL_SEQUENCE.moment - 0.8) * 1000 &&
+            ms <= start + GOAL_SEQUENCE.moment * 1000 + 300
+          ) {
+            const k = frame.actors[keeper];
+            insideBand(camera, stage, new THREE.Vector3(k.x, 1.8, k.z), `keeper head ${ms}`);
+            insideBand(camera, stage, new THREE.Vector3(k.x, 0, k.z), `keeper feet ${ms}`);
+          }
+          checked++;
+        }
+      }
+      expect(checked).toBeGreaterThan(60);
+    }
+  );
+});
+
+it.each(liveStages.filter((s) => s.top || s.bottom))(
+  'fits the fixed reduced-motion overview into the clear band at $name without showing the near void',
+  (stage) => {
+    const { engine } = setup(true, stage.width, stage.height);
+    engine.setSafeArea({ top: stage.top, bottom: stage.bottom });
+    engine.renderAt(8050);
+    const camera = renderedCamera();
+    for (const x of [-PITCH.halfLength, PITCH.halfLength])
+      for (const z of [-PITCH.halfWidth, PITCH.halfWidth])
+        insideBand(camera, stage, new THREE.Vector3(x, 0, z), 'pitch corner');
+    expect(renderedGroundReach(camera)).toBeLessThanOrEqual(STADIUM_NEAR_DRESSED);
+    const position = camera.position.toArray();
+    engine.renderAt(12050);
+    expect(renderedCamera().position.toArray()).toEqual(position);
+  }
+);
+
+it('eases between live framings instead of jumping, and cuts only into and out of goals', () => {
+  const { engine, host } = setup(false);
+  const cuts = vi.fn();
+  host.addEventListener('football-cut', cuts);
+  engine.setMatch({ ...match, goals: [{ n: 1, side: 'H', atMs: 6000 }] });
+  let previous: THREE.Vector3 | null = null;
+  let largest = 0;
+  for (let ms = 1000; ms < 5900; ms += 1000 / 30) {
+    engine.renderAt(ms, 1 / 30);
+    const camera = renderedCamera();
+    const aim = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+    if (previous) largest = Math.max(largest, aim.angleTo(previous));
+    previous = aim;
+  }
+  // Under about 0.7 degrees of pan per 30 fps frame during live play.
+  expect(largest).toBeLessThan(0.012);
+  expect(cuts).not.toHaveBeenCalled();
+  engine.renderAt(6100, 1 / 30);
+  expect(cuts).toHaveBeenCalledTimes(1);
+});
+
+it('keeps the shadow map at 1024² unless the high graphics setting is chosen', () => {
+  const sizes: number[] = [];
+  for (const maxPixelRatio of [undefined, 1, 1.15, 1.5, 1.75]) {
+    const host = document.createElement('div');
+    const e = createEngine({ host, getElapsed: () => 1000, maxPixelRatio });
+    e.setMatch(match);
+    e.renderAt(1000);
+    const scene = rendererState.render.mock.calls.at(-1)![0] as ThreeModule.Scene;
+    const key = scene.children.find(
+      (o): o is ThreeModule.DirectionalLight =>
+        (o as ThreeModule.DirectionalLight).isDirectionalLight === true &&
+        (o as ThreeModule.DirectionalLight).castShadow
+    )!;
+    sizes.push(key.shadow.mapSize.x);
+    e.dispose();
+  }
+  expect(sizes).toEqual([1024, 1024, 1024, 1024, 2048]);
 });

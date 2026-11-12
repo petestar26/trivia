@@ -23,6 +23,9 @@ import { requestStatus } from '@/lib/request-error';
 import { boundedRequest } from '@/lib/bounded-request';
 import { useAuth } from '@/providers/auth-provider';
 import { GameArena } from '@/components/games/game-arena';
+import { useGameQuality } from '@/components/together/use-game-quality';
+import type { GameQuality } from '@/components/together/game-art-direction';
+import type { DerbyCameraMode } from '@/components/derby/broadcast-camera';
 import './thunder-derby.css';
 import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
@@ -199,7 +202,10 @@ export function DerbyView({
     [confirm, setConfirm] = useState<Entry | null>(null),
     [details, setDetails] = useState<DerbyRound | null>(null),
     [now, setNow] = useState(Date.now()),
-    [reduced, setReduced] = useState(false);
+    [reduced, setReduced] = useState(false),
+    [cameraMode, setCameraMode] = useState<DerbyCameraMode>('trackside');
+  // Same graphics choice as Dog Racing and group play: Automatic adapts to frame times.
+  const graphics = useGameQuality(reduced);
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 250);
     return () => clearInterval(id);
@@ -451,7 +457,15 @@ export function DerbyView({
                     </div>
                   }
                 >
-                  <RaceScene round={round} running={running && fresh} reduced={reduced} />
+                  <RaceScene
+                    round={round}
+                    running={running && fresh}
+                    reduced={reduced}
+                    cameraMode={cameraMode}
+                    quality={graphics.tier}
+                    adaptive={graphics.adaptive}
+                    onSlow={graphics.degrade}
+                  />
                 </Suspense>
               </SceneLoadBoundary>
               <div className="derby-broadcast-label">
@@ -467,6 +481,22 @@ export function DerbyView({
                 </strong>
               </div>
             </div>
+            <div className="derby-cameras" role="group" aria-label={translateUi('Camera view')}>
+              {(['trackside', 'chase', 'aerial'] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  aria-pressed={cameraMode === mode}
+                  onClick={() => setCameraMode(mode)}
+                >
+                  {mode === 'trackside'
+                    ? translateUi('Trackside')
+                    : mode === 'chase'
+                      ? translateUi('Follow race')
+                      : translateUi('Aerial')}
+                </button>
+              ))}
+            </div>
             <div className="derby-race-footer">
               <span>
                 {fresh ? translateUi('● Connected') : translateUi('○ Refreshing race status')}
@@ -478,6 +508,18 @@ export function DerbyView({
                   onChange={(e) => setReduced(e.target.checked)}
                 />{' '}
                 {translateUi('Reduced motion')}
+              </label>
+              <label className="derby-quality">
+                {translateUi('Graphics quality')}{' '}
+                <select
+                  value={graphics.quality}
+                  onChange={(e) => graphics.choose(e.target.value as GameQuality)}
+                >
+                  <option value="auto">{translateUi('Automatic')}</option>
+                  <option value="high">{translateUi('High')}</option>
+                  <option value="balanced">{translateUi('Balanced')}</option>
+                  <option value="low">{translateUi('Low')}</option>
+                </select>
               </label>
               <span>{translateUi('Server-set results')}</span>
             </div>

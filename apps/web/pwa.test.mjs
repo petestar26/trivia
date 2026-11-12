@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import test from 'node:test';
 import vm from 'node:vm';
@@ -147,6 +148,14 @@ test('optional Sky Crash artwork is absent from the generated install precache',
     precache.some((entry) => /images\/sky-crash\//.test(entry.url)),
     false
   );
+});
+test('greyhound racing ships no raster dog artwork and no precached race scene', () => {
+  // The greyhounds and course are generated in code; nothing under images/dog-racing ships.
+  assert.equal(
+    precache.some((entry) => /images\/dog-racing\//.test(entry.url)),
+    false
+  );
+  assert.equal(existsSync(new URL('./dist/images/dog-racing', import.meta.url)), false);
 });
 test('Sky Crash display assets stay within the mobile transfer budget', async () => {
   for (const name of ['aircraft', 'alpine-dawn']) {

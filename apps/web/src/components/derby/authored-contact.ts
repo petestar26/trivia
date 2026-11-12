@@ -28,6 +28,34 @@ const point = (node: THREE.Object3D, model: THREE.Object3D) =>
 
 /** Measure low, backward-moving portions of the actual exported cycle, once per asset set. */
 export function measureHoofWindows(model: THREE.Object3D, clip: THREE.AnimationClip): HoofWindow[] {
+  const steps = calibrateHoofWindows(model, clip);
+  for (;;) {
+    const step = steps.next();
+    if (step.done) return step.value;
+  }
+}
+
+/**
+ * The same calibration in slices: the scene awaits between slices so a slow phone
+ * keeps drawing its procedural runners instead of stalling for the whole fit.
+ */
+export async function measureHoofWindowsInSlices(
+  model: THREE.Object3D,
+  clip: THREE.AnimationClip,
+  pause: () => Promise<void> = () => new Promise((resolve) => setTimeout(resolve, 0))
+) {
+  const steps = calibrateHoofWindows(model, clip);
+  for (;;) {
+    const step = steps.next();
+    if (step.done) return step.value;
+    await pause();
+  }
+}
+
+function* calibrateHoofWindows(
+  model: THREE.Object3D,
+  clip: THREE.AnimationClip
+): Generator<void, HoofWindow[]> {
   model = clone(model);
   const mixer = new THREE.AnimationMixer(model);
   mixer.clipAction(clip).play();
@@ -90,11 +118,13 @@ export function measureHoofWindows(model: THREE.Object3D, clip: THREE.AnimationC
   // Fit the visible skinned underside after the same bounded IK, once per asset
   // set. Mixed ankle/lower-leg weights make a raw joint-to-sole offset insufficient.
   // Staged passes avoid calibration order/history dependence; no runtime vertex scan.
-  for (let pass = 0; pass < 5; pass++) {
+  yield;
+  for (let pass = 0; pass < CALIBRATION_PASSES; pass++) {
     const next = windows.map((window) => window.soleCorrections.slice());
     const nextX = windows.map((window) => window.solveCompensationX.slice()),
       nextZ = windows.map((window) => window.solveCompensationZ.slice());
     for (let phase = 0; phase < count; phase++) {
+      if (phase % 32 === 31) yield;
       const time = (phase * clip.duration) / count;
       mixer.setTime(time);
       model.updateMatrixWorld(true);
@@ -121,8 +151,8 @@ export function measureHoofWindows(model: THREE.Object3D, clip: THREE.AnimationC
         const residual = sampleSelectedSole(model, selections[hoof]);
         next[hoof][phase] = THREE.MathUtils.clamp(
           window.soleCorrections[phase] + THREE.MathUtils.clamp(0.003 - residual, -0.015, 0.015),
-          -0.05,
-          0.05
+          -SOLE_CORRECTION_LIMIT,
+          SOLE_CORRECTION_LIMIT
         );
       });
     }
@@ -139,6 +169,16 @@ export function measureHoofWindows(model: THREE.Object3D, clip: THREE.AnimationC
   });
   return windows;
 }
+
+/**
+ * Calibrated sole correction limit inside a stance window, in model units (11 cm at
+ * the shipped scale). Clearance outside stance keeps its separate 0.05 upward cap and
+ * every correction keeps the 0.28 total cap. The velocity-continuous gallop needs up
+ * to ~0.055 for three phases of the hind-right stance.
+ */
+export const SOLE_CORRECTION_LIMIT = 0.075;
+/** Staged passes; the velocity-continuous gallop's deepest hind stance needs more than five. */
+export const CALIBRATION_PASSES = 8;
 
 export function stanceOffset(time: number, duration: number, window: HoofWindow) {
   return ((time - window.center + duration * 1.5) % duration) - duration / 2;
@@ -244,7 +284,11 @@ export function constrainHoof(
   // the center pose's offset for the entire landing/loading/lift sequence.
   target.y =
     -samplePeriodic(window.soleOffsets, time, duration) +
-    THREE.MathUtils.clamp(samplePeriodic(window.soleCorrections, time, duration), -0.05, 0.05);
+    THREE.MathUtils.clamp(
+      samplePeriodic(window.soleCorrections, time, duration),
+      -SOLE_CORRECTION_LIMIT,
+      SOLE_CORRECTION_LIMIT
+    );
   const correction = target.clone().sub(current).multiplyScalar(weight);
   const rawSole = samplePeriodic(window.soleHeights, time, duration);
   if (rawSole < 0)
@@ -270,7 +314,7 @@ export function constrainHoof(
   solveHoofTarget(model, window.name, target);
 }
 
-function solveHoofTarget(model: THREE.Object3D, name: string, target: THREE.Vector3) {
+export function solveHoofTarget(model: THREE.Object3D, name: string, target: THREE.Vector3) {
   const foot = model.getObjectByName(name)!;
   const hoofRotation = foot.getWorldQuaternion(new THREE.Quaternion());
   model.localToWorld(target);

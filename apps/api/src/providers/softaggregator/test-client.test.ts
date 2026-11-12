@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest';
-import { createProviderTest, testLaunchHost } from './test-client.js';
+import { createProviderTest, testLaunchHost, TestLaunchFailure } from './test-client.js';
 const env = {
   SOFTAGGREGATOR_TEST_ENABLED: 'true',
   SOFTAGGREGATOR_TEST_CALLBACK_ENABLED: 'true',
@@ -10,13 +10,23 @@ const env = {
   SOFTAGGREGATOR_TEST_LAUNCH_HOSTS: 'games.example.com',
 };
 it('excludes all sportsbooks from the practice catalogue and rejects direct launch attempts', async () => {
-  const transport = vi.fn(async () => new Response(JSON.stringify({ error: 0, response: [
-    { id_hash: 'x88c09ae664d9af4', name: 'Nocturn Sport', game_type: 'sportsbook' },
-    { id_hash: 'another/sports', name: 'Another sport', game_type: 'sportsbook' },
-  ] })));
+  const transport = vi.fn(
+    async () =>
+      new Response(
+        JSON.stringify({
+          error: 0,
+          response: [
+            { id_hash: 'x88c09ae664d9af4', name: 'Nocturn Sport', game_type: 'sportsbook' },
+            { id_hash: 'another/sports', name: 'Another sport', game_type: 'sportsbook' },
+          ],
+        })
+      )
+  );
   const pilot = createProviderTest({} as any, env, transport as any);
   expect(await pilot.games('tester')).toEqual([]);
-  await expect(pilot.launch('tester','x88c09ae664d9af4','ET')).rejects.toThrow('not in the provider catalogue');
+  await expect(pilot.launch('tester', 'x88c09ae664d9af4', 'ET')).rejects.toThrow(
+    'not in the provider catalogue'
+  );
 });
 function fixture(overrides = {}) {
   const transaction = vi.fn(async (f: any) =>
@@ -87,6 +97,71 @@ it('lists non-demo games and uses createPlayer/getGame with an isolated ETB iden
   expect(bodies[2].play_for_fun).toBeUndefined();
   expect(bodies[1].user_username).toMatch(/^st_/);
   expect(bodies[1].user_password).toBe(bodies[2].user_password);
+});
+it.each([
+  'https://games.example.com/session?token=private',
+  { gameurl: 'https://games.example.com/session?token=private' },
+])(
+  'accepts the observed launch response formats while enforcing the same address policy',
+  async (response) => {
+    const f = fixture();
+    await f.pilot.games('tester');
+    f.transport.mockResolvedValueOnce(new Response(JSON.stringify({ error: 0, response: {} })));
+    f.transport.mockResolvedValueOnce(new Response(JSON.stringify({ error: 0, response })));
+    expect(await f.pilot.launch('tester', 'studio/slot', 'ET')).toMatchObject({
+      host: 'games.example.com',
+      url: 'https://games.example.com/session?token=private',
+    });
+  }
+);
+it.each([
+  { gameurl: 'http://games.example.com/session' },
+  { gameurl: 'https://user:secret@games.example.com/session' },
+  { gameurl: 'https://games.example.com.evil.org/session' },
+  { gameurl: 'https://games.example.com:444/session' },
+  { gameurl: { url: 'https://games.example.com/session' } },
+  { html: '<iframe src="https://games.example.com/session"></iframe>' },
+  ['https://games.example.com/session'],
+])('does not let alternate response shapes bypass address validation: %j', async (response) => {
+  const f = fixture();
+  await f.pilot.games('tester');
+  f.transport.mockResolvedValueOnce(new Response(JSON.stringify({ error: 0, response: {} })));
+  f.transport.mockResolvedValueOnce(new Response(JSON.stringify({ error: 0, response })));
+  await expect(f.pilot.launch('tester', 'studio/slot', 'ET')).rejects.toBeInstanceOf(
+    TestLaunchFailure
+  );
+});
+it('repairs Keno metadata without discarding games that have missing optional fields', async () => {
+  const f = fixture();
+  f.transport.mockResolvedValueOnce(
+    new Response(
+      JSON.stringify({
+        error: 0,
+        response: [
+          { id_hash: 'keno-a', name: 'Turbo Keno 80', game_type: 'instant', type: 'Instant Win' },
+          {
+            id_hash: 'keno-b',
+            name: 'Golden Egg Keno',
+            game_type: 'slots',
+            provider_name: null,
+            provider: 'pxoriginals',
+          },
+          { id_hash: 'unknown', name: 'Unknown', game_type: null, type: null },
+          { id_hash: 'live-table', name: 'Live Roulette', game_type: 'live' },
+          { id_hash: 'sports', name: 'Sports', game_type: 'slots', type: 'SportsBook' },
+        ],
+      })
+    )
+  );
+  const games = await f.pilot.games('tester');
+  expect(games.map((g) => [g.id, g.category])).toEqual([
+    ['keno-a', 'keno'],
+    ['keno-b', 'keno'],
+    ['unknown', 'other'],
+    ['live-table', 'live'],
+  ]);
+  expect(games[1]?.provider).toBe('pxoriginals');
+  expect(games[3]?.categories).toEqual(['live', 'table', 'spin']);
 });
 it('denies customers and disables unconfigured tests before creating a player', async () => {
   for (const overrides of [

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useFavoriteGames } from './use-favorite-games';
 
 const key = (user: string) => `playqube.favorite-games.v1:${encodeURIComponent(user)}`;
+const casinoKey = (user: string) => `playqube.favorite-casino-games.v1:${encodeURIComponent(user)}`;
 const saved = (ids: unknown[]) => JSON.stringify({ version: 1, ids });
 
 const originalStorage = Object.getOwnPropertyDescriptor(window, 'localStorage')!;
@@ -50,6 +51,35 @@ afterEach(() => {
 });
 
 describe('account-scoped local favorite games', () => {
+  it('keeps casino favorites separate from group games and other accounts across remounts', () => {
+    window.localStorage.setItem(key('alice'), saved(['group-game']));
+    const view = renderHook(() => useFavoriteGames('alice', 'casino'));
+    act(() => view.result.current.toggleFavorite('provider/wheel'));
+    expect(window.localStorage.getItem(key('alice'))).toBe(saved(['group-game']));
+    expect(window.localStorage.getItem(casinoKey('alice'))).toBe(saved(['provider/wheel']));
+    view.unmount();
+    expect(
+      renderHook(() => useFavoriteGames('alice', 'casino')).result.current.favoriteIds
+    ).toEqual(['provider/wheel']);
+    expect(renderHook(() => useFavoriteGames('bob', 'casino')).result.current.favoriteIds).toEqual(
+      []
+    );
+  });
+
+  it('accepts the provider catalogue ID length while refusing larger casino IDs', () => {
+    const id = 'x'.repeat(256);
+    const view = renderHook(() => useFavoriteGames('alice', 'casino'));
+    act(() => {
+      view.result.current.toggleFavorite(id);
+      view.result.current.toggleFavorite('x'.repeat(257));
+    });
+    expect(view.result.current.favoriteIds).toEqual([id]);
+    view.unmount();
+    expect(
+      renderHook(() => useFavoriteGames('alice', 'casino')).result.current.favoriteIds
+    ).toEqual([id]);
+  });
+
   it('starts empty and persists additions/removals under only the current account', () => {
     const { result, unmount } = renderHook(() => useFavoriteGames('alice'));
     expect(result.current.favoriteIds).toEqual([]);

@@ -85,7 +85,7 @@ export default function SharedFootballScene({
   };
   return (
     <div className="vf-page original-football" data-original-scene="football">
-      <div className="vf-stage-frame">
+      <div className="vf-stage-frame" data-scene-frame>
         <FootballScene
           match={releasedMatch.current}
           getElapsed={getElapsed}
@@ -94,7 +94,7 @@ export default function SharedFootballScene({
           label={label}
           fallback={<MatchCentre fixture={fixture} display={display} week={label} />}
         />
-        <div className="vf-board-overlay">
+        <div className="vf-board-overlay" data-scene-overlay="top">
           <Scoreboard fixture={fixture} display={display} week={label} />
         </div>
       </div>

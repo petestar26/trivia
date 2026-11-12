@@ -17,6 +17,7 @@ vi.mock('@/components/sports/football-preview', () => ({
 }));
 import { SportsPage } from './sports';
 import { LanguageProvider, type Language } from '@/providers/language-provider';
+import { installMemoryStorage } from '@/test/memory-storage';
 const baseline = {
   balanceMinor: 0,
   rewardBalanceMinor: 100000,
@@ -72,6 +73,23 @@ it('opens a protected launch page in a separate tab without embedding the provid
   expect(container.querySelector('iframe')).toBeNull();
   expect(f.post).not.toHaveBeenCalled();
 });
+it('marks a click on Browse sports as a one-time intent for this member only', async () => {
+  mount();
+  const link = await screen.findByRole('link', { name: 'Browse sports' });
+  const storage = installMemoryStorage();
+  try {
+    fireEvent.click(link);
+    const href = link.getAttribute('href') ?? '';
+    expect(href).toMatch(/^\/sports\/open\?intent=[0-9a-f-]{36}$/);
+    const nonce = href.split('intent=')[1];
+    const stored = JSON.parse(storage.memory.get(`salem-launch-intent:${nonce}`) ?? '{}');
+    expect(stored).toMatchObject({ kind: 'sports', userId: 'member', target: '' });
+    expect(storage.memory.size).toBe(1);
+  } finally {
+    storage.restore();
+  }
+  expect(f.post).not.toHaveBeenCalled();
+});
 it('shows the funded balance and betting readiness only from the server', async () => {
   mount({ balanceMinor: 12345, liveEnabled: true, canBet: true, reason: null });
   expect(await screen.findByText('ETB 123.45')).toBeInTheDocument();
@@ -125,3 +143,20 @@ it.each([
     expect(f.post).not.toHaveBeenCalled();
   }
 );
+
+it('clears a previous click href if a later intent cannot be created', async () => {
+  mount();
+  const link = await screen.findByRole('link', { name: 'Browse sports' });
+  const storage = installMemoryStorage();
+  try {
+    fireEvent.click(link);
+    expect(link.getAttribute('href')).toContain('intent=');
+    localStorage.setItem = () => {
+      throw new Error('Denied');
+    };
+    fireEvent.click(link);
+    expect(link).toHaveAttribute('href', '/sports/open');
+  } finally {
+    storage.restore();
+  }
+});

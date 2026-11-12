@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
   ArrowUpRight,
@@ -8,6 +8,7 @@ import {
   CircleDot,
   Dice5,
   Gamepad2,
+  Heart,
   Pause,
   Play,
   Rocket,
@@ -19,6 +20,9 @@ import {
 } from 'lucide-react';
 import { api, unwrapData } from '@/lib/api';
 import { useAuth } from '@/providers/auth-provider';
+import { useFavoriteGames } from '@/lib/use-favorite-games';
+import { sessionRevision } from '@/lib/session';
+import { consumeLaunchPermit, type LaunchPermit } from '@/lib/launch-intent';
 import './provider-lobby.css';
 import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
@@ -27,12 +31,14 @@ export interface TestGame {
   name: string;
   provider: string;
   category: string;
+  categories?: string[];
   image?: string;
   imageFallback?: string;
 }
 
 const PAGE_SIZE = 36;
 const CATEGORIES = [
+  ['spin', 'Spin'],
   ['slots', 'Slots'],
   ['live', 'Live casino'],
   ['table', 'Table games'],
@@ -46,6 +52,32 @@ const CATEGORIES = [
 ] as const;
 const categoryLabel = (category: string) =>
   CATEGORIES.find(([key]) => key === category)?.[1] ?? 'More games';
+const belongsTo = (game: TestGame, category: string) =>
+  game.category === category || game.categories?.includes(category) === true;
+const casinoFailureMessage = (error: unknown) => {
+  let code = '';
+  try {
+    code = JSON.parse(error instanceof Error ? error.message : '').code;
+  } catch {
+    /* Use safe fallback. */
+  }
+  switch (code) {
+    case 'CASINO_GAME_REGION_UNAVAILABLE':
+      return 'This provider does not offer this game in Ethiopia. Choose another game.';
+    case 'CASINO_GAME_CURRENCY_UNAVAILABLE':
+      return 'This game does not support the ETB practice wallet. Choose another game.';
+    case 'CASINO_GAME_ADDRESS_PENDING':
+      return 'This game is awaiting connection. Please choose another game for now.';
+    case 'CASINO_PROVIDER_TIMEOUT':
+      return 'The game provider took too long to respond. Please try again.';
+    case 'CASINO_PROVIDER_BUSY':
+      return 'Please wait a moment before opening another game.';
+    case 'CASINO_PROVIDER_UNAVAILABLE':
+      return 'The game provider is temporarily unavailable. Try again later or choose another game.';
+    default:
+      return 'Try again or choose another game.';
+  }
+};
 const categoryIcon = (category: string) =>
   category === 'crash'
     ? Rocket
@@ -53,7 +85,7 @@ const categoryIcon = (category: string) =>
       ? Spade
       : ['virtual', 'sportsbook'].includes(category)
         ? Trophy
-        : ['keno', 'bingo'].includes(category)
+        : ['keno', 'bingo', 'spin'].includes(category)
           ? CircleDot
           : Dice5;
 
@@ -118,19 +150,72 @@ export function ProviderTestPage() {
   const { t: translateUi } = useInterfaceLanguage();
 
   const { user } = useAuth();
+  const location = useLocation();
+  const [restoration, setRestoration] = useState(0);
+  useEffect(() => {
+    // BFCache preserves effects and refs. Replace the old launch session rather
+    // than reactivating a pagehide guard that still owns pending responses.
+    const restore = (event: PageTransitionEvent) => {
+      if (event.persisted) setRestoration((value) => value + 1);
+    };
+    window.addEventListener('pageshow', restore);
+    return () => window.removeEventListener('pageshow', restore);
+  }, []);
   return user ? (
-    <ProviderTestSession key={user.id} userId={user.id} />
+    <ProviderTestSession
+      key={`${user.id}:${sessionRevision()}:${location.key}:${restoration}`}
+      userId={user.id}
+      allowArrival={restoration === 0}
+    />
   ) : (
     <p>{translateUi('Sign in to browse the casino.')}</p>
   );
 }
 
-function ProviderTestSession({ userId }: { userId: string }) {
+function ProviderTestSession({ userId, allowArrival }: { userId: string; allowArrival: boolean }) {
   const { t: translateUi, locale: interfaceLocale } = useInterfaceLanguage();
+  const { favoriteIds, toggleFavorite, storageUnavailable, limitReached, maxFavorites } =
+    useFavoriteGames(userId, 'casino');
+  const favoriteSet = useMemo(() => new Set(favoriteIds), [favoriteIds]);
+  const favoritesTab = useRef<HTMLButtonElement>(null);
 
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const requestedGame = searchParams.get('game');
   const attemptedGame = useRef<string | null>(null);
+  // Authorization belongs to this mounted navigation, target and session only.
+  // Keep the spent nonce in the URL: reload/Back cannot consume it again, and
+  // sanitizing the route must never transfer permission to a newer navigation.
+  const [launchOnArrival, setLaunchOnArrival] = useState<boolean | null>(null);
+  const arrival = useRef<Promise<LaunchPermit | null> | null>(null);
+  const revision = useRef(sessionRevision());
+  const arrivalDeadline = useRef(0);
+  const activePage = useRef(true);
+  useEffect(() => {
+    activePage.current = true;
+    const leave = () => {
+      activePage.current = false;
+    };
+    window.addEventListener('pagehide', leave);
+    return () => {
+      leave();
+      window.removeEventListener('pagehide', leave);
+    };
+  }, []);
+  useEffect(() => {
+    let active = true;
+    arrival.current ??= allowArrival
+      ? consumeLaunchPermit('casino', userId, searchParams.get('intent'), requestedGame ?? '')
+      : Promise.resolve(null);
+    void arrival.current.then((permit) => {
+      if (active && activePage.current) {
+        arrivalDeadline.current = permit?.expiresAt ?? 0;
+        setLaunchOnArrival(permit !== null && revision.current === sessionRevision());
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [searchParams, userId, requestedGame, allowArrival]);
   const [selectionError, setSelectionError] = useState(false);
   const [motionEnabled, setMotionEnabled] = useState(
     () =>
@@ -153,6 +238,7 @@ function ProviderTestSession({ userId }: { userId: string }) {
   }, []);
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('all');
+  const [provider, setProvider] = useState('all');
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [selected, setSelected] = useState<TestGame | null>(null);
   const status = useQuery({
@@ -191,6 +277,9 @@ function ProviderTestSession({ userId }: { userId: string }) {
   });
   const launch = useMutation({
     mutationFn: async (game: TestGame) => {
+      if (!activePage.current || revision.current !== sessionRevision())
+        throw new Error('Session changed');
+      const launchRevision = revision.current;
       const result = unwrapData(
         await api.post<{ url: string; mode: string }>('/provider-test/launch', {
           gameId: game.id,
@@ -199,6 +288,8 @@ function ProviderTestSession({ userId }: { userId: string }) {
           mobile: window.matchMedia('(max-width: 767px)').matches,
         })
       );
+      if (!activePage.current || launchRevision !== sessionRevision())
+        throw new Error('Session changed');
       const url = new URL(result.url);
       if (
         result.mode !== 'virtual-test' ||
@@ -217,25 +308,55 @@ function ProviderTestSession({ userId }: { userId: string }) {
       setSelected(null);
     }
   }, [accessGranted, resetLaunch]);
-  const games = useMemo(
+  const allGames = useMemo(
+    () => (catalogue.data ?? []).filter((game) => !belongsTo(game, 'sportsbook')),
+    [catalogue.data]
+  );
+  const providers = useMemo(
+    () => [...new Set(allGames.map((game) => game.provider))].sort((a, b) => a.localeCompare(b)),
+    [allGames]
+  );
+  const matchingGames = useMemo(
     () =>
-      (catalogue.data ?? []).filter(
+      allGames.filter(
         (game) =>
-          game.category !== 'sportsbook' &&
-          (category === 'all' || game.category === category) &&
+          (provider === 'all' || game.provider === provider) &&
           `${game.name} ${game.provider}`.toLowerCase().includes(search.trim().toLowerCase())
       ),
-    [catalogue.data, category, search]
+    [allGames, provider, search]
   );
+  const games = useMemo(() => {
+    const matches = matchingGames.filter((game) =>
+      category === 'favorites'
+        ? favoriteSet.has(game.id)
+        : category === 'all' || belongsTo(game, category)
+    );
+    // Put standalone wheels/tops first; roulette stays discoverable below them.
+    return category === 'spin'
+      ? matches.sort(
+          (a, b) => Number(/\broulette\b/i.test(a.name)) - Number(/\broulette\b/i.test(b.name))
+        )
+      : matches;
+  }, [matchingGames, category, favoriteSet]);
+  const favoriteCount = matchingGames.filter((game) => favoriteSet.has(game.id)).length;
+  const hasAvailableFavorites = allGames.some((game) => favoriteSet.has(game.id));
   const categories = useMemo(
-    () => CATEGORIES.filter(([key]) => catalogue.data?.some((game) => game.category === key)),
-    [catalogue.data]
+    () =>
+      CATEGORIES.filter(([key]) => allGames.some((game) => belongsTo(game, key))).map(
+        ([key, label]) => ({
+          key,
+          label,
+          count: matchingGames.filter((game) => belongsTo(game, key)).length,
+        })
+      ),
+    [allGames, matchingGames]
   );
   const canLaunch =
     accessGranted && status.data?.launchReady === true && !wallet.isError && !!wallet.data;
   const launchGame = launch.mutate;
   useEffect(() => {
     if (
+      launchOnArrival === null ||
       !requestedGame ||
       !canLaunch ||
       !catalogue.data ||
@@ -244,15 +365,7 @@ function ProviderTestSession({ userId }: { userId: string }) {
     )
       return;
     attemptedGame.current = requestedGame;
-    const game = catalogue.data.find((item) => item.id === requestedGame);
-    setSearchParams(
-      (previous) => {
-        const next = new URLSearchParams(previous);
-        next.delete('game');
-        return next;
-      },
-      { replace: true }
-    );
+    const game = allGames.find((item) => item.id === requestedGame);
     if (!game) {
       setSelectionError(true);
       return;
@@ -260,13 +373,21 @@ function ProviderTestSession({ userId }: { userId: string }) {
     setSelectionError(false);
     setSelected(game);
     resetLaunch();
-    launchGame(game);
+    if (
+      launchOnArrival &&
+      activePage.current &&
+      revision.current === sessionRevision() &&
+      Date.now() <= arrivalDeadline.current
+    )
+      launchGame(game);
+    setLaunchOnArrival(false);
   }, [
     requestedGame,
     canLaunch,
     catalogue.data,
+    allGames,
     catalogue.isError,
-    setSearchParams,
+    launchOnArrival,
     resetLaunch,
     launchGame,
   ]);
@@ -374,6 +495,20 @@ function ProviderTestSession({ userId }: { userId: string }) {
             </div>
             <span className="casino-player-mode">{translateUi('Virtual play')}</span>
           </div>
+          {launch.isIdle && (
+            <div className="casino-player-placeholder">
+              <Gamepad2 size={36} aria-hidden="true" />
+              <h3>{selected.name}</h3>
+              <p>{translateUi('Nothing starts until you choose Play.')}</p>
+              <button
+                className="casino-primary-button"
+                disabled={!canLaunch}
+                onClick={() => launch.mutate(selected)}
+              >
+                {translateUi('Play')}
+              </button>
+            </div>
+          )}
           {launch.isPending && (
             <div className="casino-player-placeholder" role="status">
               <span className="casino-loading-ring" />
@@ -385,7 +520,7 @@ function ProviderTestSession({ userId }: { userId: string }) {
             <div className="casino-player-placeholder" role="alert">
               <Gamepad2 size={36} />
               <h3>{translateUi('This game could not be opened.')}</h3>
-              <p>{translateUi('Try again or choose another game.')}</p>
+              <p>{translateUi(casinoFailureMessage(launch.error))}</p>
               <button
                 className="casino-primary-button"
                 disabled={!canLaunch}
@@ -396,14 +531,28 @@ function ProviderTestSession({ userId }: { userId: string }) {
             </div>
           )}
           {launch.data && (
-            <iframe
-              title={translateUi('{name} test', { name: selected.name })}
-              src={launch.data.url}
-              referrerPolicy="no-referrer"
-              sandbox="allow-scripts allow-same-origin allow-forms allow-pointer-lock"
-              allow="fullscreen"
-              allowFullScreen
-            />
+            <>
+              <div className="casino-frame-help">
+                <span>{translateUi('Game not loading?')}</span>
+                <a
+                  href={launch.data.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  referrerPolicy="no-referrer"
+                >
+                  {translateUi('Open game in a new tab')}{' '}
+                  <ArrowUpRight size={16} aria-hidden="true" />
+                </a>
+              </div>
+              <iframe
+                title={translateUi('{name} test', { name: selected.name })}
+                src={launch.data.url}
+                referrerPolicy="no-referrer"
+                sandbox="allow-scripts allow-same-origin allow-forms allow-pointer-lock"
+                allow="fullscreen"
+                allowFullScreen
+              />
+            </>
           )}
         </section>
       ) : (
@@ -413,7 +562,9 @@ function ProviderTestSession({ userId }: { userId: string }) {
               <h2>
                 <Gamepad2 size={21} />
                 {' ' + translateUi('The game collection')}{' '}
-                <span>{catalogue.data?.length.toLocaleString(interfaceLocale) ?? '—'}</span>
+                <span>
+                  {catalogue.data ? allGames.length.toLocaleString(interfaceLocale) : '—'}
+                </span>
               </h2>
               <div className="casino-browser-controls">
                 <button
@@ -445,6 +596,23 @@ function ProviderTestSession({ userId }: { userId: string }) {
                     }}
                   />
                 </label>
+                <label className="casino-provider-filter">
+                  <span className="sr-only">{translateUi('Game provider')}</span>
+                  <select
+                    value={provider}
+                    onChange={(event) => {
+                      setProvider(event.target.value);
+                      setVisibleCount(PAGE_SIZE);
+                    }}
+                  >
+                    <option value="all">{translateUi('All providers')}</option>
+                    {providers.map((name) => (
+                      <option key={name} value={name}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
               </div>
             </div>
             <div
@@ -453,6 +621,24 @@ function ProviderTestSession({ userId }: { userId: string }) {
               aria-label={translateUi('Game categories')}
             >
               <button
+                ref={favoritesTab}
+                aria-label={translateUi('Favorites')}
+                aria-describedby="casino-count-favorites"
+                aria-pressed={category === 'favorites'}
+                onClick={() => {
+                  setCategory('favorites');
+                  setVisibleCount(PAGE_SIZE);
+                }}
+              >
+                <Heart size={14} aria-hidden="true" />
+                {translateUi('Favorites')}
+                <span id="casino-count-favorites" className="casino-category-count">
+                  {favoriteCount.toLocaleString(interfaceLocale)}
+                </span>
+              </button>
+              <button
+                aria-label={translateUi('All games')}
+                aria-describedby="casino-count-all"
                 aria-pressed={category === 'all'}
                 onClick={() => {
                   setCategory('all');
@@ -460,10 +646,15 @@ function ProviderTestSession({ userId }: { userId: string }) {
                 }}
               >
                 {translateUi('All games')}
+                <span id="casino-count-all" className="casino-category-count">
+                  {matchingGames.length.toLocaleString(interfaceLocale)}
+                </span>
               </button>
-              {categories.map(([key, label]) => (
+              {categories.map(({ key, label, count }) => (
                 <button
                   key={key}
+                  aria-label={translateUi(label)}
+                  aria-describedby={`casino-count-${key}`}
                   aria-pressed={category === key}
                   onClick={() => {
                     setCategory(key);
@@ -471,9 +662,36 @@ function ProviderTestSession({ userId }: { userId: string }) {
                   }}
                 >
                   {translateUi(label)}
+                  <span id={`casino-count-${key}`} className="casino-category-count">
+                    {count.toLocaleString(interfaceLocale)}
+                  </span>
                 </button>
               ))}
             </div>
+            {category === 'spin' && (
+              <p className="casino-collection-note">
+                {translateUi('Wheel, roulette and spinner games.')}
+              </p>
+            )}
+            {storageUnavailable ? (
+              <p className="casino-collection-note" role="status">
+                {translateUi('Favorites are unavailable in this browser.')}
+              </p>
+            ) : (
+              category === 'favorites' && (
+                <p className="casino-collection-note">
+                  {translateUi('Favorites are saved for this account on this device.')}
+                </p>
+              )
+            )}
+            {!storageUnavailable && limitReached && (
+              <p className="casino-collection-note" role="status">
+                {translateUi(
+                  'You can save up to {count} favorite games. Remove one to add another.',
+                  { count: maxFavorites }
+                )}
+              </p>
+            )}
             {catalogue.isLoading && (
               <>
                 <p className="casino-notice" role="status">
@@ -492,52 +710,101 @@ function ProviderTestSession({ userId }: { userId: string }) {
                 <button onClick={() => void catalogue.refetch()}>{translateUi('Retry')}</button>
               </div>
             )}
-            {catalogue.data && !games.length && (
-              <div className="casino-empty">
-                <Search size={30} />
-                <h3>{translateUi('No games found')}</h3>
-                <p>{translateUi('Try another title, provider, or category.')}</p>
-                {(search || category !== 'all') && (
-                  <button
-                    className="casino-primary-button"
-                    onClick={() => {
-                      setSearch('');
-                      setCategory('all');
-                      setVisibleCount(PAGE_SIZE);
-                    }}
-                  >
-                    {translateUi('Clear filters')}
-                  </button>
-                )}
-              </div>
-            )}
+            {catalogue.data &&
+              !catalogue.isError &&
+              !games.length &&
+              !(category === 'favorites' && storageUnavailable) && (
+                <div className="casino-empty">
+                  {category === 'favorites' && !hasAvailableFavorites ? (
+                    <Heart size={30} />
+                  ) : (
+                    <Search size={30} />
+                  )}
+                  <h3>
+                    {translateUi(
+                      category === 'favorites' && !hasAvailableFavorites
+                        ? 'No favorites yet'
+                        : 'No games found'
+                    )}
+                  </h3>
+                  <p>
+                    {translateUi(
+                      category === 'favorites' && !hasAvailableFavorites
+                        ? 'Tap the heart on a game to save it here.'
+                        : 'Try another title, provider, or category.'
+                    )}
+                  </p>
+                  {(search || category !== 'all' || provider !== 'all') && (
+                    <button
+                      className="casino-primary-button"
+                      onClick={() => {
+                        setSearch('');
+                        setCategory(
+                          category === 'favorites' && hasAvailableFavorites ? 'favorites' : 'all'
+                        );
+                        setProvider('all');
+                        setVisibleCount(PAGE_SIZE);
+                      }}
+                    >
+                      {translateUi(
+                        category === 'favorites' && !hasAvailableFavorites
+                          ? 'Browse games'
+                          : 'Clear filters'
+                      )}
+                    </button>
+                  )}
+                </div>
+              )}
             <div className="casino-game-grid">
               {games.slice(0, visibleCount).map((game) => (
-                <button
-                  key={game.id}
-                  type="button"
-                  className="casino-game-tile"
-                  aria-label={translateUi('Play {name}', { name: game.name })}
-                  disabled={!canLaunch}
-                  onClick={() => {
-                    launch.reset();
-                    setSelected(game);
-                    launch.mutate(game);
-                  }}
-                >
-                  <GameArtwork
-                    key={`${game.id}:${game.image ?? ''}:${game.imageFallback ?? ''}`}
-                    game={game}
-                    motion={motionEnabled && pageVisible}
-                  />
-                  <div className="casino-tile-caption">
-                    <h3>{game.name}</h3>
-                    <p>
-                      {game.provider}
-                      <ArrowUpRight size={14} aria-hidden="true" />
-                    </p>
-                  </div>
-                </button>
+                <div className="casino-game-card" key={game.id}>
+                  <button
+                    type="button"
+                    className="casino-game-tile"
+                    aria-label={translateUi('Play {name}', { name: game.name })}
+                    disabled={!canLaunch}
+                    onClick={() => {
+                      launch.reset();
+                      setSelected(game);
+                      launch.mutate(game);
+                    }}
+                  >
+                    <GameArtwork
+                      key={`${game.id}:${game.image ?? ''}:${game.imageFallback ?? ''}`}
+                      game={game}
+                      motion={motionEnabled && pageVisible}
+                    />
+                    <div className="casino-tile-caption">
+                      <h3>{game.name}</h3>
+                      <p>
+                        {game.provider}
+                        <ArrowUpRight size={14} aria-hidden="true" />
+                      </p>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    className="casino-favorite"
+                    disabled={storageUnavailable || (limitReached && !favoriteSet.has(game.id))}
+                    aria-label={translateUi(
+                      favoriteSet.has(game.id)
+                        ? 'Remove {name} from favorites'
+                        : 'Add {name} to favorites',
+                      { name: game.name }
+                    )}
+                    aria-pressed={favoriteSet.has(game.id)}
+                    onClick={() => {
+                      if (category === 'favorites') favoritesTab.current?.focus();
+                      toggleFavorite(game.id);
+                    }}
+                  >
+                    <Heart
+                      size={18}
+                      aria-hidden="true"
+                      fill={favoriteSet.has(game.id) ? 'currentColor' : 'none'}
+                    />
+                  </button>
+                </div>
               ))}
             </div>
             {games.length > 0 && (

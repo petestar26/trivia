@@ -126,3 +126,37 @@ describe('safeReturnTo — falls back to "/" for anything that is not a plain in
     expect(check(loc('/registered-groups'))).toBe('/registered-groups');
   });
 });
+
+describe('safeReturnTo — never returns to a URL that launches or wagers on load', () => {
+  it.each([
+    // The sportsbook launcher requests a provider session as soon as it mounts.
+    ['/sports/open', '', '', '/sports'],
+    ['/sports/open/', '', '', '/sports'],
+    ['/Sports/OPEN', '', '', '/sports'],
+    ['/sports/%6Fpen', '', '', '/sports'],
+    ['/sports//open', '', '', '/sports'],
+    ['/sports/open', '?mobile=1', '#top', '/sports'],
+    // The casino lobby launches ?game=<id> once its catalogue loads.
+    ['/casino', '?game=synthetic-1', '', '/casino'],
+    ['/casino', '?game=synthetic-1&game=synthetic-2', '', '/casino'],
+    ['/casino', '?category=slots&game=synthetic-1', '', '/casino?category=slots'],
+    ['/casino/', '?game=synthetic-1', '#lobby', '/casino/#lobby'],
+    ['/CASINO', '?%67ame=synthetic-1', '', '/CASINO'],
+  ])('%s%s%s -> %s', (pathname, search, hash, expected) => {
+    expect(check(loc(pathname, search, hash))).toBe(expected);
+  });
+
+  it.each([
+    ['/casino', ''],
+    ['/casino', '?category=slots'],
+    ['/sports', ''],
+    ['/sports/opening', ''],
+    ['/casino-news', '?game=synthetic-1'],
+    ['/games/dice', ''],
+    // Play together only shows the chosen game; entering a round needs a click.
+    ['/play-together', '?game=dice'],
+    ['/explore', '?pick=dice'],
+  ])('%s%s is already safe and stays exactly as it was', (pathname, search) => {
+    expect(check(loc(pathname, search))).toBe(pathname + search);
+  });
+});

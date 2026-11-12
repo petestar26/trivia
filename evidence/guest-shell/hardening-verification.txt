@@ -1,0 +1,23 @@
+Salem Bet guest-session hardening candidate
+Base: b21c857201381c718fd6990aeb206b9a09acdfd1
+Production ancestry: e8c780cc03beaf6c7a4220e7762b3cc75d6bb386
+
+PASS: full web Vitest suite, 196 files / 2,963 tests.
+PASS: independent targeted regression rerun, 127 tests; no remaining blocker identified in inspected changes.
+PASS: web TypeScript check.
+PASS: production web build, NODE_ENV=production VITE_API_PROXY=true.
+PASS: gateway/PWA/recovery/private-preview Node tests, 41 tests (rerun after production build).
+PASS: focused changed-file ESLint, zero errors. Eighteen existing type-any warnings remain.
+PASS: changed source/test/QA-script Prettier checks and git diff --check.
+PASS: strict i18n coverage, 3,112/3,112 reachable keys; zero missing keys or validation issues. 256 inventory items require human review, not missing translations.
+
+FULL-WEB LINT IS NOT GREEN: 60 errors and 65 warnings remain across the full app. The 39 error-bearing files are byte-identical to the b21c857 integration baseline. The small unused/type-import lint errors in files changed for this hardening were corrected.
+BUILD WARNINGS: existing large-chunk warnings; the 2.38 MB football engine is not precached by Workbox.
+
+BROWSER QA BLOCKED, NOT PASSED: local Chromium fails process_singleton socket creation with Operation not permitted. No new screenshots or visual pass claimed. Updated shell-qa.cjs has 17 scenarios, including stricter same-page expiry, concurrent consumers, stale game selection and no-lock manual fallback; its syntax checks pass but those browser scenarios were not executed here. Historical integration results are clearly renamed and are not current evidence.
+
+API ANONYMOUS SWEEP BLOCKED: missing generated .prisma/client/default in reused dependencies. The attempt stopped before tests or database connections. No database-backed test suite was run. No backend route or permission changed.
+
+Behavior deliberately fails closed: no Web Locks/storage, denied or interrupted lock, reload/back_forward, stale target/session or expired permit requires a fresh in-page click. Spent nonce may remain in URL but is not reusable. An initially restored browser document conservatively also requires a fresh click on later SPA entry.
+
+NOT PERFORMED: push, merge, deployment, real authentication/account creation, real provider session, bet, payment, funds movement or production data operation.

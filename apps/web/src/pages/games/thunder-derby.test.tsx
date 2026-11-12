@@ -3,7 +3,13 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { DERBY_RULES, type DerbySnapshot } from '@socialplay/shared';
 import { DerbyView } from './thunder-derby';
-vi.mock('@/components/derby/race-scene', () => ({ default: () => <div>3D race fixture</div> }));
+const scene = vi.hoisted(() => ({ props: [] as Record<string, unknown>[] }));
+vi.mock('@/components/derby/race-scene', () => ({
+  default: (props: Record<string, unknown>) => {
+    scene.props.push(props);
+    return <div>3D race fixture</div>;
+  },
+}));
 let data: DerbySnapshot;
 beforeEach(() => {
   const now = Date.now();
@@ -273,3 +279,30 @@ it.each([6, 8] as const)(
     scroll.mockRestore();
   }
 );
+
+it('offers broadcast camera views and graphics quality as presentation-only controls', async () => {
+  scene.props.length = 0;
+  const { submit } = setup();
+  await screen.findByText('3D race fixture');
+  const cameras = screen.getByRole('group', { name: 'Camera view' });
+  const buttons = within(cameras).getAllByRole('button');
+  expect(buttons.map((b) => b.textContent)).toEqual(['Trackside', 'Follow race', 'Aerial']);
+  expect(within(cameras).getByRole('button', { name: 'Trackside' })).toHaveAttribute(
+    'aria-pressed',
+    'true'
+  );
+  expect(scene.props.at(-1)).toMatchObject({ cameraMode: 'trackside', adaptive: true });
+  fireEvent.click(within(cameras).getByRole('button', { name: 'Aerial' }));
+  expect(within(cameras).getByRole('button', { name: 'Aerial' })).toHaveAttribute(
+    'aria-pressed',
+    'true'
+  );
+  expect(scene.props.at(-1)).toMatchObject({ cameraMode: 'aerial' });
+  fireEvent.change(screen.getByRole('combobox', { name: /Graphics quality/ }), {
+    target: { value: 'low' },
+  });
+  expect(scene.props.at(-1)).toMatchObject({ quality: 'low', adaptive: false });
+  // The published round passed to the scene is untouched by presentation choices.
+  expect(scene.props.at(-1)!.round).toBe(data.rounds[0]);
+  expect(submit).not.toHaveBeenCalled();
+});

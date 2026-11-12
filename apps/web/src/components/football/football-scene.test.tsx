@@ -6,7 +6,14 @@ import type { EngineOptions, MatchInput } from './engine/engine';
 const created = vi.hoisted(() => ({
   engines: [] as Array<{
     options: EngineOptions;
-    engine: { setMatch: Mock; setReduced: Mock; start: Mock; stop: Mock; dispose: Mock };
+    engine: {
+      setMatch: Mock;
+      setReduced: Mock;
+      setSafeArea: Mock;
+      start: Mock;
+      stop: Mock;
+      dispose: Mock;
+    };
   }>,
   failNext: null as null | Error,
   setMatchThrows: false,
@@ -23,6 +30,7 @@ vi.mock('./engine/engine', () => ({
         if (created.setMatchThrows) throw new Error('boom');
       }),
       setReduced: vi.fn(),
+      setSafeArea: vi.fn(),
       start: vi.fn(),
       stop: vi.fn(),
       dispose: vi.fn(),

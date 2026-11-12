@@ -6,6 +6,7 @@ import { providerCredentials } from './credentials.js';
 import { ProviderDemoError } from './demo.js';
 import { callbackSalt, createTestWallet, testAccess, testAccessMode } from './test-wallet.js';
 import { isSportsGame } from './sports-config.js';
+import { classifyProviderGame } from './game-categories.js';
 
 type Env = Record<string, string | undefined>;
 export interface TestGame {
@@ -13,6 +14,7 @@ export interface TestGame {
   name: string;
   provider: string;
   category: string;
+  categories?: string[];
   image?: string;
   imageFallback?: string;
 }
@@ -27,11 +29,35 @@ export class TestProviderFailure extends ProviderDemoError {
     super(502, 'The provider could not complete this test request.');
   }
 }
+export class TestLaunchFailure extends ProviderDemoError {
+  constructor(
+    readonly reason: 'UNAPPROVED_HOST' | 'INVALID_LAUNCH_RESPONSE',
+    readonly host?: string
+  ) {
+    super(
+      502,
+      reason === 'UNAPPROVED_HOST'
+        ? 'This game address is not configured yet.'
+        : 'The provider returned an invalid game address.'
+    );
+  }
+}
+
+/** Both formats are returned by the authenticated provider API. Never search
+ * arbitrary nested fields for a URL or accept HTML supplied by a provider. */
+export function providerGameAddress(response: unknown): unknown {
+  if (typeof response === 'string') return response;
+  if (response && typeof response === 'object' && !Array.isArray(response))
+    return (response as { gameurl?: unknown }).gameurl;
+  return undefined;
+}
 const gameSchema = z.object({
   id_hash: z.string().min(1).max(256),
   name: z.string().min(1).max(200),
-  provider_name: z.string().max(200).optional(),
-  game_type: z.string().max(40).optional(),
+  provider_name: z.string().max(200).optional().catch(undefined),
+  provider: z.string().max(200).optional().catch(undefined),
+  game_type: z.string().max(80).optional().catch(undefined),
+  type: z.string().max(80).optional().catch(undefined),
   image: z.unknown().optional(),
   image_portrait: z.unknown().optional(),
   image_square: z.unknown().optional(),
@@ -119,14 +145,23 @@ export function createProviderTest(
             ? 'COUNTRY_RESTRICTED'
             : data.message?.toLowerCase().includes('country is required')
               ? 'COUNTRY_REQUIRED'
-              : 'PROVIDER_REJECTED',
+              : /currency.*(unsupported|not supported|not enabled|not available|invalid)|(unsupported|invalid).*currency/i.test(
+                    data.message ?? ''
+                  )
+                ? 'CURRENCY_UNSUPPORTED'
+                : 'PROVIDER_REJECTED',
           response.status,
           data.error
         );
       return data.response;
     } catch (error) {
       if (error instanceof TestProviderFailure) throw error;
-      throw new TestProviderFailure(method, 'NETWORK_OR_RESPONSE_ERROR');
+      throw new TestProviderFailure(
+        method,
+        error instanceof Error && ['AbortError', 'TimeoutError'].includes(error.name)
+          ? 'TIMEOUT'
+          : 'NETWORK_OR_RESPONSE_ERROR'
+      );
     }
   }
   let cache: { until: number; games: TestGame[] } | undefined,
@@ -142,7 +177,9 @@ export function createProviderTest(
         const found = new Map<string, TestGame>();
         for (const row of rows) {
           const p = gameSchema.safeParse(row);
-          if (p.success && p.data.game_type !== 'sportsbook' && !isSportsGame(p.data.id_hash, env) && !found.has(p.data.id_hash)) {
+          if (p.success && !isSportsGame(p.data.id_hash, env) && !found.has(p.data.id_hash)) {
+            const classification = classifyProviderGame(p.data);
+            if (classification.category === 'sportsbook') continue;
             // Portrait assets preserve the game title in the lobby's tall cards.
             // Keep one independent provider asset to recover from a failed thumbnail.
             const artwork = [
@@ -155,8 +192,11 @@ export function createProviderTest(
             found.set(p.data.id_hash, {
               id: p.data.id_hash,
               name: p.data.name,
-              provider: p.data.provider_name ?? 'Provider',
-              category: p.data.game_type ?? 'other',
+              provider: p.data.provider_name?.trim() || p.data.provider?.trim() || 'Provider',
+              category: classification.category,
+              ...(classification.categories.length > 1
+                ? { categories: classification.categories }
+                : {}),
               ...(artwork[0] ? { image: artwork[0] } : {}),
               ...(artwork[1] ? { imageFallback: artwork[1] } : {}),
             });
@@ -193,14 +233,16 @@ export function createProviderTest(
       currency: 'ETB',
     };
     await call('createPlayer', credentials);
-    const raw = await call('getGame', {
-      ...credentials,
-      gameid: gameId,
-      lang: 'en',
-      device: mobile ? 'mobile' : 'desktop',
-      country,
-      homeurl: 'https://salem.bet/casino',
-    });
+    const raw = providerGameAddress(
+      await call('getGame', {
+        ...credentials,
+        gameid: gameId,
+        lang: 'en',
+        device: mobile ? 'mobile' : 'desktop',
+        country,
+        homeurl: 'https://salem.bet/casino',
+      })
+    );
     const host = testLaunchHost(raw);
     if (
       !host ||
@@ -210,10 +252,11 @@ export function createProviderTest(
         callbackSalt(env),
         credentials.user_username,
         credentials.user_password,
-      ].some((secret) => host.includes(secret.toLowerCase())) ||
-      (!inspectHost && !hosts().includes(host))
+      ].some((secret) => host.includes(secret.toLowerCase()))
     )
-      throw new ProviderDemoError(502, 'The provider returned an unapproved test game address.');
+      throw new TestLaunchFailure('INVALID_LAUNCH_RESPONSE');
+    if (!inspectHost && !hosts().includes(host))
+      throw new TestLaunchFailure('UNAPPROVED_HOST', host);
     // The operator probe returns the hostname only, never the bearer session URL.
     if (inspectHost) return { host, mode: 'virtual-test' as const, url: '' };
     return { url: new URL(raw as string).href, mode: 'virtual-test' as const, host };

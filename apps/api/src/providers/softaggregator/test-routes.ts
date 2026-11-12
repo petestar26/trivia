@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { prisma } from '@socialplay/database';
 import { authenticate } from '../../middleware/auth.js';
 import { ProviderDemoError } from './demo.js';
-import { createProviderTest } from './test-client.js';
+import { createProviderTest, TestLaunchFailure, TestProviderFailure } from './test-client.js';
 
 export async function providerTestRoutes(server: FastifyInstance) {
   const pilot = createProviderTest(prisma);
@@ -10,7 +10,7 @@ export async function providerTestRoutes(server: FastifyInstance) {
     reply.header('Cache-Control', 'private, no-store');
   });
   server.addHook('preHandler', authenticate);
-  server.setErrorHandler((err, _req, reply) => {
+  server.setErrorHandler((err, req, reply) => {
     const status =
       err instanceof ProviderDemoError
         ? err.statusCode
@@ -19,10 +19,41 @@ export async function providerTestRoutes(server: FastifyInstance) {
           : err.statusCode && err.statusCode >= 400 && err.statusCode < 500
             ? err.statusCode
             : 500;
+    let code = 'PROVIDER_TEST_UNAVAILABLE';
+    if (err instanceof TestLaunchFailure) {
+      code =
+        err.reason === 'UNAPPROVED_HOST'
+          ? 'CASINO_GAME_ADDRESS_PENDING'
+          : 'CASINO_PROVIDER_UNAVAILABLE';
+      req.log.warn({
+        event: 'CASINO_LAUNCH_FAILED',
+        reason: err.reason,
+        ...(err.host ? { launchHost: err.host } : {}),
+      });
+    } else if (err instanceof TestProviderFailure) {
+      code =
+        err.reason === 'COUNTRY_RESTRICTED'
+          ? 'CASINO_GAME_REGION_UNAVAILABLE'
+          : err.reason === 'CURRENCY_UNSUPPORTED'
+            ? 'CASINO_GAME_CURRENCY_UNAVAILABLE'
+            : err.reason === 'TIMEOUT'
+              ? 'CASINO_PROVIDER_TIMEOUT'
+              : err.httpStatus === 429
+                ? 'CASINO_PROVIDER_BUSY'
+                : 'CASINO_PROVIDER_UNAVAILABLE';
+      // Do not log the provider response, request body, player identity or bearer URL.
+      req.log.warn({
+        event: 'CASINO_LAUNCH_FAILED',
+        method: err.method,
+        reason: err.reason,
+        httpStatus: err.httpStatus,
+        providerCode: err.providerCode,
+      });
+    } else if (status === 429) code = 'CASINO_PROVIDER_BUSY';
     return reply.code(status).send({
       success: false,
       error: {
-        code: 'PROVIDER_TEST_UNAVAILABLE',
+        code,
         message:
           err instanceof ProviderDemoError
             ? err.message

@@ -32,6 +32,8 @@ const DERBY_HELP = Object.fromEntries(
   ])
 ) as Record<DerbyMarket, string>;
 import type { DogCamera } from '@/components/dog-racing/race-scene';
+import { useGameQuality } from '@/components/together/use-game-quality';
+import type { GameQuality } from '@/components/together/game-art-direction';
 import './dog-racing.css';
 import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
@@ -216,6 +218,8 @@ export function DogRacingView({
     [now, setNow] = useState(Date.now()),
     [reduced, setReduced] = useState(false),
     [cameraMode, setCameraMode] = useState<DogCamera>('trackside');
+  // Same graphics choice as group play: Automatic adapts to measured frame times.
+  const graphics = useGameQuality(reduced);
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 250);
     return () => clearInterval(id);
@@ -479,6 +483,9 @@ export function DogRacingView({
                     running={running && fresh}
                     reduced={reduced}
                     cameraMode={cameraMode}
+                    quality={graphics.tier}
+                    adaptive={graphics.adaptive}
+                    onSlow={graphics.degrade}
                   />
                 </Suspense>
               </SceneLoadBoundary>
@@ -521,6 +528,18 @@ export function DogRacingView({
                   onChange={(e) => setReduced(e.target.checked)}
                 />{' '}
                 {translateUi('Reduced motion')}
+              </label>
+              <label className="hounds-quality">
+                {translateUi('Graphics quality')}{' '}
+                <select
+                  value={graphics.quality}
+                  onChange={(e) => graphics.choose(e.target.value as GameQuality)}
+                >
+                  <option value="auto">{translateUi('Automatic')}</option>
+                  <option value="high">{translateUi('High')}</option>
+                  <option value="balanced">{translateUi('Balanced')}</option>
+                  <option value="low">{translateUi('Low')}</option>
+                </select>
               </label>
               <span>{translateUi('Server-set results')}</span>
             </div>

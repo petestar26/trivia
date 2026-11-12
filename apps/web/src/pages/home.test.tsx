@@ -1,8 +1,9 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { HomePage } from './home';
+import { installMemoryStorage } from '@/test/memory-storage';
 import { GamesPage } from './games';
 import {
   PRACTICE_ROUTES,
@@ -138,6 +139,52 @@ it('shows actual casino art on Home and links to a selected game without launchi
   const link = await screen.findByRole('link', { name: 'Play Orbite' });
   expect(link).toHaveAttribute('href', '/casino?game=studio%2Fslot');
   expect(link.querySelector('img')).toHaveAttribute('src', 'https://cdn.example.com/portrait.jpg');
+  expect(get.mock.calls.some(([p]) => p.includes('/launch'))).toBe(false);
+});
+it('turns only a plain click on a casino tile into a one-time launch intent', async () => {
+  get.mockImplementation(async (path) =>
+    ok(
+      path === '/games'
+        ? [game('dice')]
+        : path === '/provider-test/status'
+          ? { enabled: true, launchReady: true }
+          : [{ id: 'studio/slot', name: 'Orbite', provider: 'Studio', category: 'table' }]
+    )
+  );
+  function HomeWithAddress() {
+    const location = useLocation();
+    return (
+      <>
+        <HomePage />
+        <output aria-label="Address">{location.pathname + location.search}</output>
+      </>
+    );
+  }
+  const storage = installMemoryStorage();
+  try {
+    setup(HomeWithAddress);
+    const link = await screen.findByRole('link', { name: 'Play Orbite' });
+    // A new-tab or modified click keeps the plain link, which only selects the game.
+    // (jsdom cannot open a new tab, so stop its default navigation after React has seen it.)
+    const stopNavigation = (event: Event) => event.preventDefault();
+    document.addEventListener('click', stopNavigation);
+    fireEvent.click(link, { ctrlKey: true });
+    fireEvent.click(link, { button: 1 });
+    document.removeEventListener('click', stopNavigation);
+    expect(screen.getByLabelText('Address')).toHaveTextContent(/^\/$/);
+    expect(storage.memory.size).toBe(0);
+    fireEvent.click(link);
+    const address = screen.getByLabelText('Address').textContent ?? '';
+    expect(address).toMatch(/^\/casino\?game=studio%2Fslot&intent=[0-9a-f-]{36}$/);
+    const nonce = address.split('intent=')[1];
+    expect(JSON.parse(storage.memory.get(`salem-launch-intent:${nonce}`) ?? '{}')).toMatchObject({
+      kind: 'casino',
+      userId: 'u1',
+      target: 'studio/slot',
+    });
+  } finally {
+    storage.restore();
+  }
   expect(get.mock.calls.some(([p]) => p.includes('/launch'))).toBe(false);
 });
 it('does not fetch provider titles for accounts without test access', async () => {

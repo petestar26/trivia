@@ -1,0 +1,30 @@
+Guest member-shell candidate, revision 2, 2026-11-11
+Base: e8c780cc03beaf6c7a4220e7762b3cc75d6bb386
+Supersedes original candidate 182053122969517f24643c5cab91c9e189426cca. Do not integrate revision 1: it discarded member deep links before the initial session probe resolved.
+
+PASS: web TypeScript check (tsc --noEmit).
+PASS: production web build (NODE_ENV=production VITE_API_PROXY=true vite build).
+PASS: full web Vitest suite against final source/catalogue: 194 files, 2,865 tests.
+PASS: gateway/PWA/recovery Node suite: 40 tests.
+PASS: isolated private preview server: 1 test.
+PASS: ESLint for every changed/new TypeScript and TSX file.
+PASS: Prettier check for changed source and review scripts.
+PASS: git diff --check.
+PASS: strict localization audit: 3,110/3,110 reachable literal keys covered; zero missing keys or validation issues.
+PASS: focused auth/session/workspace regression suite: 4 files, 94 tests. Covers delayed existing-member restoration, mocked sportsbook new-tab launch, member deep links, confirmed anonymous sanitization, explicit sign-in/Back no replay, pending guest CTA, failed session checks, newer navigation, and case/encoded staff paths.
+REVIEW: revision 1's earlier boundary review missed the unresolved-session regression. Independent follow-up identified it; revision 2 corrects it.
+
+FULL-WEB LINT IS NOT GREEN: 65 errors and 65 warnings remain. Every error-bearing file (43 files) matches the release baseline byte-for-byte. No error-bearing file was modified by this candidate.
+
+EXISTING BUILD WARNINGS: large application chunks; the 2.38 MB football engine is not precached by Workbox. Build completes successfully.
+
+VISUAL QA BLOCKED, NOT PASSED: Chromium fails to create its required process socket (Operation not permitted), including the reviewed local-only invocation. Cloud Browser cannot reach the executor's loopback preview (ERR_CONNECTION_REFUSED). No screenshots produced or claimed. An independent Mac attempt also failed with browser Transport closed after starting the isolated preview; the preview was stopped.
+
+LOCALIZATION: 131 new keys translated into am/om/ti/so/ar/sw/fr. Authored translations have not had independent native-speaker review. The 255 manual-review inventory findings are unchanged baseline.
+
+NOT RUN: backend/database integration suites; no backend, schema, API permission, provider, wallet, or financial logic changed.
+NOT PERFORMED: push, merge, deployment, real sign-in/account creation, provider launch, bets, or movement of funds.
+
+REVISION 2: unresolved sessions hold action/private URLs without mounting effects; only confirmed guests are sanitized. Existing authenticated member deep links survive. Staff loading is enforced inside the matched role gate. All existing server auth and role checks remain intact.
+
+The bundled static preview is compiled with relative API requests. Its Node server binds only to 127.0.0.1, stubs all APIs, blocks WebSockets and service workers, and sends a CSP that blocks external connections. Do not enter real credentials during visual review.

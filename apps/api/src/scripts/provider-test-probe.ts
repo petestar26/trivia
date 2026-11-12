@@ -3,6 +3,7 @@ import { assertProviderProbeTarget } from '../providers/softaggregator/probe.js'
 import {
   createProviderTest,
   TestProviderFailure,
+  TestLaunchFailure,
 } from '../providers/softaggregator/test-client.js';
 import { testIds, testAccessMode, callbackSalt } from '../providers/softaggregator/test-wallet.js';
 
@@ -41,8 +42,9 @@ async function main() {
       return;
     }
     if (!actor || !pilot.enabledFor(actor.id)) throw Error('TEST_NOT_CONFIGURED');
-    const country = process.env.SOFTAGGREGATOR_TEST_COUNTRY ?? '';
-    if (!/^[A-Z]{2}$/.test(country)) throw Error('TEST_COUNTRY_REQUIRED');
+    // Probe the same market enforced by member launches, never an operator's
+    // earlier location setting that could hide country-specific failures.
+    const country = 'ET';
     const games = await pilot.games(actor.id),
       requested = process.env.SOFTAGGREGATOR_TEST_GAME_ID;
     const game = requested
@@ -59,6 +61,9 @@ async function main() {
         currency: 'ETB',
         country,
         virtualOnly: true,
+        hostApproved: (process.env.SOFTAGGREGATOR_TEST_LAUNCH_HOSTS ?? '')
+          .split(',')
+          .some((host) => host.trim().toLowerCase() === result.host),
       })
     );
   } finally {
@@ -77,7 +82,9 @@ main().catch((error) => {
             httpStatus: error.httpStatus,
             providerCode: error.providerCode,
           }
-        : {}),
+        : error instanceof TestLaunchFailure
+          ? { reason: error.reason }
+          : {}),
     })
   );
   process.exitCode = 1;

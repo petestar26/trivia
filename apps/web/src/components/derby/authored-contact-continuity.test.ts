@@ -4,12 +4,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { HOOF_NAMES, measureHoofWindows, type HoofWindow } from './authored-contact';
 import { CONTACT_FRACTION, STRIDE_SECONDS } from './gallop';
-import {
-  continuousGallop,
-  createRiggedHorse,
-  type HorseAssets,
-  type RaceHorse,
-} from './rigged-horse';
+import { createRiggedHorse, raceGallop, type HorseAssets, type RaceHorse } from './rigged-horse';
 import { createStrideClock } from './stride-clock';
 
 async function asset(name: string) {
@@ -76,7 +71,7 @@ describe('authored hoof release at internal sole-zero crossings', () => {
       idle: horse.animations.find((c) => c.name === 'Idle')!,
       dispose() {},
     };
-    windows = measureHoofWindows(a.horse, continuousGallop(a.run));
+    windows = measureHoofWindows(a.horse, raceGallop(a.run));
     horses = Array.from({ length: 8 }, (_, index) =>
       createRiggedHorse(a, '#774532', '#aa2244', index)
     );
@@ -110,18 +105,19 @@ describe('authored hoof release at internal sole-zero crossings', () => {
     };
   };
 
-  it('reproduces the reviewed front-right crossing on all eight runner offsets', () => {
-    const reviewed = 0.341166157161244;
-    const actual = crossings
-      .filter((c) => c.name === 'front_leg_foot_r')
-      .find((c) => Math.abs(c.time - reviewed) < 1e-9);
-    expect(actual).toBeDefined();
-    const jumps = horses.map((_, index) => {
-      const left = pose(index, reviewed - 1e-8, 'front_leg_foot_r');
-      const right = pose(index, reviewed + 1e-8, 'front_leg_foot_r');
-      return left.position.distanceTo(right.position);
-    });
-    console.info('reviewed front-right zero-crossing jumps (metres)', jumps);
+  it('has no hoof jump across any sole-zero crossing on all eight runner offsets', () => {
+    // The original reviewed jump (18.7 mm at front-right 0.341166 s of the old linear
+    // loop) came from switching on a finite clearance offset at a sign crossing. The
+    // velocity-continuous loop moves the crossings, so check every one of them.
+    expect(crossings.length).toBeGreaterThan(3);
+    const jumps = crossings.flatMap((c) =>
+      horses.map((_, index) => {
+        const left = pose(index, c.time - 1e-8, c.name);
+        const right = pose(index, c.time + 1e-8, c.name);
+        return left.position.distanceTo(right.position);
+      })
+    );
+    console.info('maximum zero-crossing jump (metres)', Math.max(...jumps));
     expect(Math.max(...jumps)).toBeLessThan(0.00001);
   });
 

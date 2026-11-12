@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowUpRight, ArrowRight, Dice5 } from 'lucide-react';
 import { api, unwrapData } from '@/lib/api';
@@ -6,12 +6,14 @@ import { useAuth } from '@/providers/auth-provider';
 import { useLanguage } from '@/providers/language-provider';
 import { GameArtwork, type TestGame } from '@/pages/games/provider-test';
 import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
+import { createLaunchIntent } from '@/lib/launch-intent';
 
 export function CasinoPreview() {
   const { t: translateUi } = useInterfaceLanguage();
 
   const { user } = useAuth();
   const { t } = useLanguage();
+  const navigate = useNavigate();
   const status = useQuery({
     queryKey: ['provider-test-status', user?.id],
     enabled: !!user?.id,
@@ -22,7 +24,7 @@ export function CasinoPreview() {
         await api.get<{ enabled: boolean; launchReady: boolean }>('/provider-test/status')
       ),
   });
-  const allowed = status.data?.enabled === true && !status.isError;
+  const allowed = !!user?.id && status.data?.enabled === true && !status.isError;
   const games = useQuery({
     queryKey: ['provider-test-games', user?.id],
     enabled: allowed,
@@ -48,6 +50,21 @@ export function CasinoPreview() {
             {games.data.slice(0, 6).map((game) => (
               <Link
                 to={`/casino?game=${encodeURIComponent(game.id)}`}
+                onClick={(event) => {
+                  // A plain click opens the game now; a new-tab or modified click only selects it.
+                  if (
+                    event.button !== 0 ||
+                    event.metaKey ||
+                    event.ctrlKey ||
+                    event.shiftKey ||
+                    event.altKey
+                  )
+                    return;
+                  const intent = user && createLaunchIntent('casino', user.id, game.id);
+                  if (!intent) return;
+                  event.preventDefault();
+                  navigate(`/casino?game=${encodeURIComponent(game.id)}&intent=${intent}`);
+                }}
                 className="casino-game-tile"
                 aria-label={`${t('Play')} ${game.name}`}
                 key={game.id}
@@ -65,7 +82,7 @@ export function CasinoPreview() {
           </div>
           <p className="salem-footnote">{translateUi('Virtual ETB · No cash value')}</p>
         </>
-      ) : status.isPending || (allowed && games.isPending) ? (
+      ) : user && (status.isPending || (allowed && games.isPending)) ? (
         <p role="status">{t('Loading…')}</p>
       ) : (
         <div className="salem-casino-intro">

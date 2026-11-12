@@ -18,15 +18,12 @@ import {
 import { WalletSetupAdmin } from '@/pages/wallet-setup-admin';
 import { WalletPricingAdmin } from '@/pages/wallet-pricing-admin';
 import { WalletAgentSetupPage } from '@/pages/wallet-agent-setup';
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import { lazy, Suspense } from 'react';
-import { useAuth } from '@/providers/auth-provider';
 import { Layout } from '@/components/layout/layout';
 import { HomePage } from '@/pages/home';
-import { WelcomePage, ExplorePage } from '@/pages/welcome';
 import { LoginPage } from '@/pages/login';
 import { RegisterPage } from '@/pages/register';
-import { ProtectedRoute } from '@/components/auth/protected-route';
 import { CasinoProvider } from '@/components/casino/CasinoProvider';
 import { GamesPage } from '@/pages/games';
 import { CasinoPage } from '@/pages/casino';
@@ -76,28 +73,8 @@ const SpinWinVerifyPage = lazy(async () => {
 export function App() {
   const { t: translateUi } = useInterfaceLanguage();
 
-  const { isLoading } = useAuth();
-  const location = useLocation();
-
-  // Public sign-in/activation, discovery and offline verification must remain
-  // reachable while the unrelated session probe is waiting on an unavailable API.
-  if (
-    isLoading &&
-    !/^\/(?:explore\/?|login\/?|register\/?|reset-password\/?|(?:admin\/login|agent\/(?:login|activate))\/?|games\/spin-win\/verify\/?)?$/.test(
-      location.pathname
-    )
-  ) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary-500 border-t-transparent"></div>
-      </div>
-    );
-  }
-
   return (
     <Routes>
-      <Route path="/" element={<WelcomePage />} />
-      <Route path="/explore" element={<ExplorePage />} />
       <Route
         path="/games/spin-win/verify"
         element={
@@ -158,14 +135,9 @@ export function App() {
       </Route>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
-      <Route
-        path="/*"
-        element={
-          <ProtectedRoute>
-            <Layout />
-          </ProtectedRoute>
-        }
-      >
+      <Route path="/*" element={<Layout />}>
+        <Route index element={<Navigate to="/dashboard" replace />} />
+        <Route path="explore" element={<Navigate to="/dashboard" replace />} />
         <Route path="dashboard" element={<HomePage />} />
         <Route path="groups" element={<GroupsPage />} />
         <Route path="groups/invite/:token" element={<GroupInviteAcceptPage />} />
