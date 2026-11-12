@@ -52,7 +52,7 @@ export function TogetherLiveGame({
   const [reduced, setReduced] = useState(
     () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
   );
-  const { quality, choose, tier } = useGameQuality(reduced);
+  const { quality, choose, tier, degrade, adaptive } = useGameQuality(reduced);
   const anchor = useRef({ server: serverNow, at: performance.now() });
   useEffect(() => {
     anchor.current = { server: serverNow, at: performance.now() };
@@ -176,6 +176,8 @@ export function TogetherLiveGame({
                     reduced={reduced}
                     complete={complete}
                     quality={tier}
+                    adaptive={adaptive}
+                    onSlow={degrade}
                     fallback={raceFallback}
                   />
                 </Suspense>

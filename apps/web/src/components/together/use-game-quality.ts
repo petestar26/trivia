@@ -1,10 +1,17 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { qualityFromFrames, type GameQuality, type RenderQuality } from './game-art-direction';
 
+const STORAGE_KEY = 'salem-game-quality';
+
+/**
+ * The player's graphics choice plus the automatic tier. Automatic only ever steps down
+ * within a session (from measured frame delivery, here or reported by a scene), so it
+ * never oscillates; an explicit choice is always respected and persisted.
+ */
 export function useGameQuality(reduced: boolean) {
   const [quality, setQuality] = useState<GameQuality>(() => {
     try {
-      const saved = localStorage.getItem('salem-game-quality');
+      const saved = localStorage.getItem(STORAGE_KEY);
       if (['auto', 'high', 'balanced', 'low'].includes(saved ?? '')) return saved as GameQuality;
     } catch {
       /* Storage is optional. */
@@ -27,8 +34,10 @@ export function useGameQuality(reduced: boolean) {
       previous = now;
       if (samples.length >= 120 || (samples.length >= 12 && now - started >= 4000)) {
         const measured = qualityFromFrames(samples);
-        setAutomatic(measured);
-        if (measured === 'low') return;
+        if (measured === 'low') {
+          setAutomatic('low');
+          return;
+        }
         // Continue after assets load; a fast loading screen says little about the scene.
         samples.length = 0;
         started = now;
@@ -42,10 +51,16 @@ export function useGameQuality(reduced: boolean) {
     setQuality(value);
     if (value === 'auto') setAutomatic('balanced');
     try {
-      localStorage.setItem('salem-game-quality', value);
+      localStorage.setItem(STORAGE_KEY, value);
     } catch {
       /* Optional. */
     }
   };
-  return { quality, choose, tier: reduced ? 'low' : quality === 'auto' ? automatic : quality };
+  /** A scene measured sustained overload at its lowest resolution: one tier down (Auto only). */
+  const degrade = useCallback(() => {
+    if (quality !== 'auto') return;
+    setAutomatic((tier) => (tier === 'high' ? 'balanced' : 'low'));
+  }, [quality]);
+  const tier: RenderQuality = reduced ? 'low' : quality === 'auto' ? automatic : quality;
+  return { quality, choose, tier, degrade, adaptive: quality === 'auto' && !reduced };
 }
