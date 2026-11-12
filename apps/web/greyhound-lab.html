@@ -1,0 +1,42 @@
+<!doctype html>
+<!-- Dev-only greyhound gait and rendering review. Not part of the production build:
+     Vite's build input is index.html only. Run `pnpm --filter web dev` and open
+     /greyhound-lab.html?view=side&dogs=1 (see src/greyhound-lab/main.ts for options). -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Greyhound lab</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #0c1311;
+        color: #eae3d2;
+        font:
+          12px system-ui,
+          sans-serif;
+      }
+      #host,
+      canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+      #hud {
+        position: fixed;
+        left: 8px;
+        top: 8px;
+        background: #0c1311cc;
+        padding: 6px 8px;
+        border-radius: 6px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="host"></div>
+    <div id="hud">Original procedural greyhound · local diagnostic view</div>
+    <script type="module" src="/src/greyhound-lab/main.ts"></script>
+  </body>
+</html>

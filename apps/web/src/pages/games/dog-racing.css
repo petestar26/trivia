@@ -119,6 +119,36 @@
   position: relative;
   background: #a6b8ba;
 }
+.hounds-scene-tags {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+/* Runner numbers in jacket colours, drawn by the page so they stay sharp at any resolution. */
+.hounds-scene-tags span {
+  position: absolute;
+  left: 0;
+  top: 0;
+  min-width: 19px;
+  height: 19px;
+  padding: 0 4px;
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  border: 1.5px solid rgba(255, 255, 255, 0.92);
+  border-radius: 6px;
+  font:
+    800 11.5px/1 system-ui,
+    -apple-system,
+    'Segoe UI',
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+  box-shadow:
+    0 0 0 1px rgba(10, 14, 12, 0.45),
+    0 2px 5px rgba(0, 0, 0, 0.35);
+  will-change: transform;
+}
 .hounds-scene canvas {
   display: block;
   width: 100%;
@@ -169,6 +199,16 @@
   color: #b5c6b8;
   flex-wrap: wrap;
   gap: 8px;
+}
+.hounds-page .hounds-quality select {
+  margin-left: 4px;
+  min-height: 28px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  border: 1px solid rgba(214, 226, 211, 0.35);
+  background: #13201a;
+  color: #e6efe2;
+  font: inherit;
 }
 .hounds-page .derby-progress {
   display: grid;
@@ -569,6 +609,14 @@
 .hounds-page .derby-scene-shell {
   min-height: 0 !important;
 }
+/* The shell has no minimum height here, so an absolutely placed recovery panel would
+   collapse to nothing; keep the "could not load" message and reload button in flow. */
+.hounds-page .derby-scene-shell > .game-scene-recovery {
+  position: relative;
+  inset: auto;
+  min-height: 180px;
+  padding-bottom: 44px;
+}
 .hounds-page .derby-broadcast-label {
   left: 8px;
   bottom: 7px;
@@ -632,5 +680,14 @@
   }
   .hounds-page[data-field='6'] .derby-runners {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* Short landscape phones: the shell's fixed header and navigation leave little height,
+   so keep the whole course visible between them (the expanded view keeps its size). */
+@media (max-height: 480px) and (orientation: landscape) {
+  .hounds-scene {
+    height: clamp(180px, calc(100vh - 170px), 280px);
+    height: clamp(180px, calc(100dvh - 170px), 280px);
   }
 }

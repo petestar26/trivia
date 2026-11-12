@@ -66,3 +66,31 @@ it('uses the accessible light presentation when reduced motion is requested', ()
   const { result } = renderHook(() => useGameQuality(true));
   expect(result.current.tier).toBe('low');
 });
+
+it('steps Automatic down one tier when a scene reports sustained overload, never back up', () => {
+  const { result } = renderHook(() => useGameQuality(false));
+  expect(result.current.adaptive).toBe(true);
+  expect(result.current.tier).toBe('balanced');
+  act(() => result.current.degrade());
+  expect(result.current.tier).toBe('low');
+  act(() => result.current.degrade());
+  expect(result.current.tier).toBe('low');
+  expect(result.current.quality).toBe('auto');
+  // Choosing Automatic again starts from Balanced; the player stays in control.
+  act(() => result.current.choose('auto'));
+  expect(result.current.tier).toBe('balanced');
+});
+
+it('never overrides an explicit graphics choice', () => {
+  const { result } = renderHook(() => useGameQuality(false));
+  act(() => result.current.choose('high'));
+  expect(result.current.adaptive).toBe(false);
+  act(() => result.current.degrade());
+  expect(result.current.tier).toBe('high');
+});
+
+it('does not adapt while reduced motion forces the light presentation', () => {
+  const { result } = renderHook(() => useGameQuality(true));
+  expect(result.current.adaptive).toBe(false);
+  expect(result.current.tier).toBe('low');
+});

@@ -15,6 +15,8 @@ export default function SharedRaceScene({
   quality,
   fallback,
   complete,
+  adaptive = false,
+  onSlow,
 }: {
   roundId: string;
   positions: number[];
@@ -26,6 +28,9 @@ export default function SharedRaceScene({
   quality: 'high' | 'balanced' | 'low';
   fallback: ReactNode;
   complete: boolean;
+  /** Automatic quality: the dog scene adapts resolution and reports sustained overload. */
+  adaptive?: boolean;
+  onSlow?: () => void;
 }) {
   const { t } = useTogetherText();
   const [camera, setCamera] = useState<DogCamera>('trackside');
@@ -66,7 +71,10 @@ export default function SharedRaceScene({
             running={running}
             reduced={reduced}
             synchronized
+            progressMode="shared"
             quality={quality}
+            adaptive={adaptive}
+            onSlow={onSlow}
             cameraMode={camera}
           />
         ) : (
