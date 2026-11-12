@@ -543,6 +543,7 @@ export default function RaceScene({
     <div
       className="derby-scene"
       data-runners={authored ? 'authored-rigs' : 'procedural'}
+      data-adaptive={adaptive ? 'true' : 'false'}
       ref={host}
       aria-label={translateUi(
         'Three-dimensional horse race. Official finishing order appears above.'

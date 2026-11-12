@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import DerbyRaceScene from '@/components/derby/race-scene';
+import DerbyRaceScene, { type DerbyCameraMode } from '@/components/derby/race-scene';
 import DogRaceScene, { type DogCamera } from '@/components/dog-racing/race-scene';
 import { useTogetherText } from '@/lib/i18n/together-text';
 import '@/pages/games/thunder-derby.css';
@@ -28,12 +28,13 @@ export default function SharedRaceScene({
   quality: 'high' | 'balanced' | 'low';
   fallback: ReactNode;
   complete: boolean;
-  /** Automatic quality: the dog scene adapts resolution and reports sustained overload. */
+  /** Automatic quality: either race scene adapts resolution and reports sustained overload. */
   adaptive?: boolean;
   onSlow?: () => void;
 }) {
   const { t } = useTogetherText();
-  const [camera, setCamera] = useState<DogCamera>('trackside');
+  // Both courses offer the same three broadcast views under the same labels.
+  const [camera, setCamera] = useState<DogCamera & DerbyCameraMode>('trackside');
   const round = {
     id: roundId,
     positions,
@@ -50,20 +51,18 @@ export default function SharedRaceScene({
       className={dogs ? 'hounds-page original-race' : 'derby-page original-race'}
       data-original-scene={dogs ? 'dog-racing' : 'thunder-derby'}
     >
-      {dogs && (
-        <div className="original-camera-controls" role="group" aria-label={t('Camera view')}>
-          {(['trackside', 'chase', 'aerial'] as const).map((mode) => (
-            <button
-              key={mode}
-              type="button"
-              aria-pressed={camera === mode}
-              onClick={() => setCamera(mode)}
-            >
-              {t(mode === 'trackside' ? 'Trackside' : mode === 'chase' ? 'Follow race' : 'Aerial')}
-            </button>
-          ))}
-        </div>
-      )}
+      <div className="original-camera-controls" role="group" aria-label={t('Camera view')}>
+        {(['trackside', 'chase', 'aerial'] as const).map((mode) => (
+          <button
+            key={mode}
+            type="button"
+            aria-pressed={camera === mode}
+            onClick={() => setCamera(mode)}
+          >
+            {t(mode === 'trackside' ? 'Trackside' : mode === 'chase' ? 'Follow race' : 'Aerial')}
+          </button>
+        ))}
+      </div>
       <div className="derby-scene-shell">
         {dogs ? (
           <DogRaceScene
@@ -84,6 +83,9 @@ export default function SharedRaceScene({
             reduced={reduced}
             synchronized
             quality={quality}
+            adaptive={adaptive}
+            onSlow={onSlow}
+            cameraMode={camera}
             fallback={fallback}
           />
         )}

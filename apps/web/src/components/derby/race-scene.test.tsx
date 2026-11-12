@@ -364,3 +364,11 @@ it.each(['idle', 'run'] as const)(
     expect(dispose).toHaveBeenCalledOnce();
   }
 );
+
+it('exposes whether Automatic quality adaptation reached the scene', () => {
+  const view = render(<RaceScene round={round(8)} running reduced={false} adaptive />);
+  expect(view.container.querySelector('.derby-scene')).toHaveAttribute('data-adaptive', 'true');
+  view.rerender(<RaceScene round={round(8)} running reduced={false} quality="low" />);
+  expect(view.container.querySelector('.derby-scene')).toHaveAttribute('data-adaptive', 'false');
+  expect(view.container.querySelector('.derby-scene')).toHaveAttribute('data-render-tier', 'low');
+});
