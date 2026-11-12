@@ -14,6 +14,7 @@ import { DrawStage } from './draw-stage';
 import { DiceStage, BlackjackStage, NumberStage } from './table-stages';
 import { FlightStage } from './flight-stages';
 import { RaceBroadcast2D, PitchBroadcast2D } from './lightweight-sports';
+import { raceRunnerColor } from './race-runner-colors';
 import './together-live-game.css';
 import './shared-stages.css';
 import './original-scenes.css';
@@ -186,29 +187,16 @@ export function TogetherLiveGame({
                 {positions
                   .map((position, i) => ({ position, i }))
                   .sort((a, b) => b.position - a.position || a.i - b.i)
-                  .map(({ position, i }, index) => (
-                    <li key={i}>
-                      <small>{num(index + 1)}</small>
-                      <b
-                        style={{
-                          background: [
-                            '#eee8d6',
-                            '#303d4e',
-                            '#b53142',
-                            '#3979be',
-                            '#bd9130',
-                            '#328a72',
-                            '#9364b1',
-                            '#c5779e',
-                          ][i],
-                          color: i === 0 ? '#1b2530' : 'white',
-                        }}
-                      >
-                        {num(i + 1)}
-                      </b>
-                      <span>{num(Math.floor(position * 100))}%</span>
-                    </li>
-                  ))}
+                  .map(({ position, i }, index) => {
+                    const runner = raceRunnerColor(dogs, i);
+                    return (
+                      <li key={i}>
+                        <small>{num(index + 1)}</small>
+                        <b style={{ background: runner.color, color: runner.ink }}>{num(i + 1)}</b>
+                        <span>{num(Math.floor(position * 100))}%</span>
+                      </li>
+                    );
+                  })}
               </ol>
             </>
           )}
