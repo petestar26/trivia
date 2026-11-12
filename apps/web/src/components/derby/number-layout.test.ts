@@ -1,6 +1,23 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import { frameDerbyField } from './field-camera';
+import { createBroadcastDirector } from './broadcast-camera';
+import { laneZ } from './racecourse';
+
+/** Frame like the race scene: the trackside director with published positions. */
+function frame(
+  camera: THREE.PerspectiveCamera,
+  positions: number[],
+  field: number,
+  director = createBroadcastDirector(),
+  dt = 0
+) {
+  director.update(
+    camera,
+    'trackside',
+    { positions, field, running: true, finished: false, reduced: false, time: 0 },
+    dt
+  );
+}
 import { createDerbyNumberLayout, layoutDerbyNumbers } from './number-layout';
 
 function check(points: ReturnType<typeof layoutDerbyNumbers>, width: number, height: number) {
@@ -38,9 +55,9 @@ describe('pixel-readable Derby numbers', () => {
           Array.from({ length: field }, (_, i) => (i % 2 ? 180 : 0)),
         ]) {
           const camera = new THREE.PerspectiveCamera(36, width / height, 0.1, 2000);
-          frameDerbyField(camera, positions, field);
+          frame(camera, positions, field);
           const anchors = positions.map((x, i) => {
-            const point = new THREE.Vector3(x, 3.485, (i - (field - 1) / 2) * 2.15).project(camera);
+            const point = new THREE.Vector3(x, 3.6, laneZ(i, field)).project(camera);
             return { x: ((point.x + 1) * width) / 2, y: ((1 - point.y) * height) / 2 };
           });
           const prior = JSON.stringify(anchors),
@@ -90,7 +107,8 @@ describe('per-scene number continuity', () => {
     [844, 230, 8],
   ])('avoids free-region jumps at %s×%s with %s slowly moving runners', (width, height, field) => {
     const camera = new THREE.PerspectiveCamera(36, width / height, 0.1, 2000),
-      layout = createDerbyNumberLayout();
+      layout = createDerbyNumberLayout(),
+      director = createBroadcastDirector();
     let previous: ReturnType<typeof layoutDerbyNumbers> | undefined,
       maximumMove = 0;
     for (let step = 0; step <= 1200; step++) {
@@ -98,9 +116,9 @@ describe('per-scene number continuity', () => {
         { length: field },
         (_, i) => 100 + step * 0.02 - (i * step) / 600
       );
-      frameDerbyField(camera, positions, field, step ? 1 / 30 : 0);
+      frame(camera, positions, field, director, step ? 1 / 30 : 0);
       const anchors = positions.map((x, i) => {
-        const p = new THREE.Vector3(x, 3.485, (i - (field - 1) / 2) * 2.15).project(camera);
+        const p = new THREE.Vector3(x, 3.6, laneZ(i, field)).project(camera);
         return { x: ((p.x + 1) * width) / 2, y: ((1 - p.y) * height) / 2 };
       });
       const badges = layout.update(anchors, width, height, step ? 1 / 30 : 0);

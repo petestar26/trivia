@@ -51,6 +51,7 @@ vi.doMock('./rigged-horse', async () => {
   const { Group } = await import('three');
   return {
     loadHorseAssets: () => new Promise((resolve) => pendingAssets.push(resolve)),
+    prepareHorseAssets: async () => {},
     createRiggedHorse: () => {
       const dispose = vi.fn();
       rigDisposers.push(dispose);
@@ -79,6 +80,13 @@ beforeEach(() => {
     stroke() {},
     fillText() {},
     createRadialGradient: () => ({ addColorStop() {} }),
+    createLinearGradient: () => ({ addColorStop() {} }),
+    save() {},
+    restore() {},
+    translate() {},
+    rotate() {},
+    strokeText() {},
+    strokeRect() {},
   } as unknown as ReturnType<HTMLCanvasElement['getContext']>);
   vi.stubGlobal(
     'ResizeObserver',
@@ -271,7 +279,8 @@ it('keeps the same numbered sprites and leader buffer when deferred authored hor
 
 it('refits the reused camera immediately after orientation resize instead of retaining the old portrait zoom', async () => {
   const three = await import('three'),
-    { frameDerbyField } = await import('./field-camera');
+    { runnerPoints } = await import('./broadcast-camera'),
+    { courseX } = await import('./racecourse');
   let width = 390,
     height = 844,
     resized!: () => void;
@@ -290,14 +299,22 @@ it('refits the reused camera immediately after orientation resize instead of ret
   const view = render(<RaceScene round={round(8)} running reduced={false} />);
   act(() => vi.mocked(requestAnimationFrame).mock.calls.at(-1)![0](1000));
   const camera = state.draw.mock.calls.at(-1)![1] as import('three').PerspectiveCamera;
+  const portrait = camera.position.clone();
   width = 844;
   height = 230;
   act(() => resized());
   act(() => vi.mocked(requestAnimationFrame).mock.calls.at(-1)![0](1100));
-  const expected = new three.PerspectiveCamera(36, width / height, 0.1, 2000);
-  frameDerbyField(expected, Array(8).fill(18), 8);
   expect(state.draw.mock.calls.at(-1)![1]).toBe(camera);
-  expect(camera.position.distanceTo(expected.position)).toBeLessThan(1e-9);
+  expect(camera.aspect).toBeCloseTo(844 / 230, 12);
+  expect(camera.position.distanceTo(portrait)).toBeGreaterThan(1);
+  // Every runner silhouette is inside the new landscape frame on the first frame.
+  camera.updateMatrixWorld(true);
+  for (const point of runnerPoints(Array(8).fill(courseX(0.1)), 8)) {
+    const screen = point.clone().project(camera);
+    expect(Math.abs(screen.x)).toBeLessThan(1);
+    expect(Math.abs(screen.y)).toBeLessThan(1);
+  }
+  void three;
   view.unmount();
 });
 
@@ -313,7 +330,8 @@ it.each(['idle', 'run'] as const)(
     const datum = fallbackRigs[0].root.position.y;
     expect(datum).toBe(0.035);
     const controlClock = createStrideClock();
-    let previousDisplayed = initialRound.positions[0] * 180,
+    const { courseX } = await import('./racecourse');
+    let previousDisplayed = courseX(initialRound.positions[0]),
       expectedPhase = 0;
     const draw = (time: number) => {
       act(() => vi.mocked(requestAnimationFrame).mock.calls.at(-1)![0](time));
