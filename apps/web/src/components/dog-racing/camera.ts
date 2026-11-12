@@ -53,6 +53,42 @@ export function fitDistance(
   return d;
 }
 
+// Conservative bounds include the tilted roof, seating and back wall. Keep this
+// envelope in sync with the grandstand built in track.ts; scenery is not hidden.
+export const GRANDSTAND_BOUNDS = new THREE.Box3(
+  new THREE.Vector3(-55.5, 0, -46.2),
+  new THREE.Vector3(55.5, 9.9, -36.8)
+);
+
+/** Lift a camera above any sightline crossing the stand's horizontal footprint.
+ * Testing paws as well as heads keeps the entire runner visible. Applied after
+ * shot easing too, since a clear pair of endpoints can have an obstructed path.
+ */
+export function clearGrandstand(position: THREE.Vector3, points: THREE.Vector3[]) {
+  const box = GRANDSTAND_BOUNDS;
+  let height = position.y;
+  for (const point of points) {
+    // Segment parameter starts at the runner (0) and ends at the camera (1).
+    let enter = 0,
+      leave = 1;
+    for (const axis of ['x', 'z'] as const) {
+      const delta = position[axis] - point[axis];
+      if (Math.abs(delta) < 1e-9) {
+        if (point[axis] < box.min[axis] || point[axis] > box.max[axis]) leave = -1;
+      } else {
+        const a = (box.min[axis] - point[axis]) / delta;
+        const b = (box.max[axis] - point[axis]) / delta;
+        enter = Math.max(enter, Math.min(a, b));
+        leave = Math.min(leave, Math.max(a, b));
+      }
+    }
+    if (enter <= leave && leave > 0 && enter > 1e-6) {
+      height = Math.max(height, point.y + (box.max.y + 1 - point.y) / enter);
+    }
+  }
+  position.y = height;
+}
+
 /**
  * Broadcast-style camera. Each mode has a fixed viewing direction relative to the
  * oval at the field's position; the distance is solved so every published runner is
@@ -76,6 +112,7 @@ export function createCameraRig() {
     goalLook = new THREE.Vector3(),
     direction = new THREE.Vector3();
   const pool = Array.from({ length: 18 }, () => new THREE.Vector3());
+  const clearancePoints: THREE.Vector3[] = [];
   let ready = false,
     shot = '';
   const spring = (
@@ -152,6 +189,7 @@ export function createCameraRig() {
       Math.min(140, fitDistance(points, goalLook, direction, fov, aspect))
     );
     goal.copy(goalLook).addScaledVector(direction, d);
+    clearGrandstand(goal, points);
     return mode;
   }
 
@@ -197,6 +235,29 @@ export function createCameraRig() {
       spring(lookOffset, lookVelocity, zero, 3.1, dt);
       camera.position.copy(goal).add(offset);
       look.copy(goalLook).add(lookOffset);
+      // Recheck the actual eased shot, not just its destination. Refit after
+      // lifting so portrait fields stay framed as the elevation changes.
+      clearancePoints.length = 0;
+      pack.runners.slice(0, 8).forEach((r, i) => {
+        clearancePoints.push(pool[i * 2].set(r.x, 0, r.z), pool[i * 2 + 1].set(r.x, 2.1, r.z));
+      });
+      const points = clearancePoints;
+      for (let i = 0; i < 8; i++) {
+        clearGrandstand(camera.position, points);
+        direction.copy(camera.position).sub(look);
+        const distance = direction.length();
+        direction.normalize();
+        const fit = fitDistance(
+          points,
+          look,
+          direction,
+          THREE.MathUtils.degToRad(fov),
+          camera.aspect
+        );
+        if (fit <= distance + 1e-6) break;
+        camera.position.copy(look).addScaledVector(direction, fit + 0.01);
+      }
+      clearGrandstand(camera.position, points);
       camera.lookAt(look);
     },
   };

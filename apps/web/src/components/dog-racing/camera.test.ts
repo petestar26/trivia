@@ -112,3 +112,51 @@ it('holds a single still overview for reduced motion', () => {
   }
   expect(TRACK_LENGTH).toBeGreaterThan(300);
 });
+
+it('keeps the full field visible over the grandstand, including eased shot transitions', () => {
+  // Independent conservative obstacle envelope (tilted roof and back wall in track.ts).
+  const stand = new THREE.Box3(
+    new THREE.Vector3(-55.5, 0, -46.2),
+    new THREE.Vector3(55.5, 9.9, -36.8)
+  );
+  const hit = new THREE.Vector3();
+  for (const aspect of [0.56, 1, 1150 / 520, 3.2]) {
+    for (const count of [4, 8]) {
+      const camera = new THREE.PerspectiveCamera(34, aspect, 0.4, 600);
+      const rig = createCameraRig();
+      for (let step = 0; step <= 200; step++) {
+        const lead = step / 200;
+        const trail = Math.max(0, lead - 0.084);
+        const field = Array.from({ length: count }, (_, i) =>
+          trackPoint(trail + ((lead - trail) * i) / (count - 1), laneOffset(i, count))
+        );
+        const state = { lead, trail, running: true, runners: field };
+        // Include the previously failing72% back straight and every intermediate
+        // transition frame: endpoints being clear is not sufficient.
+        for (const mode of ['trackside', 'chase', 'aerial', 'trackside'] as const) {
+          for (let frame = 0; frame < 12; frame++) {
+            rig.update(camera, mode, state, 1 / 30, false);
+            camera.updateMatrixWorld(true);
+            for (const p of field)
+              for (const y of [0, 2.1]) {
+                const target = new THREE.Vector3(p.x, y, p.z);
+                const delta = target.clone().sub(camera.position);
+                const ray = new THREE.Ray(camera.position, delta.clone().normalize());
+                const intersection = ray.intersectBox(stand, hit);
+                expect(
+                  !intersection || hit.distanceTo(camera.position) > delta.length(),
+                  `blocked ${mode} lap${lead} aspect${aspect} frame${frame}`
+                ).toBe(true);
+                const projected = target.project(camera);
+                expect(Number.isFinite(projected.x) && Number.isFinite(projected.y)).toBe(true);
+                expect(Math.abs(projected.x)).toBeLessThan(1);
+                expect(Math.abs(projected.y)).toBeLessThan(1);
+                expect(projected.z).toBeGreaterThan(-1);
+                expect(projected.z).toBeLessThan(1);
+              }
+          }
+        }
+      }
+    }
+  }
+});
