@@ -600,6 +600,16 @@ try {
     const clips = [
       // Comparable full race: same race, same default camera, normal speed.
       { name: 'race-8-desktop-full', field: 8, view: 'desktop', from: -4000, ms: 52000, fps: 25 },
+      // The same race at 12.5 fps: every frame lands on an even frame of the 25 fps
+      // clip (scene state at a race time does not depend on the capture rate).
+      {
+        name: 'race-8-desktop-full-half',
+        field: 8,
+        view: 'desktop',
+        from: -4000,
+        ms: 52000,
+        fps: 12.5,
+      },
       { name: 'race-6-phone375-mid', field: 6, view: 'phone375', from: 14000, ms: 10000, fps: 30 },
       { name: 'race-8-phone320-start', field: 8, view: 'phone320', from: -2000, ms: 9000, fps: 30 },
       {
