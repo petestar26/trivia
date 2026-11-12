@@ -738,10 +738,12 @@ export function createRacecourse(
 
   // ---- Trees and hills ------------------------------------------------------
   const treeGeometry = (() => {
-    const trunk = new THREE.CylinderGeometry(0.25, 0.35, 3, 6).translate(0, 1.5, 0);
-    const crownA = new THREE.IcosahedronGeometry(2.6, 1).translate(0, 4.6, 0);
-    const crownB = new THREE.IcosahedronGeometry(1.9, 0).translate(1.1, 5.9, 0.4);
-    const crownC = new THREE.IcosahedronGeometry(1.7, 0).translate(-1.0, 5.4, -0.6);
+    // Crowns sit low on short trunks: from the broadcast angles the far tree line reads as
+    // foliage, not a row of dark stems cut off by the top of the frame.
+    const trunk = new THREE.CylinderGeometry(0.22, 0.32, 1.4, 6).translate(0, 0.7, 0);
+    const crownA = new THREE.IcosahedronGeometry(2.7, 1).translate(0, 3.0, 0);
+    const crownB = new THREE.IcosahedronGeometry(2.0, 0).translate(1.2, 4.3, 0.4);
+    const crownC = new THREE.IcosahedronGeometry(1.8, 0).translate(-1.1, 3.7, -0.6);
     const parts = [trunk, crownA, crownB, crownC].map((g) =>
       g.index ? g.toNonIndexed() : g.clone()
     );
@@ -749,11 +751,11 @@ export function createRacecourse(
     parts.forEach((g, i) => {
       const count = g.getAttribute('position').count;
       const colors = new Float32Array(count * 3);
-      const c = new THREE.Color(i === 0 ? '#5a4632' : '#ffffff');
+      const c = new THREE.Color(i === 0 ? '#7a6650' : '#ffffff');
       for (let k = 0; k < count; k++) {
         // Darker underside of the crown.
         const y = g.getAttribute('position').getY(k);
-        const shade = i === 0 ? 1 : 0.72 + 0.28 * THREE.MathUtils.clamp((y - 3) / 4, 0, 1);
+        const shade = i === 0 ? 1 : 0.78 + 0.22 * THREE.MathUtils.clamp((y - 0.8) / 5, 0, 1);
         colors.set([c.r * shade, c.g * shade, c.b * shade], k * 3);
       }
       g.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
@@ -772,7 +774,7 @@ export function createRacecourse(
   const treeZones: THREE.Box3[] = [];
   {
     const rand = random(4242);
-    const greens = ['#3f5a2c', '#36502a', '#4a6633', '#56683a', '#3d5a34', '#4a6a40', '#5a6b3f'];
+    const greens = ['#4d6b36', '#43602f', '#56743c', '#617543', '#4a6a3e', '#55784a', '#667848'];
     for (let i = 0; i < treeCount; i++) {
       // Most trees line the far side; a sparser belt sits well behind the camera side.
       const far = i < treeCount * 0.72;
@@ -794,11 +796,11 @@ export function createRacecourse(
     treeZones.push(
       new THREE.Box3(
         new THREE.Vector3(-280, 0, -260),
-        new THREE.Vector3(COURSE_RUN_OUT + 280, 16, -88)
+        new THREE.Vector3(COURSE_RUN_OUT + 280, 26, -88)
       ),
       new THREE.Box3(
         new THREE.Vector3(-280, 0, 90),
-        new THREE.Vector3(COURSE_RUN_OUT + 280, 16, 250)
+        new THREE.Vector3(COURSE_RUN_OUT + 280, 26, 250)
       )
     );
   }
