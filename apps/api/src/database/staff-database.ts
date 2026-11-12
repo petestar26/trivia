@@ -63,6 +63,19 @@ function parsePostgresUrl(source: string | undefined): URL | null {
   }
 }
 
+/**
+ * The URL's login role, percent-decoded. A malformed escape (e.g. `%E0%A4%A`)
+ * makes decodeURIComponent throw URIError; report it as unusable (null) so a
+ * bad staff setting is refused as INVALID_URL instead of aborting startup.
+ */
+function loginRole(url: URL): string | null {
+  try {
+    return decodeURIComponent(url.username);
+  } catch {
+    return null;
+  }
+}
+
 const port = (url: URL) => url.port || '5432';
 
 /** Validate the enforce-mode target. Throws DatabaseIdentityError; never returns a partial target. */
@@ -71,9 +84,11 @@ export function staffDatabaseTarget(env: NodeJS.ProcessEnv): StaffDatabaseTarget
   const staff = parsePostgresUrl(env.STAFF_DATABASE_URL);
   const main = parsePostgresUrl(env.DATABASE_URL);
   if (!staff || !main) throw refuse('INVALID_URL');
+  const staffLogin = loginRole(staff);
+  if (staffLogin === null || loginRole(main) === null) throw refuse('INVALID_URL');
   const role = env.STAFF_DATABASE_ROLE;
   if (!ROLE_NAME.test(role)) throw refuse('INVALID_ROLE');
-  if (decodeURIComponent(staff.username) !== role) throw refuse('ROLE_MISMATCH');
+  if (staffLogin !== role) throw refuse('ROLE_MISMATCH');
   // Same server and database as the API; only the identity differs.
   if (
     staff.hostname !== main.hostname ||
@@ -81,10 +96,15 @@ export function staffDatabaseTarget(env: NodeJS.ProcessEnv): StaffDatabaseTarget
     staff.pathname !== main.pathname
   )
     throw refuse('TARGET_MISMATCH');
-  const distinctFrom = OTHER_IDENTITIES.flatMap((name) => {
+  const distinctFrom: string[] = [];
+  for (const name of OTHER_IDENTITIES) {
     const url = parsePostgresUrl(env[name]);
-    return url?.username ? [decodeURIComponent(url.username)] : [];
-  });
+    if (!url?.username) continue;
+    const login = loginRole(url);
+    // Distinctness cannot be proven against an unreadable identity: refuse.
+    if (login === null) throw refuse('INVALID_URL');
+    distinctFrom.push(login);
+  }
   if (distinctFrom.includes(role)) throw refuse('SHARED_IDENTITY');
   return { url: env.STAFF_DATABASE_URL, role, distinctFrom };
 }
@@ -124,19 +144,29 @@ export function resolveStaffDatabase(
   const mode = env.STAFF_DATABASE_ISOLATION ?? '';
   if (mode === '') return new DormantStaffDatabase(options.legacy);
   if (mode !== 'enforce') return new UnavailableDatabase(STAFF_PURPOSE, 'INVALID_MODE');
+  // Configuration problems close staff operations only; they never throw out
+  // of route registration, so member routes always start.
   let target: StaffDatabaseTarget;
   try {
     target = staffDatabaseTarget(env);
   } catch (error) {
-    if (error instanceof DatabaseIdentityError)
-      return new UnavailableDatabase(STAFF_PURPOSE, error.reason);
-    throw error;
+    return new UnavailableDatabase(
+      STAFF_PURPOSE,
+      error instanceof DatabaseIdentityError ? error.reason : 'INVALID_URL'
+    );
   }
   const createClient =
     options.createClient ??
     ((url: string) => new PrismaClient({ datasourceUrl: url, log: [] }) as GuardableClient);
-  return GuardedDatabase.bind(STAFF_PURPOSE, createClient(target.url), {
-    role: target.role,
-    distinctFrom: target.distinctFrom,
-  });
+  try {
+    return GuardedDatabase.bind(STAFF_PURPOSE, createClient(target.url), {
+      role: target.role,
+      distinctFrom: target.distinctFrom,
+    });
+  } catch (error) {
+    return new UnavailableDatabase(
+      STAFF_PURPOSE,
+      error instanceof DatabaseIdentityError ? error.reason : 'UNVERIFIED'
+    );
+  }
 }

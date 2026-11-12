@@ -158,11 +158,27 @@ describe('staffDatabaseTarget', () => {
     ['SHARED_IDENTITY', { NUMBER_WORKER_DATABASE_URL: 'postgresql://synthetic_staff:z@db.invalid/synthetic' }],
     ['SHARED_IDENTITY', { SOCIAL_WORKER_DATABASE_URL: 'postgresql://synthetic_staff:z@db.invalid/synthetic' }],
     ['SHARED_IDENTITY', { LEDGER_OWNER_DATABASE_URL: 'postgresql://synthetic_staff:z@db.invalid/synthetic' }],
+    // Malformed percent-escapes in a login role (decodeURIComponent would throw URIError).
+    ['INVALID_URL', { STAFF_DATABASE_URL: 'postgresql://synthetic%E0%A4%A:y@db.invalid:5432/synthetic' }],
+    ['INVALID_URL', { STAFF_DATABASE_URL: 'postgresql://synthetic_staff%ZZ:y@db.invalid:5432/synthetic' }],
+    ['INVALID_URL', { DATABASE_URL: 'postgresql://synthetic%E0%A4%A:x@db.invalid:5432/synthetic' }],
+    ['INVALID_URL', { DATABASE_URL: 'postgresql://runtime%:x@db.invalid:5432/synthetic' }],
+    ['INVALID_URL', { NUMBER_WORKER_DATABASE_URL: 'postgresql://worker%ZZ:z@db.invalid/synthetic' }],
+    ['INVALID_URL', { SOCIAL_WORKER_DATABASE_URL: 'postgresql://worker%E0%A4%A:z@db.invalid/synthetic' }],
   ] as const)('refuses %s', (reason, change) => {
     expect(() => staffDatabaseTarget({ ...enforce, ...change })).toThrow(
       expect.objectContaining({ reason })
     );
   });
+  it('still decodes a well-formed percent-encoded login', () => {
+    expect(
+      staffDatabaseTarget({
+        ...enforce,
+        STAFF_DATABASE_URL: 'postgresql://synthetic%5Fstaff:y@db.invalid:5432/synthetic',
+      }).role
+    ).toBe('synthetic_staff');
+  });
+
   it('never puts URLs or role names in its errors', () => {
     let error: Error | undefined;
     try {
@@ -210,6 +226,8 @@ describe('resolveStaffDatabase', () => {
     ['INVALID_MODE', { STAFF_DATABASE_ISOLATION: 'off' }],
     ['NOT_CONFIGURED', { STAFF_DATABASE_URL: undefined }],
     ['SHARED_IDENTITY', { STAFF_DATABASE_URL: main, STAFF_DATABASE_ROLE: 'synthetic_runtime' }],
+    ['INVALID_URL', { STAFF_DATABASE_URL: 'postgresql://synthetic%E0%A4%A:y@db.invalid:5432/synthetic' }],
+    ['INVALID_URL', { DATABASE_URL: 'postgresql://runtime%ZZ:x@db.invalid:5432/synthetic' }],
   ] as const)('fails closed (%s) instead of falling back', async (reason, change) => {
     legacy.$transaction.mockClear();
     const createClient = vi.fn();
@@ -218,6 +236,21 @@ describe('resolveStaffDatabase', () => {
     await expect(db.$transaction(async () => 'never')).rejects.toMatchObject({ reason });
     expect(legacy.$transaction).not.toHaveBeenCalled();
     expect(createClient).not.toHaveBeenCalled();
+  });
+});
+
+describe('resolveStaffDatabase never throws on configuration', () => {
+  it('a client constructor that throws closes staff operations as UNVERIFIED', async () => {
+    const legacy = { $transaction: vi.fn() };
+    const db = resolveStaffDatabase(enforce, {
+      legacy: legacy as never,
+      createClient: () => {
+        throw new Error('synthetic constructor failure for synthetic_staff');
+      },
+    });
+    expect(db.mode).toBe('unavailable');
+    await expect(db.verify()).rejects.toMatchObject({ reason: 'UNVERIFIED' });
+    expect(legacy.$transaction).not.toHaveBeenCalled();
   });
 });
 
