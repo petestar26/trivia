@@ -742,7 +742,9 @@ export function createRacecourse(
     const crownA = new THREE.IcosahedronGeometry(2.6, 1).translate(0, 4.6, 0);
     const crownB = new THREE.IcosahedronGeometry(1.9, 0).translate(1.1, 5.9, 0.4);
     const crownC = new THREE.IcosahedronGeometry(1.7, 0).translate(-1.0, 5.4, -0.6);
-    const parts = [trunk, crownA, crownB, crownC].map((g) => g.toNonIndexed());
+    const parts = [trunk, crownA, crownB, crownC].map((g) =>
+      g.index ? g.toNonIndexed() : g.clone()
+    );
     [trunk, crownA, crownB, crownC].forEach((g) => g.dispose());
     parts.forEach((g, i) => {
       const count = g.getAttribute('position').count;
