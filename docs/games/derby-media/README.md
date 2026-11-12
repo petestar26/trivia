@@ -37,6 +37,5 @@ Captured with `scripts/review-derby-group.mjs` from a synthetic settled group ro
 | `compare-group-desktop-mid-stage.webp` | The same on desktop |
 | `group-clip-frames-after-fix.webp` | Frames from the after-fix clips: group countdown over the stalls, the break, side tracking, the stands, the head-on finish; Aerial (desktop) and Follow race (phone) |
 | `group-follow-race-phone375.mp4` | 6 s, normal speed (25 fps simulated), Follow race on a 375 px phone mid-race |
-| `compare-group-quality-change-phone375.webp` | 375×812 phone: Follow race chosen, then Graphics quality set to Low (the same remount as an Automatic step-down). Before (`8adb774`) the view snapped back to Trackside and the race-order strip used its own colours (#1 cream, #3 red); after (`214fc89`) Follow race holds and the strip matches the horses' cloths |
 
 Full-length evidence (both builds: every race moment for 6/8 runners at 1440×1000, 375×812, 320×568 and 844×390, expanded views, camera presets, quality tiers, reconnect, asset failure, context loss/restoration, no-WebGL, reset; a 52-second full-race comparison and 30 fps clips with quarter-speed versions; per-frame workload counts) was produced outside the repository and shared with the requester; it is not committed.

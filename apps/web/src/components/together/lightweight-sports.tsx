@@ -1,6 +1,6 @@
 import { useId } from 'react';
 import { useTogetherText } from '@/lib/i18n/together-text';
-import { raceRunnerColors } from './race-runners';
+import { raceRunnerColor } from './race-runner-colors';
 
 /** Lightweight authored vector broadcast. Positions are only released server checkpoints. */
 export function RaceBroadcast2D({
@@ -64,10 +64,10 @@ export function RaceBroadcast2D({
         />
       ))}
       {positions.map((p, i) => {
+        const runner = raceRunnerColor(dogs, i);
         const x = 65 + Math.min(1, p) * 860,
           y = 206 + i * 43,
-          step = reduced ? 0 : Math.sin(elapsed / 75 + i) * 10,
-          runner = raceRunnerColors(dogs, i);
+          step = reduced ? 0 : Math.sin(elapsed / 75 + i) * 10;
         return (
           <g key={i} transform={`translate(${x} ${y})`}>
             <ellipse cx="-9" cy="16" rx={dogs ? 26 : 30} ry="5" fill="#000" opacity=".25" />

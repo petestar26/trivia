@@ -14,7 +14,7 @@ import { DrawStage } from './draw-stage';
 import { DiceStage, BlackjackStage, NumberStage } from './table-stages';
 import { FlightStage } from './flight-stages';
 import { RaceBroadcast2D, PitchBroadcast2D } from './lightweight-sports';
-import { raceRunnerColors } from './race-runners';
+import { raceRunnerColor } from './race-runner-colors';
 import type { RaceCamera } from './shared-race-scene';
 import './together-live-game.css';
 import './shared-stages.css';
@@ -192,20 +192,16 @@ export function TogetherLiveGame({
                 {positions
                   .map((position, i) => ({ position, i }))
                   .sort((a, b) => b.position - a.position || a.i - b.i)
-                  .map(({ position, i }, index) => (
-                    <li key={i}>
-                      <small>{num(index + 1)}</small>
-                      <b
-                        style={{
-                          background: raceRunnerColors(dogs, i).color,
-                          color: raceRunnerColors(dogs, i).ink,
-                        }}
-                      >
-                        {num(i + 1)}
-                      </b>
-                      <span>{num(Math.floor(position * 100))}%</span>
-                    </li>
-                  ))}
+                  .map(({ position, i }, index) => {
+                    const runner = raceRunnerColor(dogs, i);
+                    return (
+                      <li key={i}>
+                        <small>{num(index + 1)}</small>
+                        <b style={{ background: runner.color, color: runner.ink }}>{num(i + 1)}</b>
+                        <span>{num(Math.floor(position * 100))}%</span>
+                      </li>
+                    );
+                  })}
               </ol>
             </>
           )}
