@@ -34,7 +34,7 @@ assert.equal(new URL(origin).hostname, '127.0.0.1', 'Only a loopback preview is 
 const output = resolve(process.env.DERBY_REVIEW_OUTPUT ?? 'derby-review');
 const label = process.env.DERBY_REVIEW_LABEL ?? 'review';
 const parts = new Set(
-  (process.env.DERBY_REVIEW_PARTS ?? 'stills,states,clips,perf').split(',').filter(Boolean)
+  (process.env.DERBY_REVIEW_PARTS ?? 'stills,cameras,states,clips,perf').split(',').filter(Boolean)
 );
 const onlyClips = process.env.DERBY_REVIEW_CLIPS?.split(',').filter(Boolean);
 const skip = new Set((process.env.DERBY_REVIEW_SKIP ?? '').split(',').filter(Boolean));
@@ -459,23 +459,26 @@ try {
       }
       checks.push(`${field} runners: expanded desktop/phone/landscape render`);
     }
-    // Camera presets (where the build offers them), 8 runners, desktop and phone.
-    for (const view of ['desktop', 'phone375']) {
-      for (const camera of ['Broadcast', 'Follow', 'Head-on', 'Overhead']) {
-        const c = await createContext(VIEWPORTS[view]);
-        await open(c.page, { start: 21000, field: 8 });
-        if (!(await chooseCamera(c.page, camera))) {
-          await c.ctx.close();
-          break;
-        }
-        await advance(c.page, 3000);
-        const name = `camera-8-${view}-${camera.toLowerCase()}`;
-        await shot(c.page, name, { full: view !== 'desktop' });
-        measurements.push({ stage: name, ...(await sceneInfo(c.page)) });
-        await c.ctx.close();
-        checks.push(`camera ${camera} (${view}) renders`);
-      }
-    }
+  }
+  if (parts.has('cameras')) {
+    // Camera presets (where the build offers them), 8 runners, desktop and phone,
+    // mid-race and in the final furlong.
+    for (const view of ['desktop', 'phone375'])
+      for (const camera of ['Trackside', 'Follow race', 'Aerial'])
+        for (const [elapsed, moment] of [
+          [21000, 'mid'],
+          [41000, 'final'],
+        ])
+          await scenario(`camera ${camera} ${view} ${moment}`, async (make) => {
+            const c = await make(VIEWPORTS[view]);
+            await open(c.page, { start: elapsed - 3000, field: 8 });
+            if (!(await chooseCamera(c.page, camera))) return;
+            await advance(c.page, 3000);
+            const name = `camera-8-${view}-${camera.toLowerCase().replace(/ /g, '-')}-${moment}`;
+            await shot(c.page, name, { full: view !== 'desktop' });
+            measurements.push({ stage: name, ...(await sceneInfo(c.page)) });
+            checks.push(`camera ${camera} (${view}, ${moment}) renders`);
+          });
   }
 
   if (parts.has('states')) {
@@ -617,13 +620,13 @@ try {
         camera: 'Follow',
       },
       {
-        name: 'race-8-desktop-headon',
+        name: 'race-8-desktop-aerial',
         field: 8,
         view: 'desktop',
         from: 26000,
         ms: 8000,
         fps: 30,
-        camera: 'Head-on',
+        camera: 'Aerial',
       },
     ].filter((clip) => !onlyClips || onlyClips.includes(clip.name));
     for (const clip of clips)
