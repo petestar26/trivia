@@ -210,12 +210,48 @@ try {
     await layout(page, 'en', width);
     await page.getByRole('button', { name: 'Pause animation', exact: true }).click();
     await page.locator('.sports-football[data-state="paused"]').waitFor();
+    // Keep both actual pixels on failure: a screenshot includes overlays as well as
+    // the WebGL scene, so a mismatch alone cannot identify which part changed.
+    const pauseState = () =>
+      canvas.evaluate((element) => {
+        const host = element.parentElement;
+        const card = element.closest('.sports-football');
+        const bounds = element.getBoundingClientRect();
+        return {
+          state: card?.getAttribute('data-state'),
+          canvas: { width: element.width, height: element.height },
+          bounds: { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height },
+          opacity: getComputedStyle(host).opacity,
+          documentHidden: document.hidden,
+          scroll: { x: scrollX, y: scrollY },
+          animations: card?.getAnimations({ subtree: true }).map((animation) => ({
+            playState: animation.playState,
+            currentTime: animation.currentTime,
+          })),
+        };
+      });
     const held = await canvas.screenshot();
+    const heldState = await pauseState();
     await page.waitForTimeout(500);
-    assert.ok(
-      held.equals(await canvas.screenshot()),
-      'Pause must freeze the rendered football frame'
-    );
+    const afterPause = await canvas.screenshot();
+    if (!held.equals(afterPause)) {
+      const prefix = `en-${width}-pause-failure`;
+      await writeFile(resolve(output, `${prefix}-before.png`), held);
+      await writeFile(resolve(output, `${prefix}-after.png`), afterPause);
+      await writeFile(
+        resolve(output, `${prefix}.json`),
+        JSON.stringify(
+          {
+            before: heldState,
+            after: await pauseState(),
+          },
+          null,
+          2
+        )
+      );
+      screenshots.push(`${prefix}-before.png`, `${prefix}-after.png`);
+    }
+    assert.ok(held.equals(afterPause), 'Pause must freeze the rendered football frame');
     await page.getByRole('button', { name: 'Resume animation', exact: true }).click();
     await page.locator('.sports-football[data-state="playing"]').waitFor();
     await page.waitForTimeout(500);
