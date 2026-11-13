@@ -20,10 +20,26 @@ const claimsSchema = z
   })
   .strict();
 type Claims = z.infer<typeof claimsSchema>;
-const signature = (body: string) =>
-  createHmac('sha256', createHmac('sha256', config.JWT_ACCESS_SECRET).update(purpose).digest())
-    .update(body)
-    .digest();
+const KEY_HEX = /^(?:[0-9a-fA-F]{2}){32,64}$/;
+/**
+ * The key that signs reset links. With PASSWORD_RESET_SIGNING_KEY (hex, 32-64
+ * bytes) set, links are signed with it alone, so a holder of JWT_ACCESS_SECRET
+ * can no longer write one (docs/deployment/signing-authority.md). Unset:
+ * derived from JWT_ACCESS_SECRET, today's behaviour. Malformed: null, and
+ * resets fail closed (503) instead of falling back to the shared secret.
+ * Read at call time: the API and the owner CLI each use their own environment.
+ */
+export function resetSigningKey(env: NodeJS.ProcessEnv = process.env): Buffer | null {
+  const hex = env.PASSWORD_RESET_SIGNING_KEY;
+  const root =
+    hex === undefined || hex === ''
+      ? Buffer.from(config.JWT_ACCESS_SECRET, 'utf8')
+      : KEY_HEX.test(hex)
+        ? Buffer.from(hex, 'hex')
+        : null;
+  return root && createHmac('sha256', root).update(purpose).digest();
+}
+const signature = (key: Buffer, body: string) => createHmac('sha256', key).update(body).digest();
 const invalid = () =>
   ApiError.unauthorized(
     'This reset link is invalid, expired, or already used. Request a new link.'
@@ -45,11 +61,13 @@ export function resetIssuanceMode(env: NodeJS.ProcessEnv): ResetIssuanceMode {
 const RECORD_ISSUANCE = 'owner_password_reset.record_issuance(uuid,text,integer,timestamptz)';
 
 export function readResetToken(token: string): Claims {
+  const key = resetSigningKey();
+  if (!key) throw unavailable();
   try {
     if (token.length > 2048 || !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{43}$/.test(token)) throw invalid();
     const [body, mac] = token.split('.');
     const supplied = Buffer.from(mac, 'base64url');
-    const expected = signature(body);
+    const expected = signature(key, body);
     if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected))
       throw invalid();
     const claims = claimsSchema.parse(JSON.parse(Buffer.from(body, 'base64url').toString()));
@@ -63,6 +81,9 @@ export function readResetToken(token: string): Claims {
 /** Only the explicit owner CLI calls this. No public reset-link issuance route. */
 export async function issueOwnerReset(db: TransactionalDatabase, userId: string, email: string) {
   if (!db) throw new Error('CREDENTIAL_DATABASE_REQUIRED');
+  // Checked before anything changes: a malformed key must not revoke sessions.
+  const key = resetSigningKey();
+  if (!key) throw unavailable();
   try {
     return await db.$transaction(async (tx) => {
       const [owner] = await tx.$queryRaw<{ allowed: boolean }[]>`SELECT EXISTS (
@@ -109,7 +130,7 @@ export async function issueOwnerReset(db: TransactionalDatabase, userId: string,
       });
       const body = Buffer.from(JSON.stringify(claims)).toString('base64url');
       return {
-        token: `${body}.${signature(body).toString('base64url')}`,
+        token: `${body}.${signature(key, body).toString('base64url')}`,
         expiresAt: new Date(claims.exp).toISOString(),
       };
     });

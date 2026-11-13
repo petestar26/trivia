@@ -9,7 +9,7 @@ reviewers, not applied changes.
 
 | Secret | Held by | A holder can | Database copy | Rotating it |
 | --- | --- | --- | --- | --- |
-| `JWT_ACCESS_SECRET` | API (signs and verifies access tokens). **Also derives the password-reset key**, and is the cookie plugin's secret (no cookie is signed today). Every worker and the owner reset CLI must have *a* value, because `@socialplay/config` requires it at import | Mint access tokens for any account, admins included, valid up to `JWT_ACCESS_EXPIRY` (15 minutes); **mint password-reset links (finding 1)** | None | Ends every access-token session (users refresh) and every outstanding reset link |
+| `JWT_ACCESS_SECRET` | API (signs and verifies access tokens). **Also derives the password-reset key** (unless `PASSWORD_RESET_SIGNING_KEY` is set), and is the cookie plugin's secret (no cookie is signed today). Every worker and the owner reset CLI must have *a* value, because `@socialplay/config` requires it at import | Mint access tokens for any account, admins included, valid up to `JWT_ACCESS_EXPIRY` (15 minutes); **mint password-reset links (finding 1)** | None | Ends every access-token session (users refresh) and every outstanding reset link |
 | `JWT_REFRESH_SECRET` | API; workers must have a value | Little on its own: `/auth/refresh` requires the exact token string stored in `sessions`, then the locked status and `tokenVersion` check. Also used to verify refresh tokens when picking a rate-limit bucket | None | Ends every refresh session (everyone signs in again) |
 | `LEDGER_APPROVAL_SIGNING_KEY` | API | Sign ledger approval decisions. The database verifies them against its own copy | Owner-only `public.ledger_approval_keys`, explicitly revoked from the runtime by `ledger_apply_runtime_grants` | Re-install under a new key ID; pending approvals must be re-signed |
 | `STAFF_STATUS_APPROVAL_KEY` (new, dormant) | API, in `enforce` mode only | With the staff database login: suspend or reactivate a plain member, only for an administrator whose **current** `tokenVersion` it names. Each approval is single use and recorded | Owner-only schema `staff_status_approval` | Install the new key ID, switch the API, retire the old key ID. Approvals expire within 60 s, so nothing is pending for long |
@@ -88,9 +88,22 @@ is what makes it matter.
      checks); setup and rollback are in `staff-identity-runbook.md`, section 9.
    - Activating it is still a decision. Links issued before activation stop
      working (they last at most 15 minutes).
-2. **Give resets their own key** (`PASSWORD_RESET_SIGNING_KEY`), held only by
-   the API and the owner CLI, never derived from `JWT_ACCESS_SECRET`. Rotating
-   it voids outstanding links only.
+2. **Give resets their own key. Built, dormant:** `PASSWORD_RESET_SIGNING_KEY`
+   (hex, 32-64 bytes).
+   - Hold it only in the API and the owner CLI. Once it is set there, links are
+     signed and verified with it alone, and a link signed from
+     `JWT_ACCESS_SECRET` gets 401.
+   - Unset, the key is derived from `JWT_ACCESS_SECRET` exactly as before.
+   - Malformed, issuing and completing resets return 503, before anything
+     changes; it never falls back to the shared secret.
+   - Rotating it voids only the links issued under the old key, which last at
+     most 15 minutes.
+   - Verified in `src/auth/password-reset-key.native.ts` (5 tests, 5 mutation
+     checks); setup is in `staff-identity-runbook.md`, section 10.
+   - With recommendation 1 it is defence in depth: the issuance record stops a
+     forged link even if this key leaks, and this key keeps holders of the
+     access secret (workers, for instance) from forging links when the records
+     are not enforced.
 3. **Keep JWT secrets out of workers.** Split the configuration so worker entry
    points do not require them. Until then, give every worker its own random
    values (the staging guide now requires this).

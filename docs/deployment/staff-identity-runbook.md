@@ -19,7 +19,8 @@ In every environment that is not disposable, these stay **unset**:
   on today's credential client.
 - `STAFF_DATABASE_URL`, `STAFF_DATABASE_ROLE`.
 - `STAFF_STATUS_APPROVAL_KEY_ID`, `STAFF_STATUS_APPROVAL_KEY`.
-- `PASSWORD_RESET_ISSUANCE` (section 9).
+- `PASSWORD_RESET_ISSUANCE` (section 9) and `PASSWORD_RESET_SIGNING_KEY`
+  (section 10).
 
 Also: neither the boundary SQL nor the reset issuance SQL is installed, and no
 staff login exists.
@@ -271,8 +272,9 @@ healthy throughout.
 
 - Ownership layout, and how and when to convert an existing database
   (`database-ownership-assessment.md`).
-- Whether to activate reset issuance records (section 9; built, dormant), and
-  a dedicated reset key (`signing-authority.md`, finding 1).
+- Whether to activate reset issuance records (section 9) and a dedicated reset
+  key (section 10). Both are built and dormant (`signing-authority.md`,
+  finding 1).
 - Separate JWT secrets for workers, or remove them from worker configuration.
 - Whether the API may hold both the status signing key and the staff
   credential, or whether approvals move to a separate signer.
@@ -331,4 +333,39 @@ identity and can be activated on its own.
 
 Verified in `src/auth/password-reset-issuance.native.ts`; installation and
 full removal are also part of the disposable rehearsal (section 1).
+
+## 10. Dedicated password-reset signing key (separate decision)
+
+Independent of sections 2 to 9. It stops holders of `JWT_ACCESS_SECRET`, such
+as a worker's environment, from signing reset links.
+
+1. Generate the key outside the database, into a file only the operator can
+   read:
+
+   ```bash
+   umask 077; openssl rand -hex 32 > <private>/reset.key
+   ```
+
+2. Put the same value in `PASSWORD_RESET_SIGNING_KEY` for the API service, and
+   in the environment the owner CLI runs in. It must differ from every other
+   secret. Never give it to workers.
+3. Restart the API. Links issued before the restart stop working; they last at
+   most 15 minutes.
+4. Verify with a synthetic account:
+   - a link from the owner CLI completes (HTTP 200);
+   - a link signed from `JWT_ACCESS_SECRET` gets 401.
+5. Delete the key file.
+
+**Rotation:** set a new value on the API and the CLI together and restart.
+Only links issued under the old key stop working.
+
+**Rollback:** unset it on both and restart. Links are derived from
+`JWT_ACCESS_SECRET` again, and only links issued under the dedicated key stop
+working.
+
+**If the value is malformed:** issuing and completing resets return 503, before
+any session is revoked, and nothing falls back to the shared secret. Fix the
+value and restart.
+
+Verified in `src/auth/password-reset-key.native.ts`.
 
