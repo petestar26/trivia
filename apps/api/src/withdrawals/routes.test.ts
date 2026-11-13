@@ -1,4 +1,4 @@
-import { fixtureUsdPolicy } from '../test/payment-policy-fixture.js';
+import { fixtureEtbPolicy } from '../test/payment-policy-fixture.js';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { prisma } from '@socialplay/database';
@@ -109,7 +109,7 @@ async function createExchangeRate(countryId: string, fiatCurrency: string, coins
       isActive: true,
       setBy: adminId,
       effectiveAt: new Date(Date.now() - 1_000),
-      pricingPolicy: fixtureUsdPolicy(coinsPerUnit)} });
+      pricingPolicy: fixtureEtbPolicy()} });
 }
 
 async function createFundedAgent(
@@ -254,7 +254,7 @@ async function setupHappyPath(tag: string, opts: { coins?: number; liquidityUsd?
   const country = await createCountry(tag);
   const method = await createPaymentMethod(country.id, tag);
   await activateTestWithdrawalPolicy(country.id, admin.id);
-  await createExchangeRate(country.id, 'ETB', opts.coinsPerUnit ?? 2, admin.id);
+  await createExchangeRate(country.id, 'ETB', opts.coinsPerUnit ?? 1, admin.id);
   const agent = await createFundedAgent(tag, country.id, admin, superAdmin, opts.liquidityUsd ?? 100_000n);
   const user = await createFundedUser(tag, opts.coins ?? 10_000);
   const payoutAccount = await createActivePayoutAccount(user.id, country.id, method.id);
@@ -297,7 +297,7 @@ describeIf('withdrawals/routes', () => {
     const admin = await createAdmin(tag);
     const user = await createUser(tag);
     const country = await createCountry(tag);
-    await createExchangeRate(country.id, 'ETB', 2, admin.id);
+    await createExchangeRate(country.id, 'ETB', 1, admin.id);
     const { token } = await mintToken(user);
 
     const response = await server.inject({
@@ -314,7 +314,7 @@ describeIf('withdrawals/routes', () => {
     const body = JSON.parse(response.body);
     expect(body.success).toBe(true);
     expect(typeof body.data.fiatAmount).toBe('string');
-    expect(body.data.fiatAmount).toBe('500');
+    expect(body.data.fiatAmount).toBe('1000');
     expect(typeof body.data.exchangeRateValue).toBe('string');
     expect(body.data.userId).toBe(user.id);
   });
@@ -328,7 +328,7 @@ describeIf('withdrawals/routes', () => {
     const user = await createUser(tag);
     const otherUser = await createUser(`${tag}-other`);
     const country = await createCountry(tag);
-    await createExchangeRate(country.id, 'ETB', 2, admin.id);
+    await createExchangeRate(country.id, 'ETB', 1, admin.id);
     const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 });
     const { token } = await mintToken(user);
     const { token: otherToken } = await mintToken(otherUser);
@@ -467,7 +467,7 @@ describeIf('withdrawals/routes', () => {
     const body = JSON.parse(response.body);
     expect(body.data.status).toBe('HELD');
     expect(typeof body.data.fiatAmount).toBe('string');
-    expect(body.data.fiatAmount).toBe('500');
+    expect(body.data.fiatAmount).toBe('1000');
     expect(typeof body.data.exchangeRateValue).toBe('string');
   });
 
@@ -576,7 +576,7 @@ describeIf('withdrawals/routes', () => {
     const user = await createUser(tag);
     const otherUser = await createUser(`${tag}-other`);
     const country = await createCountry(tag);
-    await createExchangeRate(country.id, 'ETB', 2, admin.id);
+    await createExchangeRate(country.id, 'ETB', 1, admin.id);
     const { token } = await mintToken(user);
 
     const response = await server.inject({

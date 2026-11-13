@@ -1,4 +1,4 @@
-import { fixtureUsdPolicy } from '../test/payment-policy-fixture.js';
+import { fixtureEtbPolicy } from '../test/payment-policy-fixture.js';
 import { describe, it, expect, afterAll } from 'vitest';
 import { prisma } from '@socialplay/database';
 import { randomUUID } from 'node:crypto';
@@ -66,7 +66,7 @@ async function createExchangeRate(countryId: string, fiatCurrency: string, coins
       // Avoid a same-millisecond boundary race with the service's
       // effectiveAt <= now lookup.
       effectiveAt: new Date(Date.now() - 1_000),
-      pricingPolicy: fixtureUsdPolicy(coinsPerUnit)} });
+      pricingPolicy: fixtureEtbPolicy()} });
 }
 
 async function cleanQuoteFixtures() {
@@ -91,35 +91,33 @@ async function cleanQuoteFixtures() {
 }
 
 describeIf('withdrawals/quote-service', () => {
-  it('computes fiatAmount from server-side coinsPerUnit via Decimal, not client input', async () => {
+  it('quotes ETB wallet minor units one-to-one from server pricing, not client input', async () => {
     await cleanQuoteFixtures();
     const tag = `calc-${Date.now()}`;
     const admin = await createAdmin(tag);
     const user = await createUser(tag);
     const country = await createCountry(tag);
-    // 2 coins per smallest fiat unit (matches order-service.ts's exact
-    // convention: coinsPerUnit multiplies directly against a minor-unit
-    // amount, so 1000 coins / 2 coinsPerUnit = 500 minor units).
-    await createExchangeRate(country.id, 'ETB', 2, admin.id);
+    // Wallet and payout use the same integer ETB minor units.
+    await createExchangeRate(country.id, 'ETB', 1, admin.id);
 
     const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 });
-    expect(quote.fiatAmount).toBe(500n);
+    expect(quote.fiatAmount).toBe(1000n);
     expect(typeof quote.fiatAmount).toBe('bigint');
     expect(quote.fiatCurrency).toBe('ETB');
     expect(quote.userId).toBe(user.id);
     expect(quote.status).toBe('ACTIVE');
   });
 
-  it('floors the fiat amount rather than rounding up, favoring the platform', async () => {
+  it('preserves every minor unit for amounts not divisible by legacy ratios', async () => {
     await cleanQuoteFixtures();
     const tag = `floor-${Date.now()}`;
     const admin = await createAdmin(tag);
     const user = await createUser(tag);
     const country = await createCountry(tag);
-    await createExchangeRate(country.id, 'ETB', 3, admin.id); // 1000/3 = 333.33...
+    await createExchangeRate(country.id, 'ETB', 1, admin.id);
 
-    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 });
-    expect(quote.fiatAmount).toBe(333n);
+    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1001 });
+    expect(quote.fiatAmount).toBe(1001n);
   });
 
   it('populates WithdrawalQuote.requestHash as a 64-character lowercase hex SHA-256 string', async () => {
@@ -128,24 +126,24 @@ describeIf('withdrawals/quote-service', () => {
     const admin = await createAdmin(tag);
     const user = await createUser(tag);
     const country = await createCountry(tag);
-    await createExchangeRate(country.id, 'ETB', 2, admin.id);
+    await createExchangeRate(country.id, 'ETB', 1, admin.id);
 
     const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 });
     expect(quote.requestHash).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  it('rejects a coinAmount whose computed fiatAmount would floor to zero', async () => {
+  it('rejects a payout at the USD-equivalent minimum instead of rounding it into eligibility', async () => {
     await cleanQuoteFixtures();
     const tag = `floor-zero-${Date.now()}`;
     const admin = await createAdmin(tag);
     const user = await createUser(tag);
     const country = await createCountry(tag);
-    // coinsPerUnit (1000) > coinAmount (the 100-coin minimum) — floor(100/1000) = 0.
-    await createExchangeRate(country.id, 'ETB', 1000, admin.id);
+    // 384 ETB minor units at 0.96 ETB/USD equal USD 4 exactly; withdrawal must exceed it.
+    await createExchangeRate(country.id, 'ETB', 1, admin.id);
 
     await expect(
-      createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 500 })
-    ).rejects.toThrow(/outside supported limits/);
+      createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 384 })
+    ).rejects.toThrow(/must exceed/);
   });
 
   it('rejects coinAmount below the minimum', async () => {
@@ -154,7 +152,7 @@ describeIf('withdrawals/quote-service', () => {
     const admin = await createAdmin(tag);
     const user = await createUser(tag);
     const country = await createCountry(tag);
-    await createExchangeRate(country.id, 'ETB', 2, admin.id);
+    await createExchangeRate(country.id, 'ETB', 1, admin.id);
 
     await expect(createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1 })).rejects.toThrow(/minimum/);
   });
@@ -165,7 +163,7 @@ describeIf('withdrawals/quote-service', () => {
     const admin = await createAdmin(tag);
     const user = await createUser(tag);
     const country = await createCountry(tag);
-    await createExchangeRate(country.id, 'ETB', 2, admin.id);
+    await createExchangeRate(country.id, 'ETB', 1, admin.id);
 
     await expect(
       createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 10_000_000_000 })
@@ -201,7 +199,7 @@ describeIf('withdrawals/quote-service', () => {
     const admin = await createAdmin(tag);
     const user = await createUser(tag);
     const country = await createCountry(tag, { agentPaymentEnabled: false });
-    await createExchangeRate(country.id, 'ETB', 2, admin.id);
+    await createExchangeRate(country.id, 'ETB', 1, admin.id);
 
     await expect(createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 })).rejects.toThrow(
       /not available/
@@ -214,7 +212,7 @@ describeIf('withdrawals/quote-service', () => {
     const admin = await createAdmin(tag);
     const user = await createUser(tag);
     const country = await createCountry(tag);
-    await createExchangeRate(country.id, 'ETB', 2, admin.id);
+    await createExchangeRate(country.id, 'ETB', 1, admin.id);
 
     const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 });
     expect(quote.expiresAt.getTime()).toBeGreaterThan(Date.now());
@@ -231,7 +229,7 @@ describeIf('withdrawals/quote-service', () => {
     const user = await createUser(tag);
     const otherUser = await createUser(`${tag}-other`);
     const country = await createCountry(tag);
-    await createExchangeRate(country.id, 'ETB', 2, admin.id);
+    await createExchangeRate(country.id, 'ETB', 1, admin.id);
 
     const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 });
     await expect(getOwnWithdrawalQuote(otherUser.id, quote.id)).rejects.toThrow(/does not belong to you/);
@@ -243,7 +241,7 @@ describeIf('withdrawals/quote-service', () => {
     const admin = await createAdmin(tag);
     const user = await createUser(tag);
     const country = await createCountry(tag);
-    await createExchangeRate(country.id, 'ETB', 2, admin.id);
+    await createExchangeRate(country.id, 'ETB', 1, admin.id);
 
     const quoteA = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 });
     const quoteB = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 });
@@ -254,13 +252,13 @@ describeIf('withdrawals/quote-service', () => {
   });
 });
 
-describeIf('USD-priced withdrawal quotes', () => {
-  it('preserves older quotes and refuses fallback when the latest USD rate is disabled', async () => {
+describeIf('ETB-priced withdrawal quotes', () => {
+  it('preserves older quotes and refuses fallback when the latest ETB rate is disabled', async () => {
     const { publishUsdRate } = await import('../agents/usd-config-service.js');
     const tag = `usd-${Date.now()}`;
     const admin = await createAdmin(tag), user = await createUser(tag + '-customer');
     const country = await createCountry(tag);
-    await createExchangeRate(country.id, 'ETB', 2, admin.id);
+    await createExchangeRate(country.id, 'ETB', 1, admin.id);
     const historicalRate = await prisma.exchangeRateConfig.findFirstOrThrow({ where: { countryId: country.id } });
     // Seed a historical quote directly: new legacy quotes are deliberately forbidden.
     const legacy = await prisma.withdrawalQuote.create({ data: {
@@ -270,7 +268,7 @@ describeIf('USD-priced withdrawal quotes', () => {
     } });
     await prisma.country.update({ where: { id: country.id }, data: { currencyCode: 'ETB' } });
     const rate = await publishUsdRate(admin.id, country.id, {
-      version: 'USD_V1', coinsPerUsd: 96, localPerUsd: '150', minorDigits: 2,
+      version: 'ETB_V1', walletCurrency: 'ETB', localPerUsd: '0.96', minorDigits: 2,
       source: 'Native test rate', observedAt: new Date(Date.now() - 1000).toISOString(),
       expiresAt: new Date(Date.now() + 120000).toISOString(), feeMinor: 0,
       p2pDepositMinUsdCents: 200, p2pWithdrawalAboveUsdCents: 400,
@@ -278,14 +276,27 @@ describeIf('USD-priced withdrawal quotes', () => {
     });
     await expect(createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 384 })).rejects.toThrow(/must exceed/);
     const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 385 });
-    expect(quote.fiatAmount).toBe(60156n);
-    expect(quote.pricingSnapshot).toMatchObject({ coinAmount: 385, usdNumerator: '385', usdDenominator: '96' });
+    expect(quote.fiatAmount).toBe(385n);
+    expect(quote.pricingSnapshot).toMatchObject({ coinAmount: 385, version: 'ETB_V1', walletCurrency: 'ETB', usdNumerator: '38500', usdDenominator: '9600' });
     expect(quote.expiresAt.getTime()).toBeLessThanOrEqual(Date.now() + 120000);
     const old = await getOwnWithdrawalQuote(user.id, legacy.id);
     expect(old.fiatAmount).toBe(50n);
     expect(old.pricingSnapshot).toBeNull();
     await prisma.exchangeRateConfig.update({ where: { id: rate.id }, data: { isActive: false } });
     await expect(createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 385 })).rejects.toThrow(/No active exchange rate/);
-    expect((await getOwnWithdrawalQuote(user.id, quote.id)).fiatAmount).toBe(60156n);
+    expect((await getOwnWithdrawalQuote(user.id, quote.id)).fiatAmount).toBe(385n);
+  });
+});
+
+describeIf('withdrawal pricing compatibility boundary', () => {
+  it('rejects publishing a legacy USD policy for a native ETB wallet', async () => {
+    const { publishUsdRate } = await import('../agents/usd-config-service.js');
+    const { fixtureUsdPolicy } = await import('../test/payment-policy-fixture.js');
+    const tag = `reject-usd-${Date.now()}`;
+    const admin = await createAdmin(tag);
+    const country = await createCountry(tag);
+    await expect(publishUsdRate(admin.id, country.id, fixtureUsdPolicy(2)))
+      .rejects.toThrow(/Only ETB wallet pricing is supported/);
+    expect(await prisma.exchangeRateConfig.count({ where: { countryId: country.id } })).toBe(0);
   });
 });

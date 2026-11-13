@@ -20,7 +20,7 @@ import { prepareDormantBeaconSpinRandomness } from '../games/economics/house-rou
 
 const DATABASE_PACKAGE = fileURLToPath(new URL('../../../../packages/database/', import.meta.url));
 const PRISMA = join(DATABASE_PACKAGE, 'node_modules/.bin/prisma');
-const SCHEMA = join(DATABASE_PACKAGE, 'prisma/schema.prisma');
+const CURRENT_SCHEMA = join(DATABASE_PACKAGE, 'prisma/schema.prisma');
 const MIGRATIONS = join(DATABASE_PACKAGE, 'prisma/migrations');
 const PRE_GATE = '20260917900000_ledger_preupgrade_gate';
 const FINAL_GATE = '20260924000000_ledger_integrity_gate';
@@ -78,9 +78,37 @@ const PUBLIC_PROOF_PARENT_MIGRATIONS_SHA256 = '9664a01a5f783c0e67a111e31aa41516e
 // A digest of framed migration name/byte-length/content needs no Git history
 // in shallow CI, while proving the copied parent migrations were not edited.
 const ENTROPY_PARENT_MIGRATIONS_SHA256 = 'e5580e829d73cd75177d58b52891a185e32dcd5d22e7d82075e43bfd03e59868';
-const TSX = fileURLToPath(new URL('../../node_modules/.bin/tsx', import.meta.url));
+// Use Node's tsx loader directly; the tsx CLI opens an unnecessary IPC socket.
+const TSX_LOADER = fileURLToPath(new URL('../../node_modules/tsx/dist/loader.mjs', import.meta.url));
 const RUNTIME_ACCESS = fileURLToPath(new URL('../scripts/ledger-runtime-access.ts', import.meta.url));
-const ALL = readdirSync(MIGRATIONS).filter((name) => /^\d{14}_/.test(name)).sort();
+const CURRENT_ALL = readdirSync(MIGRATIONS).filter((name) => /^\d{14}_/.test(name)).sort();
+// Historical scenarios below prove the Oct 12 ledger contract, not a conversion
+// of funded legacy wallets into ETB. Current installation and refusal have their
+// own explicit scenarios; never silently extend this historical endpoint.
+const ALL = CURRENT_ALL.filter((name) => name <= NUMBER_TIMED_PRACTICE);
+const NATIVE_ETB = '20261104150000_native_etb_wallet';
+const CURRENT_FORWARD = [
+  '20261104120000_practice_etb_gifts',
+  '20261104140000_keno_practice_multi_ticket',
+  NATIVE_ETB,
+  '20261104160000_roulette_keno_practice',
+  '20261105013000_member_support',
+  '20261105140000_lucky_six_practice',
+  '20261105150000_spin_practice_multi_ticket',
+  '20261105180000_blackjack_practice',
+  '20261105200000_softaggregator_test_wallet',
+  '20261105210000_member_rewards',
+  '20261105220000_automatic_member_rewards',
+  '20261106000000_sports_wallet_types',
+  '20261106000100_sports_real_wallet',
+  '20261106010000_together_operation_types',
+  '20261106010100_play_together',
+  '20261106020000_together_practice_catalogue',
+  '20261106030000_together_live_timeline',
+  '20261106031000_together_practice_worker',
+  '20261107040000_payment_order_rooms',
+  '20261113060000_owner_reset_issuance',
+];
 const MASTER = ALL.filter((name) => name < PRE_GATE);
 // The migrations added after the parent release (bfe2263). Every other one is
 // the parent's, byte for byte: a migration a database has applied is never
@@ -100,6 +128,7 @@ const PARENT = ORIGINAL_RELEASE.filter((name) => !ADDED_AFTER_PARENT.includes(na
 
 const created: string[] = [];
 const scratchRoots: string[] = [];
+const SCHEMA = migrationSubset(ALL);
 
 function urlFor(database: string): string {
   const url = new URL(process.env.DATABASE_URL!);
@@ -119,7 +148,7 @@ async function scratchDatabase(label: string): Promise<{ name: string; url: stri
 function migrationSubset(names: string[]): string {
   const root = mkdtempSync(join(tmpdir(), 'ledger-upgrade-'));
   scratchRoots.push(root);
-  cpSync(SCHEMA, join(root, 'schema.prisma'));
+  cpSync(CURRENT_SCHEMA, join(root, 'schema.prisma'));
   cpSync(join(MIGRATIONS, 'migration_lock.toml'), join(root, 'migrations', 'migration_lock.toml'));
   for (const name of names) cpSync(join(MIGRATIONS, name), join(root, 'migrations', name), { recursive: true });
   return join(root, 'schema.prisma');
@@ -245,7 +274,7 @@ async function runtimeSetup(db: { url: string; client: PrismaClient }) {
   const role = `playqube_upg_runtime_${randomUUID().replaceAll('-', '').slice(0, 8)}`;
   await prisma.$executeRawUnsafe(`CREATE ROLE "${role}" NOLOGIN`);
   try {
-    const run = spawnSync(TSX, [RUNTIME_ACCESS], {
+    const run = spawnSync(process.execPath, ['--import', TSX_LOADER, RUNTIME_ACCESS], {
       env: { PATH: process.env.PATH ?? '', LEDGER_OWNER_DATABASE_URL: db.url, LEDGER_RUNTIME_ROLE: role,
         LEDGER_APPROVAL_SIGNING_KEY: randomBytes(32).toString('hex'), LEDGER_APPROVAL_KEY_ID: `upg-${role.slice(-8)}` },
       encoding: 'utf8', timeout: 120_000 });
@@ -381,6 +410,8 @@ async function legacyFingerprint(client: PrismaClient, columns?: Record<string, 
 }
 
 beforeAll(() => {
+  expect(ALL.at(-1)).toBe(NUMBER_TIMED_PRACTICE);
+  expect(CURRENT_ALL).toEqual([...ALL, ...CURRENT_FORWARD]);
   expect(ALL).toContain(PRE_GATE);
   expect(ALL).toContain(FINAL_GATE);
   expect(ALL.indexOf(FINAL_GATE)).toBeLessThan(ALL.indexOf(AUTHORIZATION));
@@ -454,23 +485,71 @@ afterAll(async () => {
 }, 300_000);
 
 describe('ledger upgrade migrations', () => {
-  it('fresh install: every migration applies, both gates pass, and a replay is a no-op', async () => {
+  it('fresh current install: every migration applies, both gates pass, and a replay is a no-op', async () => {
     const db = await scratchDatabase('fresh');
     try {
-      const first = deploy(db.url);
+      const first = deploy(db.url, CURRENT_SCHEMA);
       expect(first.status, first.output).toBe(0);
       const rows = await migrationRows(db.client);
-      expect(rows.map((row) => row.migration_name)).toEqual(ALL);
+      expect(rows.map((row) => row.migration_name)).toEqual(CURRENT_ALL);
       expect(rows.every((row) => row.finished && !row.rolled_back)).toBe(true);
       expect(await anomalies(db.client)).toEqual([]);
       const preflight = await runLedgerUpgradePreflight(db.client);
       expect({ mode: preflight.mode, anomalies: preflight.anomalies.length, drift: preflight.definitionDrift })
         .toEqual({ mode: 'UPGRADED', anomalies: 0, drift: false });
-      const replay = deploy(db.url);
+      expect(await relationExists(db.client, 'public.wallet_denomination')).toBe(true);
+      expect(await relationExists(db.client, 'password_reset_private.issuances')).toBe(true);
+      const setup = await runtimeSetup(db);
+      expect(setup.status, setup.output).toBe(0);
+      const replay = deploy(db.url, CURRENT_SCHEMA);
       expect(replay.status, replay.output).toBe(0);
       expect(replay.output).toContain('No pending migrations to apply');
-      const status = prismaCli(db.url, ['migrate', 'status', '--schema', SCHEMA]);
+      const status = prismaCli(db.url, ['migrate', 'status', '--schema', CURRENT_SCHEMA]);
       expect(status.output).toContain('Database schema is up to date');
+    } finally { await db.client.$disconnect(); }
+  }, 300_000);
+
+
+  it('populated historical wallets refuse ETB initialization without changing any application row', async () => {
+    const db = await scratchDatabase('etb-refusal');
+    try {
+      expect(deploy(db.url, migrationSubset(MASTER)).status).toBe(0);
+      execute(db.url, masterEraSeed(masterIds()));
+      const preEtb = deploy(db.url, migrationSubset(CURRENT_ALL.filter(name => name < NATIVE_ETB)));
+      expect(preEtb.status, preEtb.output).toBe(0);
+      const snapshot = async () => {
+        const tables = await db.client.$queryRawUnsafe<Array<{ name: string }>>(
+          `SELECT tablename AS name FROM pg_tables WHERE schemaname='public' AND tablename <> '_prisma_migrations' ORDER BY tablename`);
+        const result: Record<string, string> = {};
+        for (const { name } of tables) {
+          const quoted = name.replaceAll('"', '""');
+          const [row] = await db.client.$queryRawUnsafe<Array<{ digest: string }>>(
+            `SELECT count(*)::text || ':' || coalesce(md5(string_agg(row_text,E'\\n' ORDER BY row_text)),'empty') AS digest FROM (SELECT to_jsonb(t)::text AS row_text FROM public."${quoted}" t) rows`);
+          result[name] = row.digest;
+        }
+        return result;
+      };
+      const before = await snapshot();
+      // The migration engine can obscure the original error while writing its
+      // bookkeeping inside an aborted transaction. Probe the exact SQL first;
+      // db execute closes the failed transaction without persisting a change.
+      expect(() => execute(db.url, readFileSync(join(MIGRATIONS, NATIVE_ETB, 'migration.sql'), 'utf8')))
+        .toThrow('ETB initialization refused: existing financial records require an explicit migration');
+      expect(await snapshot()).toEqual(before);
+      const stopped = deploy(db.url, CURRENT_SCHEMA);
+      expect(stopped.status, stopped.output).not.toBe(0);
+      expect(stopped.output).toContain(NATIVE_ETB);
+      expect(await snapshot()).toEqual(before);
+      expect(await relationExists(db.client, 'public.wallet_denomination')).toBe(false);
+      expect(await relationExists(db.client, 'password_reset_private.issuances')).toBe(false);
+      const rows = await migrationRows(db.client);
+      const failed = rows.filter(row => row.migration_name === NATIVE_ETB);
+      expect(failed).toHaveLength(1);
+      expect(failed[0]).toMatchObject({ finished: false, rolled_back: false });
+      expect(rows.some(row => row.migration_name > NATIVE_ETB)).toBe(false);
+      const retry = deploy(db.url, CURRENT_SCHEMA);
+      expect(retry.status, retry.output).not.toBe(0);
+      expect(await snapshot()).toEqual(before);
     } finally { await db.client.$disconnect(); }
   }, 300_000);
 
@@ -972,7 +1051,7 @@ describe('ledger upgrade migrations', () => {
         `playqube_upg_cr_${t}`];
       const keyHex = randomBytes(32).toString('hex');
       const setup = (keyId = `upg-${t}`) => {
-        const run = spawnSync(TSX, [RUNTIME_ACCESS], {
+        const run = spawnSync(process.execPath, ['--import', TSX_LOADER, RUNTIME_ACCESS], {
           env: { PATH: process.env.PATH ?? '', LEDGER_OWNER_DATABASE_URL: db.url, LEDGER_RUNTIME_ROLE: runtime,
             LEDGER_APPROVAL_SIGNING_KEY: keyHex, LEDGER_APPROVAL_KEY_ID: keyId },
           encoding: 'utf8', timeout: 120_000 });
@@ -1395,9 +1474,8 @@ async function catalogFingerprint(client: PrismaClient) {
 }
 
 function readCatalog(url: string): { listed: string[]; games: Record<string, { rulesHash: string | null }> } {
-  const tsx = fileURLToPath(new URL('../../node_modules/.bin/tsx', import.meta.url));
   const probe = fileURLToPath(new URL('../test/catalog-read-probe.ts', import.meta.url));
-  const run = spawnSync(tsx, [probe], { env: { PATH: process.env.PATH ?? '', DATABASE_URL: url }, encoding: 'utf8', timeout: 120_000 });
+  const run = spawnSync(process.execPath, ['--import', TSX_LOADER, probe], { env: { PATH: process.env.PATH ?? '', DATABASE_URL: url }, encoding: 'utf8', timeout: 120_000 });
   if (run.status !== 0) throw new Error(`catalog probe failed: ${run.stderr}`);
   return JSON.parse(run.stdout);
 }

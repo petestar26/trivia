@@ -98,8 +98,8 @@ function readinessRows() {
 }
 function terms() {
   return {
-    version: 'USD_V1',
-    coinsPerUsd: 96,
+    version: 'ETB_V1',
+    walletCurrency: 'ETB',
     localPerUsd: '150',
     minorDigits: 2,
     source: 'Test pricing',
@@ -140,7 +140,7 @@ it('settles an on-time submission after expiry using the original price', async 
   await expect(assertDepositReady(tx as any, {
     ...order, createdAt: new Date(now.getTime() - 900),
     status: 'PAYMENT_SUBMITTED', paymentSubmittedAt: new Date(now.getTime() - 500),
-    pricingSnapshot: {...terms(), expiresAt: now.toISOString()}, fiatAmount: 30000, coinAmount: 192,
+    pricingSnapshot: {...terms(), expiresAt: now.toISOString()}, fiatAmount: 30000, coinAmount: 30000,
   }, 'settlement')).resolves.toBeUndefined();
 });
 it.each(['late', 'missing', 'wrong-price'])('rejects %s settlement with a staff-review conflict', async (kind) => {
@@ -150,7 +150,7 @@ it.each(['late', 'missing', 'wrong-price'])('rejects %s settlement with a staff-
     ...order, createdAt: new Date(now.getTime() - 900), status: 'PAYMENT_SUBMITTED',
     paymentSubmittedAt: kind === 'missing' ? null : new Date(now.getTime() - (kind === 'late' ? 0 : 500)),
     pricingSnapshot: {...terms(), expiresAt: now.toISOString()}, fiatAmount: 30000,
-    coinAmount: kind === 'wrong-price' ? 193 : 192,
+    coinAmount: kind === 'wrong-price' ? 30001 : 30000,
   }, 'settlement')).rejects.toMatchObject({statusCode: 409});
 });
 

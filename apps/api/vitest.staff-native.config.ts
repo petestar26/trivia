@@ -20,6 +20,7 @@ export default defineConfig({
       LOG_PRETTY: 'false',
       JWT_ACCESS_SECRET: 'isolated-staff-access-secret-only',
       JWT_REFRESH_SECRET: 'isolated-staff-refresh-secret-only',
+      PASSWORD_RESET_SECRET: 'isolated-staff-owner-reset-only-secret',
     },
   },
 });

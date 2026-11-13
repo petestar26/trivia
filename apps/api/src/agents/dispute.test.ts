@@ -1,4 +1,4 @@
-import { fixtureUsdPolicy } from '../test/payment-policy-fixture.js';
+import { fixtureEtbPolicy } from '../test/payment-policy-fixture.js';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { prisma } from '@socialplay/database';
 import type { Prisma } from '@prisma/client';
@@ -6,7 +6,7 @@ import { waitForBlockedBackends, ROW_LOCK_WAITS } from '../test/pg-locks.js';
 import { submitAgentApplication, approveAgentApplication } from './agent-service.js';
 import { createAgentPaymentAccount, approveAgentPaymentAccount } from './payment-account-service.js';
 import { fundAgentInventory, getAgentInventory } from './inventory-service.js';
-import { createAgentOrder, submitOrderPayment, settleAgentOrder } from './order-service.js';
+import { createAgentOrder, submitOrderPayment, settleAgentOrder, cancelAgentOrder } from './order-service.js';
 import { openDispute, getDisputeById, claimDispute, resolveDispute, listOpenDisputesForAdmin } from './dispute-service.js';
 
 // ─── DB availability probe ─────────────────────────────────────
@@ -91,8 +91,8 @@ async function createPaymentMethod(countryId: string, tag: string) {
   });
 }
 
-async function createExchangeRate(countryId: string, fiatCurrency: string, coinsPerUnit: number, adminId: string) {
-  return prisma.exchangeRateConfig.create({ data: { countryId, fiatCurrency, coinsPerUnit, isActive: true, setBy: adminId , pricingPolicy: fixtureUsdPolicy(coinsPerUnit)} });
+async function createExchangeRate(countryId: string, fiatCurrency: string, adminId: string) {
+  return prisma.exchangeRateConfig.create({ data: { countryId, fiatCurrency, coinsPerUnit: 1, isActive: true, setBy: adminId , pricingPolicy: fixtureEtbPolicy()} });
 }
 
 async function setupActiveAgent(
@@ -210,7 +210,7 @@ describeIf('Dispute creation', () => {
     superAdmin = await createSuperAdmin('createsuper');
     country = await createCountry('create');
     method = await createPaymentMethod(country.id, 'create');
-    await createExchangeRate(country.id, country.currencyCode, 10, admin.id);
+    await createExchangeRate(country.id, country.currencyCode, admin.id);
   });
 
   it('customer can open a dispute on their own PAYMENT_SUBMITTED order', async () => {
@@ -277,25 +277,40 @@ describeIf('Dispute creation', () => {
     ).rejects.toThrow(/invalid dispute reason/i);
   });
 
-  it('dispute cannot be opened on an order not in PAYMENT_SUBMITTED', async () => {
-    const fixture = await setupActiveAgent('open5', country.id, method.id, admin, superAdmin, 100_000);
-    const customer = await createUser('custopen5');
-    const created = await createAgentOrder(customer.id, {
-      agentId: fixture.agent.id,
-      countryId: country.id,
-      paymentAccountId: fixture.account.id,
-      fiatAmount: 500,
-      idempotencyKey: `key-${Math.random()}`,
+  it.each(['customer', 'agent'])('allows a CREATED-order appeal by the %s without releasing reserved funds', async (party) => {
+    const fixture = await setupActiveAgent(`open5-${party}`, country.id, method.id, admin, superAdmin, 100_000);
+    const customer = await createUser(`custopen5-${party}`);
+    const { order } = await createAgentOrder(customer.id, {
+      agentId: fixture.agent.id, countryId: country.id, paymentAccountId: fixture.account.id,
+      fiatAmount: 500, idempotencyKey: `key-${Math.random()}`,
     });
-    // still CREATED, payment never submitted
-    await expect(
-      openDispute(customer.id, {
-        orderId: created.order.id,
-        reason: 'OTHER',
-        description: 'x',
-        idempotencyKey: `dk-${Math.random()}`,
-      })
-    ).rejects.toThrow(/cannot enter dispute from its current state/i);
+    const inventoryBefore = await getAgentInventory(fixture.agent.id);
+    const walletBefore = await prisma.wallet.findUnique({ where: { userId: customer.id } });
+    const result = await openDispute(party === 'customer' ? customer.id : fixture.agentUser.id, {
+      orderId: order.id, reason: 'OTHER', description: 'Appeal before marking paid', idempotencyKey: `dk-${Math.random()}`,
+    });
+    expect(result.dispute.status).toBe('OPEN');
+    expect((await prisma.agentOrder.findUniqueOrThrow({ where: { id: order.id } })).status).toBe('DISPUTE');
+    expect(await getAgentInventory(fixture.agent.id)).toEqual(inventoryBefore);
+    expect(await prisma.wallet.findUnique({ where: { userId: customer.id } })).toEqual(walletBefore);
+    expect(await prisma.agentOrderSettlement.count({ where: { orderId: order.id } })).toBe(0);
+  });
+
+  it('rejects a cancelled-order appeal without recreating a reservation', async () => {
+    const fixture = await setupActiveAgent('open5-cancelled', country.id, method.id, admin, superAdmin, 100_000);
+    const customer = await createUser('custopen5-cancelled');
+    const { order } = await createAgentOrder(customer.id, {
+      agentId: fixture.agent.id, countryId: country.id, paymentAccountId: fixture.account.id,
+      fiatAmount: 500, idempotencyKey: `key-${Math.random()}`,
+    });
+    await cancelAgentOrder(customer.id, order.id);
+    const inventoryBefore = await getAgentInventory(fixture.agent.id);
+    await expect(openDispute(customer.id, {
+      orderId: order.id, reason: 'OTHER', description: 'Cancelled', idempotencyKey: `dk-${Math.random()}`,
+    })).rejects.toThrow(/cannot enter dispute from its current state/i);
+    expect(await prisma.dispute.count({ where: { orderId: order.id } })).toBe(0);
+    expect(await getAgentInventory(fixture.agent.id)).toEqual(inventoryBefore);
+    expect((await prisma.agentOrder.findUniqueOrThrow({ where: { id: order.id } })).status).toBe('CANCELLED');
   });
 
   it('duplicate idempotency key returns the original dispute', async () => {
@@ -359,7 +374,7 @@ describeIf('Dispute access and ownership', () => {
     superAdmin = await createSuperAdmin('accesssuper');
     country = await createCountry('access');
     method = await createPaymentMethod(country.id, 'access');
-    await createExchangeRate(country.id, country.currencyCode, 10, admin.id);
+    await createExchangeRate(country.id, country.currencyCode, admin.id);
   });
 
   it('customer, agent, and admin can access a dispute; a stranger cannot', async () => {
@@ -397,7 +412,7 @@ describeIf('Dispute claim and resolution', () => {
     superAdmin = await createSuperAdmin('resolvesuper');
     country = await createCountry('resolve');
     method = await createPaymentMethod(country.id, 'resolve');
-    await createExchangeRate(country.id, country.currencyCode, 10, admin.id);
+    await createExchangeRate(country.id, country.currencyCode, admin.id);
   });
 
   async function makeOpenDispute(tag: string) {
@@ -614,7 +629,7 @@ describeIf('Dispute notifications and audit', () => {
     superAdmin = await createSuperAdmin('notifsuper');
     country = await createCountry('notif');
     method = await createPaymentMethod(country.id, 'notif');
-    await createExchangeRate(country.id, country.currencyCode, 10, admin.id);
+    await createExchangeRate(country.id, country.currencyCode, admin.id);
   });
 
   it('AGENT_DISPUTE_OPENED notifies the other party exactly once', async () => {
@@ -701,7 +716,7 @@ describeIf('Complete order + dispute lifecycle', () => {
     superAdmin = await createSuperAdmin('lifecyclesuper');
     country = await createCountry('lifecycle');
     method = await createPaymentMethod(country.id, 'lifecycle');
-    await createExchangeRate(country.id, country.currencyCode, 10, admin.id);
+    await createExchangeRate(country.id, country.currencyCode, admin.id);
   });
 
   it('order -> payment submitted -> dispute opened -> claimed -> resolved (RELEASE) end-to-end', async () => {

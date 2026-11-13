@@ -257,7 +257,7 @@ jobs:
       - name: Payment lifecycle, authorization and recovery
         env:
           TEST_LEDGER_DB_NAME: playqube_scheduled_throwaway
-        run: pnpm --filter api exec vitest run src/agents src/withdrawals --maxWorkers=1 --minWorkers=1
+        run: pnpm --filter api exec vitest run src/agents src/withdrawals src/test/fixture-rate-cleanup.test.ts --maxWorkers=1 --minWorkers=1
       - name: Legacy API compatibility and task concurrency
         env:
           TEST_LEDGER_DB_NAME: playqube_scheduled_throwaway
@@ -363,6 +363,8 @@ jobs:
         run: pnpm --filter api exec vitest run --config vitest.session.config.ts
       - name: Build web and typecheck
         env:
+          # Do not bundle React's development runtime from the job's test environment.
+          NODE_ENV: production
           VITE_API_PROXY: 'true'
         run: pnpm --filter web build
       - name: Generated PWA navigation contracts
