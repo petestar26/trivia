@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
   pull_request:
     paths:
+      - 'apps/api/vitest.staff-native.config.ts'
       - '.github/workflows/play-together.yml'
       - 'apps/api/src/games/play-together/**'
       - 'apps/api/src/games/group-pvp/**'
