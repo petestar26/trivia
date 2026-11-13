@@ -314,3 +314,25 @@ it('shows destination method and country and keeps funding notes out of rejectio
   expect(card.getByRole('button', { name: 'Reject with reason' })).toBeDisabled();
   expect(card.getByLabelText('Review reason for Fixture agent')).toHaveValue('');
 });
+
+it('offers version-pinned safety disable for a rejected receiving account in admin setup', async () => {
+  m.get.mockImplementation(async (path: string) => ({ success: true, data:
+    path === '/agent-config/admin/countries' ? [country] : path === '/agent-config/admin/setup/et'
+    ? { ...setup, agents: [{ ...setup.agents[0], paymentAccounts: [
+      { id: 'rejected-account', status: 'REJECTED', safetyHold: false,
+        updatedAt: '2026-11-13T00:00:00.000Z', methodDef: { name: 'Rejected receiving method' } },
+    ] }] } : [],
+  }));
+  mount();
+  await screen.findByRole('option', { name: 'Ethiopia · ETB' });
+  fireEvent.change(screen.getByLabelText('Manage country'), { target: { value: 'et' } });
+  await screen.findByText('Rejected receiving method');
+  fireEvent.click(screen.getByText('Agents, ETB deposit funding & fiat liquidity'));
+  fireEvent.click(screen.getByRole('button', { name: 'Disable account' }));
+  fireEvent.click(screen.getByRole('button', { name: /^Confirm$/ }));
+  await waitFor(() => expect(m.post).toHaveBeenCalledTimes(1));
+  expect(m.post.mock.calls[0].slice(0, 2)).toEqual([
+    '/agents/payment-accounts/rejected-account/admin-disable',
+    { expectedUpdatedAt: '2026-11-13T00:00:00.000Z' },
+  ]);
+});

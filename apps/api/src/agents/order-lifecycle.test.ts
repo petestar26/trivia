@@ -162,3 +162,26 @@ it('continues past an invalid expiry candidate and records a system actor', asyn
   expect(state.tx.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({data:expect.objectContaining({userId:null,action:'AGENT_ORDER_EXPIRED',entityId:'good'})}));
   expect(state.release).toHaveBeenCalledOnce();
 });
+
+it('does not cancel or expire an order under an independent safety hold', async () => {
+  state.tx.agentOrder.findUnique.mockResolvedValue({ ...order, safetyHold: true });
+  await expect(cancelAgentOrder('buyer', 'order', undefined, 'expiry')).rejects.toMatchObject({ statusCode: 409 });
+  expect(state.tx.agentOrder.updateMany).not.toHaveBeenCalled();
+  expect(state.release).not.toHaveBeenCalled();
+});
+it('rejects safety-held readiness before inspecting mutable configuration', async () => {
+  const tx = { $queryRaw: vi.fn() };
+  await expect(assertDepositReady(tx as any, { ...order, safetyHold: true })).rejects.toMatchObject({ statusCode: 409 });
+  expect(tx.$queryRaw).not.toHaveBeenCalled();
+});
+it('preserves legacy order snapshots when an account edit is pending review', async () => {
+  const tx = { $queryRaw: vi.fn() };
+  const rows = readinessRows();
+  rows[2] = [{ status: 'PENDING_APPROVAL', agentId: 'agent', countryId: 'country', methodDefId: 'replacement' }] as any;
+  for (const row of rows) tx.$queryRaw.mockResolvedValueOnce(row);
+  await expect(assertDepositReady(tx as any, {
+    ...order, createdAt: new Date(now.getTime() - 900),
+    status: 'PAYMENT_SUBMITTED', paymentSubmittedAt: new Date(now.getTime() - 500),
+    pricingSnapshot: {...terms(), expiresAt: now.toISOString()}, fiatAmount: 30000, coinAmount: 192,
+  }, 'settlement')).resolves.toBeUndefined();
+});

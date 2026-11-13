@@ -284,6 +284,7 @@ export async function agentOverview(actorId: string) {
         select: {
           id: true,
           status: true,
+          safetyHold: true,
           countryId: true,
           methodDef: { select: { countryId: true, isActive: true } },
         },
@@ -327,7 +328,7 @@ export async function agentOverview(actorId: string) {
     Object.fromEntries(rows.map((row) => [row.status, row._count._all]));
   const approvedAccounts = agent.paymentAccounts.filter(
     (a) =>
-      a.status === 'APPROVED' &&
+      a.status === 'APPROVED' && !a.safetyHold &&
       a.countryId === agent.country.id &&
       a.methodDef.countryId === agent.country.id &&
       a.methodDef.isActive

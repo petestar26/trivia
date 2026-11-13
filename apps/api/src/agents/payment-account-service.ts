@@ -209,6 +209,7 @@ export async function updateAgentPaymentAccount(
         agentId: agent.id,
         updatedAt: expectedUpdatedAt,
         status: { in: ['APPROVED', 'PENDING_APPROVAL', 'REJECTED'] },
+        safetyHold: false,
       },
       data: {
         countryId: args.countryId,
@@ -276,7 +277,7 @@ export async function approveAgentPaymentAccount(
     // Match the version the administrator actually viewed, including edits
     // committed before this request began as well as races during the request.
     const claim = await tx.agentPaymentAccount.updateMany({
-      where: { id: accountId, status: 'PENDING_APPROVAL', updatedAt: expectedUpdatedAt },
+      where: { id: accountId, status: 'PENDING_APPROVAL', safetyHold: false, updatedAt: expectedUpdatedAt },
       data: {
         status: 'APPROVED', reviewedBy: adminId, reviewedAt: new Date(),
         updatedAt: nextAccountVersion(before.updatedAt),
@@ -324,7 +325,7 @@ export async function rejectAgentPaymentAccount(
   context?: { ip?: string; userAgent?: string }
 ) {
   const expectedUpdatedAt = parseExpectedUpdatedAt(expectedUpdatedAtValue);
-  if (!reviewNote || reviewNote.trim().length === 0) {
+  if (typeof reviewNote !== 'string' || reviewNote.trim().length === 0) {
     throw ApiError.badRequest('A review note is required to reject a payment account');
   }
   await assertPlatformAdmin(adminId);
@@ -394,17 +395,20 @@ export async function rejectAgentPaymentAccount(
 async function disablePaymentAccountInternal(
   actorId: string,
   accountId: string,
+  expectedUpdatedAtValue: string,
   verifyOwnership: (tx: any, account: { agentId: string }) => Promise<void>,
   context?: { ip?: string; userAgent?: string }
 ) {
+  const expectedUpdatedAt = parseExpectedUpdatedAt(expectedUpdatedAtValue);
   return prisma.$transaction(async (tx) => {
     const before = await tx.agentPaymentAccount.findUnique({ where: { id: accountId } });
     if (!before) throw ApiError.notFound('Payment account not found');
     await verifyOwnership(tx, before);
+    assertDisplayedVersion(before.updatedAt, expectedUpdatedAt);
 
     const claim = await tx.agentPaymentAccount.updateMany({
-      where: { id: accountId, status: { in: ['APPROVED', 'PENDING_APPROVAL'] } },
-      data: { status: 'DISABLED' },
+      where: { id: accountId, updatedAt: expectedUpdatedAt, safetyHold: false },
+      data: { safetyHold: true, updatedAt: nextAccountVersion(before.updatedAt) },
     });
 
     if (claim.count === 0) {
@@ -420,26 +424,28 @@ async function disablePaymentAccountInternal(
         action: 'AGENT_PAYMENT_ACCOUNT_DISABLED',
         entity: 'AgentPaymentAccount',
         entityId: accountId,
-        oldData: { status: before.status },
-        newData: { status: 'DISABLED' },
+        oldData: { status: before.status, safetyHold: before.safetyHold },
+        newData: { status: before.status, safetyHold: true },
         ip: context?.ip,
         userAgent: context?.userAgent,
       },
     });
 
-    return { accountId, status: 'DISABLED' };
+    return { accountId, status: before.status, safetyHold: true };
   });
 }
 
 /**
  * Agent self-service disable. Never deletes the row — history is preserved
- * (Phase D §10/§34). Legal from APPROVED or PENDING_APPROVAL; a REJECTED
- * account is already unusable, and disabling an already-DISABLED account is
- * a no-op guarded by the same conditional claim.
+ * (Phase D §10/§34). Safety disable is independent of review state, including
+ * REJECTED: older approved revisions may still have outstanding orders.
+ * Preserve review state and atomically claim the displayed version only while
+ * safetyHold is false. An already-held or stale operation has no side effects.
  */
 export async function disableOwnPaymentAccount(
   actorUserId: string,
   accountId: string,
+  expectedUpdatedAtValue: string,
   context?: { ip?: string; userAgent?: string }
 ) {
   const agent = await prisma.agent.findUnique({ where: { userId: actorUserId } });
@@ -448,6 +454,7 @@ export async function disableOwnPaymentAccount(
   return disablePaymentAccountInternal(
     actorUserId,
     accountId,
+    expectedUpdatedAtValue,
     async (_tx, account) => {
       if (account.agentId !== agent.id) throw ApiError.forbidden('Not your payment account');
     },
@@ -463,10 +470,11 @@ export async function disableOwnPaymentAccount(
 export async function adminDisablePaymentAccount(
   adminId: string,
   accountId: string,
+  expectedUpdatedAtValue: string,
   context?: { ip?: string; userAgent?: string }
 ) {
   await assertPlatformAdmin(adminId);
-  return disablePaymentAccountInternal(adminId, accountId, async () => {}, context);
+  return disablePaymentAccountInternal(adminId, accountId, expectedUpdatedAtValue, async () => {}, context);
 }
 
 export async function listOwnPaymentAccounts(agentId: string) {

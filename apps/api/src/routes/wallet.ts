@@ -25,7 +25,7 @@ export async function walletRoutes(server: FastifyInstance): Promise<void> {
       prisma.agent.findMany({ where: { status: 'ACTIVE', userId: { not: userId },
           country: { isActive: true, agentPaymentEnabled: true }, user: { status: 'ACTIVE' } },
         select: { id: true, countryId: true, displayName: true, minOrderAmount: true, maxOrderAmount: true,
-          paymentAccounts: { where: { status: 'APPROVED', methodDef: { isActive: true } },
+          paymentAccounts: { where: { status: 'APPROVED', safetyHold: false, methodDef: { isActive: true } },
             select: { id: true, countryId: true, methodDef: { select: { name: true, countryId: true } } } } },
         orderBy: { displayName: 'asc' }, take: 100 }),
       prisma.platformGate.findUnique({ where: { key: 'WITHDRAWAL_CREATE' }, select: { enabled: true } }),

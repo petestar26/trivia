@@ -26,6 +26,7 @@ export type PaymentRoom = {
   kind: 'deposit' | 'withdrawal';
   role: 'member' | 'agent' | 'support';
   number: string;
+  safetyHold?: boolean;
   status: string;
   coinAmount: number;
   fiatAmount: string;
@@ -157,7 +158,7 @@ function OrderRoom({
   const expired = deadline !== null && deadline <= serverNow;
   const blocked = action.blocked || query.isError || !p || now - query.dataUpdatedAt > 20000;
   const can = (name: ActionName) => !!p?.actions[name] && !(name === 'markPaid' && expired);
-  const status = t(statuses[p?.status ?? ''] ?? 'Loading…');
+  const status = p?.safetyHold ? t('Safety hold — contact payment support. Do not send money.') : t(statuses[p?.status ?? ''] ?? 'Loading…');
   const terminal = !!p && ['COMPLETED', 'CANCELLED', 'EXPIRED'].includes(p.status);
   const activeAppeal = p?.appeals.find((d) => ['OPEN', 'ASSIGNED'].includes(d.status));
   const steps = [t('Order created'), t('Payment transfer'), t('Confirmation'), t('Completed')];

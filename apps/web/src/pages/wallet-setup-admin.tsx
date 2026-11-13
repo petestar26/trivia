@@ -26,7 +26,7 @@ type Agent = {
   availableCoins: number;
   inventory: unknown;
   approvedPaymentAccounts: number;
-  paymentAccounts: { id: string; status: string; methodDef: { name: string } }[];
+  paymentAccounts: { id: string; status: string; safetyHold?: boolean; updatedAt?: string; methodDef: { name: string } }[];
   fiatLiquidity: { fiatCurrency: string; availableBalance: string }[];
 };
 type Setup = {
@@ -446,15 +446,15 @@ export function WalletSetupAdmin() {
                   />
                 )}
                 {a.paymentAccounts
-                  .filter((p) => p.status === 'APPROVED')
+                  .filter((p) => !p.safetyHold && p.status !== 'DISABLED')
                   .map((p) => (
                     <p key={p.id}>
                       {p.methodDef.name}{' '}
                       <ConfirmAction
                         label={translateUi('Disable account')}
-                        disabled={busy}
+                        disabled={busy || !p.updatedAt}
                         onConfirm={() =>
-                          change(`/agents/payment-accounts/${p.id}/admin-disable`, {})
+                          change(`/agents/payment-accounts/${p.id}/admin-disable`, { expectedUpdatedAt: p.updatedAt })
                         }
                       />
                     </p>

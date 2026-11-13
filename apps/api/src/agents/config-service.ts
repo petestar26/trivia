@@ -127,7 +127,7 @@ export async function setCountryFlags(
         JOIN payment_method_definitions m ON m.id=pa."methodDefId"
         WHERE pa."countryId"=${countryId} AND a."countryId"=${countryId}
           AND m."countryId"=${countryId} AND m."isActive"=true
-          AND pa.status::text='APPROVED' AND a.status::text='ACTIVE'
+          AND pa.status::text='APPROVED' AND NOT pa."safetyHold" AND a.status::text='ACTIVE'
           AND u.status::text='ACTIVE'
         LIMIT 1 FOR SHARE OF pa, a, u, m`;
       if (!destinations.length) {

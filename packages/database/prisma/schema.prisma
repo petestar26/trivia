@@ -1936,6 +1936,8 @@ model AgentPaymentAccount {
   methodDefId    String
   status         PaymentAccountStatus @default(PENDING_APPROVAL)
   accountDetails Json // shape validated against methodDef.fieldSchema
+  approvedRevision Int @default(0)
+  safetyHold Boolean @default(false) // independent of review status; no automatic clear
   reviewedBy     String?
   reviewedAt     DateTime?
   createdAt      DateTime             @default(now())
@@ -1954,6 +1956,22 @@ model AgentPaymentAccount {
   // rather than forced into unrelated schema complexity, per instruction.
   @@index([agentId, status])
   @@map("agent_payment_accounts")
+}
+
+// Approved receiving destinations are append-only. A pending edit leaves these intact.
+model AgentPaymentAccountRevision {
+  accountId String
+  revision Int
+  agentId String
+  countryId String
+  methodDefId String
+  accountDetails Json
+  reviewedBy String?
+  reviewedAt DateTime?
+  createdAt DateTime @default(now())
+
+  @@id([accountId, revision])
+  @@map("agent_payment_account_revisions")
 }
 
 // ─── Agent finance ────────────────────────────────────────────────
@@ -2014,6 +2032,8 @@ model AgentOrder {
   countryId                  String
   paymentMethodDefId         String
   paymentAccountId           String // reference only, non-authoritative — see paymentSnapshot
+  paymentAccountRevision     Int? // null: historical destination could not be verified against an approved revision
+  safetyHold                 Boolean @default(false) // independent of DISPUTE; never implicitly cleared
   paymentSnapshot            Json // AUTHORITATIVE: exact payment details shown to the user
   fiatAmount                 Int // smallest fiat unit (e.g. cents), integer
   fiatCurrency               String

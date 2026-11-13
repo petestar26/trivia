@@ -32,6 +32,8 @@ export async function getPaymentSetup(adminId: string, countryId: string) {
             id: true,
             countryId: true,
             status: true,
+            updatedAt: true,
+            safetyHold: true,
             methodDef: { select: { countryId: true, name: true, isActive: true } },
           },
         },
@@ -61,7 +63,7 @@ export async function getPaymentSetup(adminId: string, countryId: string) {
       availableCoins: a.inventory ? a.inventory.totalBalance - a.inventory.reservedBalance : 0,
       approvedPaymentAccounts: a.paymentAccounts.filter(
         (p) =>
-          p.status === 'APPROVED' &&
+          p.status === 'APPROVED' && !p.safetyHold &&
           p.countryId === countryId &&
           p.methodDef.countryId === countryId &&
           p.methodDef.isActive

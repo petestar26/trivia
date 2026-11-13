@@ -40,7 +40,7 @@ vi.mock('../economy/coin-ledger-service.js', async (importOriginal) => ({
   reserveWithdrawalCoins: m.reserveWithdrawalCoins,
 }));
 
-import { createAgentPaymentAccount, updateAgentPaymentAccount, approveAgentPaymentAccount, rejectAgentPaymentAccount } from './payment-account-service.js';
+import { disableOwnPaymentAccount, adminDisablePaymentAccount, createAgentPaymentAccount, updateAgentPaymentAccount, approveAgentPaymentAccount, rejectAgentPaymentAccount } from './payment-account-service.js';
 import { agentRoutes } from './routes.js';
 import { createAgentOrder } from './order-service.js';
 import { createWithdrawalQuote } from '../withdrawals/quote-service.js';
@@ -89,6 +89,8 @@ beforeEach(() => {
 
 describe('displayed receiving-account versions', () => {
   const actions = [
+    ['disable', (version: unknown) => disableOwnPaymentAccount('agent-user', 'account', version as string)],
+    ['admin-disable', (version: unknown) => adminDisablePaymentAccount('admin', 'account', version as string)],
     ['edit', (version: unknown) => updateAgentPaymentAccount('agent-user', 'account', { ...args, expectedUpdatedAt: version as string })],
     ['approve', (version: unknown) => approveAgentPaymentAccount('admin', 'account', version as string)],
     ['reject', (version: unknown) => rejectAgentPaymentAccount('admin', 'account', 'Incorrect destination', version as string)],
@@ -108,7 +110,7 @@ describe('displayed receiving-account versions', () => {
     let row = { ...existing, status: 'PENDING_APPROVAL', reviewedBy: null as string | null, reviewedAt: null as Date | null };
     m.agentPaymentAccount.findUnique.mockImplementation(async () => ({ ...row, agent: { userId: 'agent-user', countryId: 'et' } }));
     m.agentPaymentAccount.updateMany.mockImplementation(async ({ where, data }) => {
-      const states: string[] = typeof where.status === 'string' ? [where.status] : where.status.in;
+      const states: string[] = typeof where.status === 'string' ? [where.status] : where.status?.in ?? [row.status];
       if (where.id !== row.id || (where.agentId && where.agentId !== row.agentId) ||
           where.updatedAt?.getTime() !== row.updatedAt.getTime() || !states.includes(row.status)) {
         return { count: 0 };
@@ -167,7 +169,7 @@ describe('displayed receiving-account versions', () => {
     expect(m.notification.create).not.toHaveBeenCalled();
   });
 
-  it.each(['edit', 'approve', 'reject'] as const)('%s cannot succeed after a concurrent change during its transaction', async (mode) => {
+  it.each(['disable', 'admin-disable', 'edit', 'approve', 'reject'] as const)('%s cannot succeed after a concurrent change during its transaction', async (mode) => {
     m.agentPaymentAccount.findUnique.mockResolvedValue({ ...existing, status: 'PENDING_APPROVAL', agent: { userId: 'agent-user', countryId: 'et' } });
     m.agentPaymentAccount.updateMany.mockResolvedValue({ count: 0 });
     const action = actions.find(([name]) => name === mode)![1];

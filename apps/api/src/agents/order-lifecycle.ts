@@ -1,5 +1,5 @@
 import type { Prisma } from '@socialplay/database';
-import { ApiError } from '../middleware/index.js';
+import { ApiError } from '../middleware/api-error.js';
 import { parseUsdPolicy, priceUsdPayment } from './usd-pricing.js';
 export const DEPOSIT_ENTRY_MS = 15 * 60 * 1000;
 export const MAX_PENDING_DEPOSITS = 3;
@@ -16,11 +16,29 @@ export function depositEntryDeadline(order: { createdAt: Date; pricingSnapshot: 
 export async function depositClock(tx: Prisma.TransactionClient): Promise<Date> {
   return (await tx.$queryRaw<{ now: Date }[]>`SELECT clock_timestamp() AS now`)[0].now;
 }
+/** Account first, then order: matches disable's account -> affected-orders lock order. */
+export async function lockDepositReceivingAccount(tx: Prisma.TransactionClient, orderId: string) {
+  await tx.$queryRaw`SELECT a.id FROM agent_payment_accounts a
+    JOIN agent_orders o ON o."paymentAccountId"=a.id WHERE o.id=${orderId} FOR SHARE OF a`;
+}
+
+/** Safety is independent from approval, dispute assignment and provider evidence. */
+export async function assertDepositSafetyClear(tx: Prisma.TransactionClient, orderId: string) {
+  const [state] = await tx.$queryRaw<{ blocked: boolean }[]>`
+    SELECT (o."safetyHold" OR a."safetyHold" OR a.status='DISABLED') AS blocked
+    FROM agent_orders o JOIN agent_payment_accounts a ON a.id=o."paymentAccountId"
+    WHERE o.id=${orderId} FOR SHARE OF a`;
+  if (!state || state.blocked !== false) throw ApiError.conflict('Order is on safety hold; resolution requires a separately approved policy');
+}
+
 export async function assertDepositReady(
   tx: Prisma.TransactionClient,
   order: {
     countryId: string;
     agentId: string;
+    safetyHold?: boolean;
+    paymentAccountRevision?: number | null;
+    paymentSnapshot?: unknown;
     paymentAccountId: string;
     paymentMethodDefId: string;
     exchangeRateConfigId: string;
@@ -34,6 +52,7 @@ export async function assertDepositReady(
   },
   phase: 'submission' | 'settlement' = 'submission'
 ) {
+  if (order.safetyHold) throw ApiError.conflict('Order is on safety hold; contact payment support');
   const [agent] = await tx.$queryRaw<{ status: string; userStatus: string; countryId: string }[]>`
     SELECT a.status::text, u.status::text AS "userStatus", a."countryId"
     FROM agents a JOIN users u ON u.id=a."userId" WHERE a.id=${order.agentId} FOR SHARE OF a,u`;
@@ -47,9 +66,9 @@ export async function assertDepositReady(
   >`
     SELECT "isActive","agentPaymentEnabled","usdPricingEnabled","currencyCode" FROM countries WHERE id=${order.countryId} FOR SHARE`;
   const [account] = await tx.$queryRaw<
-    { status: string; agentId: string; countryId: string; methodDefId: string }[]
+    { status: string; safetyHold: boolean; agentId: string; countryId: string; methodDefId: string }[]
   >`
-    SELECT status::text,"agentId","countryId","methodDefId" FROM agent_payment_accounts WHERE id=${order.paymentAccountId} FOR SHARE`;
+    SELECT status::text,"safetyHold","agentId","countryId","methodDefId" FROM agent_payment_accounts WHERE id=${order.paymentAccountId} FOR SHARE`;
   const [method] = await tx.$queryRaw<{ isActive: boolean; countryId: string }[]>`
     SELECT "isActive","countryId" FROM payment_method_definitions WHERE id=${order.paymentMethodDefId} FOR SHARE`;
   if (
@@ -60,16 +79,23 @@ export async function assertDepositReady(
     !country.agentPaymentEnabled ||
     !country.usdPricingEnabled ||
     country.currencyCode !== order.fiatCurrency ||
-    account?.status !== 'APPROVED' ||
+    !account || account.safetyHold || account.status === 'DISABLED' ||
     account.agentId !== order.agentId ||
-    account.countryId !== order.countryId ||
-    account.methodDefId !== order.paymentMethodDefId ||
     !method?.isActive ||
     method.countryId !== order.countryId
   ) {
     throw ApiError.conflict(
       'Payment configuration changed. Do not send money; contact payment support if you already paid.'
     );
+  }
+  if (order.paymentAccountRevision != null) {
+    const [revision] = await tx.$queryRaw<{ matches: boolean }[]>`
+      SELECT ("agentId"=${order.agentId} AND "countryId"=${order.countryId}
+        AND "methodDefId"=${order.paymentMethodDefId}
+        AND "accountDetails"=${JSON.stringify(order.paymentSnapshot)}::jsonb) AS matches
+      FROM agent_payment_account_revisions
+      WHERE "accountId"=${order.paymentAccountId} AND revision=${order.paymentAccountRevision}`;
+    if (!revision?.matches) throw ApiError.conflict('Approved destination revision could not be verified');
   }
   // Rate-row activation controls NEW quotes only. Publishing a replacement
   // deactivates that row but must preserve already-promised immutable terms.
