@@ -50,6 +50,7 @@ import { triviaPracticeRoutes } from '../games/trivia-practice/routes.js';
 import { prisma } from '@socialplay/database';
 import { credentialDb } from '../agents/credential-database.js';
 import { resolveStaffDatabase } from '../database/staff-database.js';
+import { createStatusApprovalSigner } from '../database/status-approval.js';
 
 export async function registerRoutes(server: FastifyInstance): Promise<void> {
   // Composition root: the only place auth, session, referral and staff routes
@@ -70,7 +71,11 @@ export async function registerRoutes(server: FastifyInstance): Promise<void> {
   await server.register(supportRoutes, { prefix: '/support' });
   await server.register(memberRewardRoutes, { prefix: '/member-rewards' });
   await server.register(memberProfileRoutes, { prefix: '/member-profile' });
-  await server.register(workspaceRoutes, { prefix: '/workspaces', staffDb });
+  await server.register(workspaceRoutes, {
+    prefix: '/workspaces',
+    staffDb,
+    statusApproval: createStatusApprovalSigner(process.env),
+  });
   await server.register(authRoutes, { prefix: '/auth', db: prisma, credentialDb });
   await server.register(socialGroupRoutes, { prefix: '/groups' });
   await server.register(groupRoutes, { prefix: '/groups' });

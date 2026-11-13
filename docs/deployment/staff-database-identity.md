@@ -78,7 +78,8 @@ GRANT UPDATE ("updatedAt") ON public.countries TO <staff_role>;  -- FOR SHARE lo
 GRANT UPDATE ("updatedAt") ON public.users TO <staff_role>;      -- row locks only
 GRANT UPDATE ON public.agent_account_setups TO <staff_role>;      -- credential reissue
 -- Member suspend/reactivate (only after the boundary below is installed):
-GRANT EXECUTE ON FUNCTION public.staff_set_member_status(text, text, text, text, text) TO <staff_role>;
+GRANT EXECUTE ON FUNCTION public.staff_set_member_status(
+  text, text, text, text, text, integer, text, text, text, text) TO <staff_role>;
 ```
 
 The staff role needs no `UPDATE` on `users.status`/`role`, no `DELETE` on
@@ -103,40 +104,118 @@ tested starting point, **not** an applied change.
   suite records it.
 - A non-owner staff login, even with `UPDATE ("status")`, is refused by the guard.
 
-`docs/deployment/staff-member-status-boundary.sql` installs
-`public.staff_set_member_status(actor, member, status, expected_updated_at, reason)`:
+### A caller-supplied administrator ID is not proof of approval
+
+The first version of the boundary took `actor_id` as an argument and trusted it
+after checking that the account was an active administrator. Anyone holding
+the staff login could therefore name any administrator. Version 2 (the only
+version in `docs/deployment/staff-member-status-boundary.sql`; installing it
+drops the v1 signature) requires a signed approval:
+
+- After `authenticate` has verified the administrator's access token against
+  the database (current `tokenVersion`, `ACTIVE`), the route asks
+  `apps/api/src/database/status-approval.ts` to sign the change with
+  HMAC-SHA256 under `STAFF_STATUS_APPROVAL_KEY` (hex, 32-64 bytes) and its
+  `STAFF_STATUS_APPROVAL_KEY_ID`.
+- The signed payload binds the key ID, actor, the actor's `tokenVersion`, the
+  member, the target status, the expected `updatedAt`, a SHA-256 digest of the
+  reason, a random 256-bit nonce and an expiry 60 seconds ahead. It is
+  newline-joined plain text so PostgreSQL and Node sign identical bytes.
+- `public.staff_set_member_status(key_id, nonce, expires_at, signature, actor,
+  actor_token_version, member, status, expected_updated_at, reason)` verifies
+  the HMAC with an owner-only copy of the key (retired keys never verify),
+  rejects an expired approval or one more than 5 minutes ahead, records the
+  nonce in an append-only table (a replay is `APPROVAL_REPLAYED`; refused
+  approvals are recorded too, as evidence), then re-checks under `FOR SHARE`
+  that the actor is still an active `ADMIN`/`SUPER_ADMIN` **with the same
+  `tokenVersion`**. A logout or revocation between signing and use voids it.
+- Then the same narrow transition as before: only a plain `USER` between
+  `ACTIVE` and `SUSPENDED`, optimistic `updatedAt` under `FOR UPDATE`, refresh
+  sessions deleted on suspension, `tokenVersion` unchanged, one audit row
+  naming the boundary version, nonce, key ID and database login. Never `role`.
+- With no key configured, or a malformed one, isolated status changes return
+  503 and the API still starts. Dormant mode never signs or calls the boundary.
+
+### Where the key and evidence live
+
+They live in their own schema, `staff_status_approval` (`keys`, `approvals`,
+`install_key`, `retire_key`), not in `public`. This was found by the native
+suite: `ledger_apply_runtime_grants` grants the API runtime login `SELECT,
+INSERT, UPDATE, DELETE` on **every** table in `public` and then revokes a fixed
+list (which is how `ledger_approval_keys` stays private). A key table in
+`public` would have become readable by the runtime login the next time grants
+were re-applied. The private schema is outside that function's reach; nobody
+but the owner has `USAGE` on it. The installer refuses, atomically, a
+pre-existing schema of that name owned by anyone else, and any object there
+owned by, or any schema, table, column or function privilege there held by,
+anyone but the owner.
+
+### Trust limits (decide before activation)
+
+- The API process holds both the staff database credential and the signing
+  key. A compromise of that process can still sign. What the signature adds is
+  that the staff **database login alone** (a leaked URL, a misrouted
+  connection, a second service given the staff role) can no longer impersonate
+  an administrator, and every change is bound to a live, current
+  administrator session and leaves a single-use record. Separating signer and
+  caller (a separate approval service, or asymmetric keys with a hardware or
+  KMS-held private key) would be the next step.
+- Members of `pg_read_all_data` or `pg_write_all_data` and superusers can read
+  the key, as with `ledger_approval_keys`. Check memberships with the inventory
+  (`docs/deployment/staff-identity-inventory.sql`).
+- The key must differ from `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`,
+  `LEDGER_APPROVAL_SIGNING_KEY` and every other secret
+  (`docs/deployment/signing-authority.md`).
+
+### Installation properties
 
 - `SECURITY DEFINER`, owned by the `users` owner, `search_path` pinned to
-  `pg_catalog, pg_temp`, created and revoked from `PUBLIC` in one atomic `DO`
-  block. It grants `EXECUTE` to nobody. The installer refuses to run as anyone
-  but the `users` owner, and refuses if the guard trigger is missing or disabled.
-- Only moves a plain `USER` between `ACTIVE` and `SUSPENDED`; re-checks an active
-  `ADMIN`/`SUPER_ADMIN` actor under `FOR SHARE`, refuses self-changes, staff,
-  pending, banned and inactive accounts, and matches the optimistic `updatedAt`
-  under `FOR UPDATE`. It never changes `role`.
-- Same effects as the direct path: refresh sessions deleted on suspension,
-  `tokenVersion` unchanged (bounded own-funds-return access keeps working), one
-  audit row (with the database login recorded). Returns an outcome code; the API
-  maps it to the same HTTP responses as the direct path.
-- It is an operator-applied file like `repair-practice-runtime-reads.sql`, not a
-  Prisma migration, so merging cannot change any schema. Uninstall with
-  `DROP FUNCTION IF EXISTS public.staff_set_member_status(text, text, text, text, text);`
+  `pg_catalog, pg_temp`, every object revoked from `PUBLIC`, created in one
+  atomic `DO` block that grants `EXECUTE` to nobody. The installer refuses to run
+  as anyone but the `users` owner, or if the guard trigger is missing or
+  disabled, or if pgcrypto is not in `public`.
+- An operator-applied file, not a Prisma migration, so merging changes no
+  schema. Disable: `DROP FUNCTION IF EXISTS public.staff_set_member_status(text,
+  text, text, text, text, integer, text, text, text, text);`. That keeps the key
+  and evidence; see `docs/deployment/staff-identity-runbook.md` for rotation,
+  retirement and rollback.
 
-The API uses it only in `enforce` mode. Missing function or missing grant fails
-closed with 503 and changes nothing. Dormant mode never calls it.
+The API uses the boundary only in `enforce` mode. A missing function, grant or
+key fails closed with 503 and changes nothing.
 
-Verified on disposable PostgreSQL (`src/database/member-status-boundary.native.ts`):
-non-owner install refused with nothing left behind; installation leaves every
-non-owner privilege in `public` and the guard's definition and trigger state
-byte-identical, also after re-running the runtime grants; runtime and `PUBLIC`
-cannot execute it; suspend and reactivate work under a staff login with only
-`SELECT` on `users` plus `EXECUTE`; 23 out-of-scope requests change nothing;
-exactly one of two concurrent suspensions wins; HTTP end to end (refresh 401,
-`/me` 403, sign-in 403 while suspended, sign-in 200 after reactivation);
-revoke/uninstall fail closed and recover; reinstall is idempotent. The API's
-`preDeployCommand` checks (runtime identity, `migrate status`, upgrade
-preflight) and the owner setup pass before install, after install, after the
-owner setup is re-run and after uninstall.
+Verified on disposable PostgreSQL (`src/database/member-status-boundary.native.ts`,
+13 tests):
+
+- A non-owner install is refused with nothing left behind.
+- Installing leaves every non-owner privilege in `public` and in the private
+  schema, and the guard's definition and trigger state, byte-identical. This
+  holds after re-applying the runtime grants twice and after reinstalling.
+- After the runtime grants are re-applied, `PUBLIC`, the runtime login and the
+  staff login have no `USAGE` on the private schema and no privilege on the key
+  or evidence tables. A planted schema, table, column or function grant, a
+  planted object, or a foreign-owned schema is refused atomically.
+- Suspend and reactivate work under a staff login with only `SELECT` on `users`
+  plus `EXECUTE`. The approval and audit evidence are checked.
+- Forgery is refused: a zero signature, the wrong key under the right ID, an
+  unknown key ID, a changed actor, `tokenVersion`, member, status, expected
+  version or reason, an expired approval, an approval too far ahead, a replay,
+  and a retired key.
+- A stale administrator session is `ACTOR_FORBIDDEN` (HTTP 403).
+- The staff and runtime logins cannot read the key or evidence, or install or
+  retire keys. The evidence is append-only (no `UPDATE`, `DELETE` or
+  `TRUNCATE`).
+- 23 out-of-scope requests change nothing, and exactly one of two concurrent
+  suspensions wins.
+- HTTP end to end: with a key, refresh 401, `/me` 403 and sign-in 403 while
+  suspended, then sign-in 200 after reactivation; without a key, 503 and no
+  change.
+- Revoking the grant, uninstalling or removing the key fails closed and
+  recovers; dormant mode is unaffected.
+
+Mutation checks: removing the HMAC comparison, the retired-key filter, the
+single-use nonce, the expiry check, the `tokenVersion` re-check, the
+stray-privilege check or the schema-owner check each makes at least one test
+fail.
 
 ## Activation (operator, not done here)
 
@@ -147,9 +226,12 @@ owner setup is re-run and after uninstall.
 3. Check: create a synthetic agent account (201), member sign-in (200).
    A 503 on staff routes with member routes healthy means the identity was
    refused; the API log line `DATABASE_IDENTITY_REFUSED` carries the reason code.
-4. Member status changes (separate decision): as the `users` owner, run
-   `psql -X -v ON_ERROR_STOP=1 -f docs/deployment/staff-member-status-boundary.sql`,
-   then `GRANT EXECUTE` on it to the staff role only. Re-grant after any
+4. Member status changes (separate decision): follow
+   `docs/deployment/staff-identity-runbook.md`. In outline: as the `users`
+   owner, run the boundary file; generate a key outside the database and
+   install it with `staff_status_approval.install_key`; set
+   `STAFF_STATUS_APPROVAL_KEY_ID`/`STAFF_STATUS_APPROVAL_KEY` on the API; then
+   `GRANT EXECUTE` on the boundary to the staff role only. Re-grant after any
    uninstall/reinstall (dropping the function drops its grants).
 
 ## Recovery and rollback

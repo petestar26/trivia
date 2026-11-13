@@ -4,10 +4,13 @@ import { authenticate, requireRole, ApiError } from '../middleware/index.js';
 import { z } from 'zod';
 import { adminAgents, adminAccountDetails, agentOverview, setMemberAccountStatus } from '../workspaces/service.js';
 import type { StaffDatabase } from '../database/staff-database.js';
+import type { StatusApprovalSigner } from '../database/status-approval.js';
 
 export type WorkspaceRouteOptions = {
   /** Restricted staff writes (member status). Required: there is no default. */
   staffDb: StaffDatabase;
+  /** Signs isolated status changes; null closes them (503). Unused when dormant. */
+  statusApproval?: StatusApprovalSigner | null;
 };
 
 export async function workspaceRoutes(server: FastifyInstance, options: WorkspaceRouteOptions) {
@@ -50,7 +53,10 @@ export async function workspaceRoutes(server: FastifyInstance, options: Workspac
     config: { rateLimit: { hook: 'preHandler', max: 20, timeWindow: '1 minute', keyGenerator: request => `member-status:${request.user!.sub}` } },
   }, async request => {
     if (!z.string().uuid().safeParse(request.params.id).success) throw ApiError.badRequest('Invalid account reference.');
-    return { success: true, data: await setMemberAccountStatus(staffDb, request.user!.sub, request.params.id, request.body) };
+    return { success: true, data: await setMemberAccountStatus(staffDb, request.user!.sub, request.params.id, request.body, {
+      actorTokenVersion: request.user!.tokenVersion ?? 0,
+      signer: options.statusApproval ?? null,
+    }) };
   });
   server.get('/admin/overview', { preHandler: admin }, async () => {
     const [members, agents, groups, games, applications, accounts, countries, support] =

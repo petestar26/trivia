@@ -2,10 +2,13 @@ import { z } from 'zod';
 import { ApiError } from '../middleware/api-error.js';
 import { assertPlatformAdminWith } from '../agents/agent-service.js';
 import { DatabaseIdentityError, type TransactionalDatabase } from '../database/identity.js';
+import type { StatusApprovalSigner } from '../database/status-approval.js';
 import { getSocketServer } from '../realtime/broadcast.js';
 
 type StatusChange = { status: 'ACTIVE' | 'SUSPENDED'; reason: string; expectedUpdatedAt: string };
 type StatusResult = { userId: string; status: StatusChange['status']; updatedAt: string };
+/** What the authenticated route supplies for a signed (isolated) change. */
+export type StatusApprovalContext = { actorTokenVersion: number; signer: StatusApprovalSigner | null };
 
 /**
  * Suspend or reactivate a plain member. A restricted staff operation: the
@@ -14,7 +17,10 @@ type StatusResult = { userId: string; status: StatusChange['status']; updatedAt:
  *
  * Dormant (legacy credential client): the direct update below, unchanged.
  * Isolated staff identity: the owner-defined boundary
- * public.staff_set_member_status (docs/deployment/staff-member-status-boundary.sql).
+ * public.staff_set_member_status (docs/deployment/staff-member-status-boundary.sql),
+ * called with an approval this API signs for the authenticated administrator
+ * and their current tokenVersion. The database verifies the signature before
+ * it trusts the actor ID; without a configured signer the change fails closed.
  * users_privilege_guard still refuses a direct status change by any
  * non-owner identity; the staff role gets EXECUTE on the boundary only, never
  * ownership or UPDATE on users. A missing boundary or grant fails closed (503).
@@ -23,7 +29,8 @@ export async function setMemberAccountStatus(
   db: TransactionalDatabase,
   actorId: string,
   userId: string,
-  input: unknown
+  input: unknown,
+  approval?: StatusApprovalContext
 ) {
   if (!db) throw new Error('STAFF_DATABASE_REQUIRED');
   const parsed = z
@@ -42,7 +49,7 @@ export async function setMemberAccountStatus(
   await db.$transaction((tx) => assertPlatformAdminWith(tx, actorId));
   const change = parsed.data;
   const result = usesStatusBoundary(db)
-    ? await changeThroughBoundary(db, actorId, userId, change)
+    ? await changeThroughBoundary(db, actorId, userId, change, approval)
     : await changeDirectly(db, actorId, userId, change);
   if (change.status === 'SUSPENDED') {
     try {
@@ -74,20 +81,35 @@ const outcomes: Record<string, () => ApiError> = {
     ApiError.forbidden('Only active or suspended member accounts can be managed here.'),
   CONFLICT: () =>
     ApiError.conflict('This account changed. Refresh its details before continuing.'),
+  APPROVAL_INVALID: () => ApiError.forbidden('This change could not be authorized.'),
+  APPROVAL_EXPIRED: () => ApiError.conflict('This change took too long to confirm. Try again.'),
+  APPROVAL_REPLAYED: () => ApiError.conflict('This change was already submitted. Refresh before continuing.'),
 };
 
 async function changeThroughBoundary(
   db: TransactionalDatabase,
   actorId: string,
   userId: string,
-  { status, reason, expectedUpdatedAt }: StatusChange
+  { status, reason, expectedUpdatedAt }: StatusChange,
+  approval?: StatusApprovalContext
 ): Promise<StatusResult> {
+  if (!approval?.signer || !Number.isSafeInteger(approval.actorTokenVersion)) throw unavailable();
+  const signed = approval.signer.sign({
+    actorId,
+    actorTokenVersion: approval.actorTokenVersion,
+    memberId: userId,
+    status,
+    expectedUpdatedAt,
+    reason,
+  });
   let row: { outcome: string; updated_at: string | null } | undefined;
   try {
     [row] = await db.$transaction(
       (tx) => tx.$queryRaw<{ outcome: string; updated_at: string | null }[]>`
         SELECT outcome, updated_at FROM public.staff_set_member_status(
-          ${actorId}, ${userId}, ${status}, ${expectedUpdatedAt}, ${reason})`
+          ${signed.keyId}, ${signed.nonce}, ${signed.expiresAt}, ${signed.signature},
+          ${actorId}, ${approval.actorTokenVersion}::integer,
+          ${userId}, ${status}, ${expectedUpdatedAt}, ${reason})`
     );
   } catch (error) {
     if (error instanceof DatabaseIdentityError) throw error;

@@ -68,6 +68,7 @@ import {
 } from '../agents/admin-account-service.js';
 import { setMemberAccountStatus } from '../workspaces/member-status.js';
 import { DatabaseIdentityError, UnavailableDatabase } from './identity.js';
+import { createStatusApprovalSigner } from './status-approval.js';
 
 const password = 'Synthetic-Member-1!';
 const ids = { member: '11111111-1111-4111-8111-111111111111', referrer: '22222222-2222-4222-8222-222222222222' };
@@ -298,6 +299,8 @@ describe('restricted staff operations never fall back', () => {
 
 describe('member status under an isolated staff identity uses only the boundary', () => {
   const admin = '33333333-3333-4333-8333-333333333333';
+  const signer = createStatusApprovalSigner({ STAFF_STATUS_APPROVAL_KEY_ID: 'synthetic', STAFF_STATUS_APPROVAL_KEY: 'ab'.repeat(32) });
+  const approval = { actorTokenVersion: 0, signer };
   const input = { status: 'SUSPENDED', reason: 'synthetic review', expectedUpdatedAt: new Date(0).toISOString() };
   function isolated(result: { rows?: unknown[]; error?: unknown }) {
     const tx = {
@@ -313,7 +316,7 @@ describe('member status under an isolated staff identity uses only the boundary'
 
   it('returns the boundary result and never updates users directly', async () => {
     const db = isolated({ rows: [{ outcome: 'OK', updated_at: '2026-11-12T00:00:00.001Z' }] });
-    await expect(setMemberAccountStatus(db as never, admin, ids.member, input)).resolves.toEqual({
+    await expect(setMemberAccountStatus(db as never, admin, ids.member, input, approval)).resolves.toEqual({
       userId: ids.member,
       status: 'SUSPENDED',
       updatedAt: '2026-11-12T00:00:00.001Z',
@@ -329,20 +332,30 @@ describe('member status under an isolated staff identity uses only the boundary'
     ['NOT_FOUND', 404],
     ['NOT_MANAGEABLE', 403],
     ['CONFLICT', 409],
+    ['APPROVAL_INVALID', 403],
+    ['APPROVAL_EXPIRED', 409],
+    ['APPROVAL_REPLAYED', 409],
     ['SOMETHING_NEW', 500],
   ])('maps boundary outcome %s to HTTP %i', async (outcome, statusCode) => {
     const db = isolated({ rows: [{ outcome, updated_at: null }] });
-    await expect(setMemberAccountStatus(db as never, admin, ids.member, input)).rejects.toMatchObject({ statusCode });
+    await expect(setMemberAccountStatus(db as never, admin, ids.member, input, approval)).rejects.toMatchObject({ statusCode });
   });
 
   it.each(['42883', '42501'])('fails closed with 503 when the boundary is missing or not granted (%s)', async (code) => {
     const error = Object.assign(new Error('synthetic raw query failure'), { code: 'P2010', meta: { code } });
     const db = isolated({ error });
+    await expect(setMemberAccountStatus(db as never, admin, ids.member, input, approval)).rejects.toMatchObject({ statusCode: 503 });
+  });
+
+  it('fails closed (503) without a configured signer and never calls the database', async () => {
+    const db = isolated({ rows: [{ outcome: 'OK', updated_at: '2026-11-12T00:00:00.001Z' }] });
+    await expect(setMemberAccountStatus(db as never, admin, ids.member, input, { actorTokenVersion: 0, signer: null })).rejects.toMatchObject({ statusCode: 503 });
     await expect(setMemberAccountStatus(db as never, admin, ids.member, input)).rejects.toMatchObject({ statusCode: 503 });
+    expect(db.tx.$queryRaw).not.toHaveBeenCalled();
   });
 
   it('passes other database errors through unchanged', async () => {
     const error = Object.assign(new Error('synthetic'), { code: 'P2010', meta: { code: '40001' } });
-    await expect(setMemberAccountStatus(isolated({ error }) as never, admin, ids.member, input)).rejects.toBe(error);
+    await expect(setMemberAccountStatus(isolated({ error }) as never, admin, ids.member, input, approval)).rejects.toBe(error);
   });
 });

@@ -11,6 +11,7 @@ export default defineConfig({
       // Staff database identity guard and explicit-client isolation.
       'src/database/identity.test.ts',
       'src/database/no-default-fallback.test.ts',
+      'src/database/status-approval.test.ts',
       'src/database/staff-identity.native.ts',
       'src/database/member-status-boundary.native.ts',
       'src/database/auth-restricted-identity.native.ts',
