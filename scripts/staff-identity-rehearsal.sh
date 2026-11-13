@@ -21,6 +21,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DB=staff_identity_rehearsal_throwaway
 BOUNDARY="$ROOT/docs/deployment/staff-member-status-boundary.sql"
 ISSUANCE="$ROOT/docs/deployment/owner-password-reset-issuance.sql"
+ECONOMY_LOCK="$ROOT/docs/deployment/economy-lock-restriction.sql"
+LOCK_FN='public.ledger_lock_economy_for_invariant_check()'
 INVENTORY="$ROOT/docs/deployment/staff-identity-inventory.sql"
 SIG='public.staff_set_member_status(text, text, text, text, text, integer, text, text, text, text)'
 
@@ -184,8 +186,13 @@ for who in staff runtime; do
 done
 as migrator -Atc "SELECT public.ledger_apply_runtime_grants('sir_runtime')" >/dev/null
 as runtime -c 'SELECT 1 FROM staff_status_approval.keys' 2>/dev/null && fail 'runtime grants exposed the status key'
+# The economy lock, limited to the runtime login (security-definer-review.md, finding 1).
+as staff -c "BEGIN; SELECT $LOCK_FN; ROLLBACK;" >/dev/null 2>&1 || fail 'release behaviour changed: staff could not take the economy lock'
+as migrator -v runtime_role=sir_runtime -f "$ECONOMY_LOCK" 2>"$WORK/install.err" || { cat "$WORK/install.err" >&2; fail 'economy lock restriction'; }
+as staff -c "BEGIN; SELECT $LOCK_FN; ROLLBACK;" >/dev/null 2>&1 && fail 'staff can still take the economy lock'
+as runtime -c "BEGIN; SELECT $LOCK_FN; ROLLBACK;" >/dev/null 2>&1 || fail 'runtime lost the economy lock'
 preflight activated
-pass 'verified: forged and replayed approvals refused, signed changes work, no direct status writes, keys private, preDeploy unchanged'
+pass 'verified: forged and replayed approvals refused, signed changes work, no direct status writes, keys private, economy lock runtime-only, preDeploy unchanged'
 
 # 5. Rollback level 1 (disable, keep evidence) and recovery.
 evidence() { as migrator -Atc 'SELECT count(*) FROM staff_status_approval.approvals'; }
@@ -217,7 +224,8 @@ as migrator -c "REVOKE EXECUTE ON FUNCTION $SIG FROM sir_staff" -c "DROP FUNCTIO
             -c "REVOKE SELECT ON public.users FROM sir_staff" -c "REVOKE USAGE ON SCHEMA public FROM sir_staff" \
             -c "DROP SCHEMA staff_status_approval CASCADE" \
             -c "DROP FUNCTION IF EXISTS public.owner_password_reset_consume(text, text, integer)" \
-            -c "DROP SCHEMA owner_password_reset CASCADE" 2>/dev/null
+            -c "DROP SCHEMA owner_password_reset CASCADE" \
+            -c "GRANT EXECUTE ON FUNCTION $LOCK_FN TO PUBLIC" -c "REVOKE EXECUTE ON FUNCTION $LOCK_FN FROM sir_runtime" 2>/dev/null
 inventory removed
 [[ -z "$(changed baseline removed)" ]] || { changed baseline removed; fail 'full removal did not restore the baseline'; }
 preflight removed

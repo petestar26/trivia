@@ -18,6 +18,7 @@ export default defineConfig({
       'src/database/member-status-boundary.native.ts',
       'src/database/auth-restricted-identity.native.ts',
       'src/database/logout-revocation.native.ts',
+      'src/database/economy-lock-restriction.native.ts',
     ],
     fileParallelism: false,
     pool: 'forks',

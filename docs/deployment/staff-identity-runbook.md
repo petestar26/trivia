@@ -287,7 +287,8 @@ healthy throughout.
   included once it exists, can call `ledger_lock_economy_for_invariant_check()`
   and block writes to the economy tables for as long as its transaction stays
   open. Decide whether to restrict `EXECUTE` and set idle-transaction
-  timeouts on service logins before creating new logins.
+  timeouts on service logins before creating new logins. The restriction is
+  prepared as `docs/deployment/economy-lock-restriction.sql` (dormant).
 
 ## 9. Owner password-reset issuance records (separate decision)
 

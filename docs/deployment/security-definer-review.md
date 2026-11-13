@@ -59,11 +59,35 @@ login, and a staff login once isolation is active.
 The only caller is the API's super-admin gate change
 (`economy/ledger-admin-service.ts`), on the runtime login.
 
+Where practice activation has run, `restrictKnownPublicCapabilities`
+(`practice-activation/provision.ts`) has already moved this function from
+`PUBLIC` to every role that existed at that moment. That keeps today's callers,
+but every existing service login keeps the lock, while a login created later
+does not get it.
+
 Options (decisions; nothing applied):
-- `REVOKE EXECUTE ON FUNCTION public.ledger_lock_economy_for_invariant_check() FROM PUBLIC;`
-  then grant it to the API runtime login only. This needs a migration (or
-  operator SQL plus the runtime-grant setup) and an update to
-  `KNOWN_PUBLIC_FUNCTIONS` in `practice-activation/provision.ts`.
+- **Prepared, dormant:** `docs/deployment/economy-lock-restriction.sql`.
+  - Run as the owner with `-v runtime_role=<API runtime login>`. It leaves
+    `EXECUTE` with the owner and the runtime login only, revoking `PUBLIC` and
+    every per-role grant (practice activation's included), and verifies the
+    result.
+  - It refuses a non-owner (whose `GRANT`/`REVOKE` would only warn), and a
+    runtime role that is missing, cannot log in, is a superuser or is the
+    owner.
+  - Re-running it is harmless. Rollback is
+    `GRANT EXECUTE ON FUNCTION public.ledger_lock_economy_for_invariant_check() TO PUBLIC;`.
+  - Practice activation skips the function afterwards, since it is no longer
+    `PUBLIC`.
+  - Verified in `src/database/economy-lock-restriction.native.ts`:
+    - the release behaviour (a login with no table privilege holds 11 locks);
+    - refusals that change nothing;
+    - after it runs, that login is refused and the runtime still locks;
+    - it holds after runtime grants are re-applied, and the preDeploy runtime
+      access check still passes;
+    - re-running and rollback.
+
+    Removing each of the public revoke, the per-role revokes, the runtime
+    grant, the owner check and the runtime-role validation makes it fail.
 - As defence in depth, set `idle_in_transaction_session_timeout` and
   `lock_timeout` on every login other than the owner (for example
   `ALTER ROLE <login> SET idle_in_transaction_session_timeout = '30s'`).
