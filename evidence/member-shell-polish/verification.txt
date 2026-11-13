@@ -1,0 +1,52 @@
+Salem Bet member/guest shell polish on deposit candidate v7-derived-typefix-1
+Base:      a54696ebc3805108f25a9e1a6555dbada8252c6f
+Candidate: b1f804981fc4a5c82795f9d8d457554c0e4094b4 (byte-exact 38-file overlay)
+Polish:    b407170 (10 files, apps/web/src only)
+Manifest SHA-256: d0b678842e279fd1796c120f672d61befe67e6f58e3c25252ec7ffdea3e6b1ef
+Archive SHA-256:  de166e06c46400c82b5f14fbde2313b3b65863e55efffbc3950d2630633306fb
+
+PASS: archive and manifest SHA-256 match; 38/38 per-file hashes match; no extra or missing files.
+PASS: base preconditions: 30 modified paths exist at base, 8 new paths absent; tsconfig original hash matches the manifest.
+PASS: 38/38 destination hashes after copying; only the 38 manifest paths differ from base. Rechecked at b407170: unchanged.
+PASS: API tsc --noEmit and node build.js (candidate commit). Polish changes no API file.
+PASS: API vitest.review-unit.config.ts 341/341 and vitest.deposit-safety.config.ts 5/5 (candidate commit).
+PASS: web tsc --noEmit, before and after.
+PASS: full web Vitest, 208 files / 3,059 tests, before and after.
+PASS: strict i18n coverage, 3,113/3,113 reachable keys, 0 missing, 0 validation issues, before and after.
+PASS: production web build (NODE_ENV=production), before and after. Existing chunk-size and 2.38 MB engine precache warnings only.
+PASS: gateway 11/11, PWA + recovery 30/30, preview-server 1/1 (Node test runner, after build).
+PASS: ESLint on changed files, 0 errors; one pre-existing no-explicit-any warning in pages/wallet.tsx (line shifted by one import).
+PASS: Prettier on changed files; git diff --check. All changed files were Prettier-clean at baseline.
+
+BROWSER (Playwright Chromium, simulated; synthetic fixtures; external origins blocked; service workers off):
+PASS: evidence/guest-shell/shell-qa.cjs 16/17 on the polish commit, same 16/17 as on the unmodified candidate.
+      guest-matrix, member-matrix, mobile-drawer, keyboard-home, prompt-sign-in-return, guest-deep-links,
+      member-deep-links, sportsbook-new-tab, casino-tile-history, staff-routes, logout-account-switch,
+      slow-probe, session-restore, session-expiry, casino-selection-after-spent-intent, launch-without-web-locks.
+      Anonymous requests: GET /api/v1/auth/me, POST /api/v1/auth/refresh only.
+FAIL: shell-qa sportsbook-concurrent-consumers, on BOTH the unmodified candidate (b1f8049) and the polish (b407170):
+      "browserContext.waitForEvent: Timeout 30000ms exceeded while waiting for event page". The check gates the
+      popup's first navigation until a second tab arrives, but waits for the popup event (emitted only after that
+      navigation) before opening the second tab. Harness deadlock, not a product regression. The original check
+      was not modified.
+PASS: concurrent.cjs (non-deadlocking variant of the same property), 3/3 runs on each build: both tabs requested
+      the intent URL, exactly one sportsbook launch, exactly one tab fell back to a manual "Browse sports" click.
+PASS: compare.cjs, 21 checks per build, 42/42 (compare-results.json): screenshots at EN 390/320/1440, AR 390/320,
+      200% zoom (640x400 CSS px) with no horizontal overflow, no launch on arrival, no external origin, no page errors;
+      wallet loading state (after: one role=status announcing "Loading…"; before: none); session-probe screen
+      (body background rgb(5, 11, 9) after vs rgb(249, 248, 246) before); session-check alert Retry still re-runs
+      the probe; catalogue error state; bottom-bar focus ring inside the viewport; Back/Forward through the bottom
+      bar (active item follows history, no launch or write); reduced motion disables the new spinner and page
+      entrance; guest prompt -> sign in -> return to Wallet -> Back with no launch.
+
+NOT RUN:
+- Deposit migration 20261113060000_deposit_destination_revisions and recovery rehearsal (needs a fresh disposable
+  PostgreSQL and separate authorization).
+- scripts/deposit-safety-native.py and the payments-native / database-backed API suites.
+- Physical-device and screen-reader checks (iOS Safari, Android Chrome, VoiceOver, TalkBack).
+- Full-web ESLint (known baseline backlog; only changed files linted).
+- Native-speaker review of label wrapping.
+- Browser rendering of the crash fallback (unit tests only).
+
+NOT PERFORMED: merge, deployment, production permission change, real authentication, provider session, bet,
+payment or funds movement.
