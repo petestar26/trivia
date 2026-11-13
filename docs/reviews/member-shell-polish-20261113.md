@@ -61,9 +61,9 @@ both tabs request the intent URL, exactly one launch, exactly one manual fallbac
 passes three runs each against the candidate build and the polish build. The standalone
 variant `evidence/member-shell-polish/concurrent.cjs` checks the same property.
 
-## CI finding in the deposit candidate (not fixed here)
+## CI finding in the deposit candidate (fixed as a separate revision)
 
-The first CI run on this branch (`9c5b169`) failed two native PostgreSQL steps on
+The first CI runs on this branch (`9c5b169`, `4caa542`) failed two native PostgreSQL steps on
 PostgreSQL 13, 16 and 18. Migration apply and replay, including
 `20261113060000_deposit_destination_revisions`, passed in both workflows.
 
@@ -73,24 +73,24 @@ PostgreSQL 13, 16 and 18. Migration apply and replay, including
   permissions" (`vitest.together-native.config.ts`): 36 of 61 tests failed.
 
 Cause: the candidate's change to `mintTestPurchasedCoins` in
-`apps/api/src/test/financial-policy-fixtures.ts` (line 83) creates a payment method named
-`'Synthetic receiving method'` on the shared `ZLP` test country for every call. The second
-call in a database violates the `(countryId, type, name)` unique constraint (Prisma
-`P2002`). Every error in the readable part of both logs is this violation. The log API
-returns only the last 5,000 lines, so the earliest failing files in the payments step could
-not be read. Other PRs on the same base pass both workflows, and the polish changes no API
-file.
+`apps/api/src/test/financial-policy-fixtures.ts` created a payment method named
+`'Synthetic receiving method'` on the shared `ZLP` test country for every call. From the
+second call in a database, that violated the `(countryId, type, name)` unique constraint
+(Prisma `P2002`). A local PostgreSQL 16 reproduction matched CI exactly, and every failure
+was this violation.
 
-This is a test-fixture defect, not a production-code failure. A per-call name (for example
-`` `Synthetic receiving method ${tag}` ``) is the likely one-line fix. That file is one of
-the 38 candidate files, so fixing it means a new candidate revision. It was left unchanged
-pending that decision.
+At the user's request this was fixed as a separately identified, test-only candidate revision,
+**`v7-derived-typefix-1-fixture-1`** (commit `c8e5b4b`, 39-file manifest
+`evidence/deposit-candidate/v7-derived-typefix-1-fixture-1.manifest.json`). The parent
+`v7-derived-typefix-1` is unchanged at `b1f8049`. See `evidence/deposit-candidate/README.md`
+for the change and the local before/after results.
 
 ## Remaining before release
 
-1. Decide on the candidate fixture fix above and re-run CI.
-2. Run the candidate's outstanding database gates on a fresh disposable PostgreSQL:
-   migration `20261113060000_deposit_destination_revisions`, recovery rehearsal, the native
-   payments suite and `scripts/deposit-safety-native.py`.
+1. Confirm the CI rerun of the revision on PostgreSQL 13, 16 and 18, including the steps
+   that were skipped after the earlier failures.
+2. Run the outstanding rehearsal gates on a fresh disposable PostgreSQL for whichever
+   candidate identity is chosen: migration rehearsal, recovery rehearsal and
+   `scripts/deposit-safety-native.py`.
 3. Check the shell on physical iOS and Android devices with a screen reader.
 4. Get a native-speaker check of the long bottom-bar labels at 320px.

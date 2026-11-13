@@ -44,21 +44,20 @@ PASS: compare.cjs, 21 checks per build, 42/42 (compare-results.json): screenshot
       bar (active item follows history, no launch or write); reduced motion disables the new spinner and page
       entrance; guest prompt -> sign in -> return to Wallet -> Back with no launch.
 
-GITHUB CI ON 9c5b169 (first run on this branch):
+GITHUB CI ON 9c5b169 AND 4caa542:
 PASS: payments (13/16/18), regressions, capacity-layout.
-FAIL: postgres (13/16/18), step "Payment lifecycle, authorization and recovery" (vitest run src/agents src/withdrawals):
-      10 files / 180 of 641 tests failed. contracts (13/16/18), step "Group financial contracts and restricted runtime
-      permissions" (vitest.together-native.config.ts): 36 of 61 tests failed. Migration apply and replay passed in both.
-      Cause: candidate change to apps/api/src/test/financial-policy-fixtures.ts:83 (mintTestPurchasedCoins) creates a
-      payment method named 'Synthetic receiving method' on the shared ZLP country on every call; later calls hit the
-      (countryId, type, name) unique constraint (Prisma P2002). Every error in the readable part of both logs is this
-      violation; the log API returns only the last 5,000 lines, so the earliest failing files of the payments step were
-      not read. Other PRs on the same base pass both workflows; the polish changes no API file. Not fixed here because
-      the file is one of the 38 candidate files.
+FAIL: postgres (13/16/18) "Payment lifecycle, authorization and recovery" (180 of 641) and contracts (13/16/18)
+      "Group financial contracts and restricted runtime permissions" (36 of 61). Migration apply and replay passed.
+      Cause: v7-derived-typefix-1 fixture mintTestPurchasedCoins reused one payment-method name on the shared ZLP
+      country (P2002 on payment_method_definitions (countryId, type, name)).
+FIXED IN CANDIDATE REVISION v7-derived-typefix-1-fixture-1 (c8e5b4b; manifest
+      evidence/deposit-candidate/v7-derived-typefix-1-fixture-1.manifest.json). Test-only. Local PostgreSQL 16:
+      payments 182/643 failing -> 643/643 passing; Play Together 36/61 failing -> 61/61 passing. CI rerun pending
+      at the time of writing; see PR #81 for its result.
 
 NOT RUN:
-- Deposit migration 20261113060000_deposit_destination_revisions and recovery rehearsal (needs a fresh disposable
-  PostgreSQL and separate authorization).
+- Migration and recovery rehearsal for the chosen candidate identity (needs a fresh disposable PostgreSQL and
+  separate authorization).
 - scripts/deposit-safety-native.py and the payments-native / database-backed API suites.
 - Physical-device and screen-reader checks (iOS Safari, Android Chrome, VoiceOver, TalkBack).
 - Full-web ESLint (known baseline backlog; only changed files linted).
