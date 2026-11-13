@@ -1207,11 +1207,24 @@ async function main(browser) {
       await route.fallback();
     });
     const link = page.getByRole('link', { name: 'Browse sports' });
-    const [popup] = await Promise.all([context.waitForEvent('page'), link.click()]);
-    const href = await link.getAttribute('href');
+    // Playwright emits a popup only after its first navigation, which the gate
+    // above holds until the second tab arrives. Waiting for the popup before
+    // opening that tab deadlocks, so listen on the opener (a context-wide 'page'
+    // listener would also match the second tab), open the second tab, and
+    // collect the popup once the gate has released both requests.
+    const popupOpened = page.waitForEvent('popup');
+    popupOpened.catch(() => {}); // Awaited below; avoid an early unhandled rejection.
+    await link.click();
+    let href = null;
+    for (let i = 0; i < 50 && !/^\/sports\/open\?intent=/.test(href || ''); i += 1) {
+      if (i) await delay(100);
+      href = await link.getAttribute('href');
+    }
     assert.match(href, /^\/sports\/open\?intent=[0-9a-f-]{36}$/);
     const second = await context.newPage();
     await second.goto(origin + href);
+    const popup = await popupOpened;
+    assert.notEqual(popup, second, 'the popup is the clicked tab, not the second tab');
     await delay(2500);
     assert.equal(waiting, 2);
     assert.equal(launches(state).length, 1, 'at most one tab consumes the fresh intent');

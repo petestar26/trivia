@@ -19,17 +19,22 @@ PASS: ESLint on changed files, 0 errors; one pre-existing no-explicit-any warnin
 PASS: Prettier on changed files; git diff --check. All changed files were Prettier-clean at baseline.
 
 BROWSER (Playwright Chromium, simulated; synthetic fixtures; external origins blocked; service workers off):
-PASS: evidence/guest-shell/shell-qa.cjs 16/17 on the polish commit, same 16/17 as on the unmodified candidate.
+PASS: evidence/guest-shell/shell-qa.cjs 17/17 on the polish build after the harness fix below (results pinned to
+      9c5b169; application inputs identical to b407170). Before the fix it was 16/17 on both the unmodified candidate
+      and the polish, with the same single failure.
       guest-matrix, member-matrix, mobile-drawer, keyboard-home, prompt-sign-in-return, guest-deep-links,
       member-deep-links, sportsbook-new-tab, casino-tile-history, staff-routes, logout-account-switch,
-      slow-probe, session-restore, session-expiry, casino-selection-after-spent-intent, launch-without-web-locks.
+      slow-probe, session-restore, session-expiry, casino-selection-after-spent-intent,
+      sportsbook-concurrent-consumers, launch-without-web-locks.
       Anonymous requests: GET /api/v1/auth/me, POST /api/v1/auth/refresh only.
-FAIL: shell-qa sportsbook-concurrent-consumers, on BOTH the unmodified candidate (b1f8049) and the polish (b407170):
-      "browserContext.waitForEvent: Timeout 30000ms exceeded while waiting for event page". The check gates the
-      popup's first navigation until a second tab arrives, but waits for the popup event (emitted only after that
-      navigation) before opening the second tab. Harness deadlock, not a product regression. The original check
-      was not modified.
-PASS: concurrent.cjs (non-deadlocking variant of the same property), 3/3 runs on each build: both tabs requested
+FIXED: shell-qa sportsbook-concurrent-consumers previously failed on BOTH b1f8049 and b407170 with
+      "browserContext.waitForEvent: Timeout 30000ms exceeded while waiting for event page". The check waited for the
+      popup event before opening the second tab, while its own route gate held the popup's first navigation until
+      that second tab arrived; Playwright emits a popup only after its first navigation. It now listens on the
+      opener's popup event, opens the second tab, then awaits the popup. Assertions unchanged (waiting === 2, one
+      launch, one manual fallback). QA_ONLY runs: 3/3 against the polish build and 3/3 against the candidate build
+      (the latter run with QA_ALLOW_UNCOMMITTED=1 because the harness pins its source label to the checkout).
+PASS: concurrent.cjs (standalone variant of the same property), 3/3 runs on each build: both tabs requested
       the intent URL, exactly one sportsbook launch, exactly one tab fell back to a manual "Browse sports" click.
 PASS: compare.cjs, 21 checks per build, 42/42 (compare-results.json): screenshots at EN 390/320/1440, AR 390/320,
       200% zoom (640x400 CSS px) with no horizontal overflow, no launch on arrival, no external origin, no page errors;
@@ -38,6 +43,18 @@ PASS: compare.cjs, 21 checks per build, 42/42 (compare-results.json): screenshot
       the probe; catalogue error state; bottom-bar focus ring inside the viewport; Back/Forward through the bottom
       bar (active item follows history, no launch or write); reduced motion disables the new spinner and page
       entrance; guest prompt -> sign in -> return to Wallet -> Back with no launch.
+
+GITHUB CI ON 9c5b169 (first run on this branch):
+PASS: payments (13/16/18), regressions, capacity-layout.
+FAIL: postgres (13/16/18), step "Payment lifecycle, authorization and recovery" (vitest run src/agents src/withdrawals):
+      10 files / 180 of 641 tests failed. contracts (13/16/18), step "Group financial contracts and restricted runtime
+      permissions" (vitest.together-native.config.ts): 36 of 61 tests failed. Migration apply and replay passed in both.
+      Cause: candidate change to apps/api/src/test/financial-policy-fixtures.ts:83 (mintTestPurchasedCoins) creates a
+      payment method named 'Synthetic receiving method' on the shared ZLP country on every call; later calls hit the
+      (countryId, type, name) unique constraint (Prisma P2002). Every error in the readable part of both logs is this
+      violation; the log API returns only the last 5,000 lines, so the earliest failing files of the payments step were
+      not read. Other PRs on the same base pass both workflows; the polish changes no API file. Not fixed here because
+      the file is one of the 38 candidate files.
 
 NOT RUN:
 - Deposit migration 20261113060000_deposit_destination_revisions and recovery rehearsal (needs a fresh disposable

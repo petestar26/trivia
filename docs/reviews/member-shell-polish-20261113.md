@@ -51,19 +51,46 @@ snapshot, game-availability gate or authentication flow changed.
 See `evidence/member-shell-polish/verification.txt` for the command list and results.
 Screenshots are in the separately shared review board, not in the repository.
 
-**Known harness issue:** `shell-qa.cjs` check `sportsbook-concurrent-consumers` fails on the
-unmodified candidate as well as with the polish. It waits for the popup `page` event while
-its own route gate holds the popup's first navigation. Playwright emits the popup event only
-after that navigation, so the check can never complete. A non-deadlocking variant
-(`evidence/member-shell-polish/concurrent.cjs`) confirms the targeted property on both
-builds, three runs each: exactly one launch, and the other tab falls back to a manual click.
-The original check has not been modified.
+**Harness deadlock (fixed):** `shell-qa.cjs` check `sportsbook-concurrent-consumers` timed
+out on the unmodified candidate as well as with the polish. It waited for the popup `page`
+event before opening the second tab, while its own route gate held the popup's first
+navigation until that second tab arrived. Playwright emits a popup only after its first
+navigation, so the check could never complete. The check now listens on the opener's
+`popup` event, opens the second tab, then awaits the popup. Its assertions are unchanged:
+both tabs request the intent URL, exactly one launch, exactly one manual fallback. It
+passes three runs each against the candidate build and the polish build. The standalone
+variant `evidence/member-shell-polish/concurrent.cjs` checks the same property.
+
+## CI finding in the deposit candidate (not fixed here)
+
+The first CI run on this branch (`9c5b169`) failed two native PostgreSQL steps on
+PostgreSQL 13, 16 and 18. Migration apply and replay, including
+`20261113060000_deposit_destination_revisions`, passed in both workflows.
+
+- _Scheduled rounds PostgreSQL_, step "Payment lifecycle, authorization and recovery"
+  (`vitest run src/agents src/withdrawals`): 10 files and 180 of 641 tests failed.
+- _Play Together contracts_, step "Group financial contracts and restricted runtime
+  permissions" (`vitest.together-native.config.ts`): 36 of 61 tests failed.
+
+Cause: the candidate's change to `mintTestPurchasedCoins` in
+`apps/api/src/test/financial-policy-fixtures.ts` (line 83) creates a payment method named
+`'Synthetic receiving method'` on the shared `ZLP` test country for every call. The second
+call in a database violates the `(countryId, type, name)` unique constraint (Prisma
+`P2002`). Every error in the readable part of both logs is this violation. The log API
+returns only the last 5,000 lines, so the earliest failing files in the payments step could
+not be read. Other PRs on the same base pass both workflows, and the polish changes no API
+file.
+
+This is a test-fixture defect, not a production-code failure. A per-call name (for example
+`` `Synthetic receiving method ${tag}` ``) is the likely one-line fix. That file is one of
+the 38 candidate files, so fixing it means a new candidate revision. It was left unchanged
+pending that decision.
 
 ## Remaining before release
 
-1. Run the candidate's outstanding database gates on a fresh disposable PostgreSQL:
+1. Decide on the candidate fixture fix above and re-run CI.
+2. Run the candidate's outstanding database gates on a fresh disposable PostgreSQL:
    migration `20261113060000_deposit_destination_revisions`, recovery rehearsal, the native
    payments suite and `scripts/deposit-safety-native.py`.
-2. Check the shell on physical iOS and Android devices with a screen reader.
-3. Get a native-speaker check of the long bottom-bar labels at 320px.
-4. Decide on a fix for the harness deadlock described above.
+3. Check the shell on physical iOS and Android devices with a screen reader.
+4. Get a native-speaker check of the long bottom-bar labels at 320px.
