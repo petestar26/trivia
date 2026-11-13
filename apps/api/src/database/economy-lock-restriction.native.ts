@@ -90,7 +90,8 @@ async function canLock(login: Login, setRole?: string) {
     });
     return true;
   } catch (error) {
-    if (/permission denied for function ledger_lock_economy_for_invariant_check/.test(String(error))) return false;
+    // Refused either at SET ROLE (no path to that role) or at the function itself.
+    if (/permission denied (for function ledger_lock_economy_for_invariant_check|to set role)/.test(String(error))) return false;
     throw error;
   }
 }
@@ -322,22 +323,43 @@ describe('after the restriction: provisioning, migrations and drift', () => {
     expect(await captures()).toEqual([{ entries: [{ grantee: 'PUBLIC', grantable: false }], active: true }]);
   });
 
-  it('is caught by verify when a login later gains a path to the runtime, by inheritance or by SET ROLE only', async () => {
-    await exec(`GRANT "${roles.runtime}" TO "${roles.worker}"`);
-    expect(await canLock('worker')).toBe(true);
-    let drifted = verify();
-    expect(drifted.ok).toBe(false);
-    expect(drifted.out).toMatch(new RegExp(`can execute it .*${roles.worker}`));
-    await exec(`REVOKE "${roles.runtime}" FROM "${roles.worker}"`);
+  it('is caught by verify when a login later gains a path to the runtime; re-applying refuses and changes nothing until the role layout is corrected', async () => {
+    await resetTo(['PUBLIC']);
+    const applied = apply();
+    expect(applied.ok, applied.out).toBe(true);
     expect(verify().ok).toBe(true);
-    // SET ROLE only: has_function_privilege alone would miss this login.
-    await exec(`GRANT "${roles.runtime}" TO "${roles.setter}"`);
-    expect(await canLock('setter')).toBe(false);
-    expect(await canLock('setter', roles.runtime)).toBe(true);
-    drifted = verify();
-    expect(drifted.ok).toBe(false);
-    expect(drifted.out).toMatch(new RegExp(`can execute it .*${roles.setter}`));
-    await exec(`REVOKE "${roles.runtime}" FROM "${roles.setter}"`);
-    expect(verify().ok).toBe(true);
+    const restricted = { direct: await direct(), captures: await captures() };
+    expect(restricted.direct).toEqual([roles.runtime]);
+    const drifts: [Login, string, () => Promise<boolean>][] = [
+      ['worker', `GRANT "${roles.runtime}" TO "${roles.worker}"`, () => canLock('worker')],
+      // SET ROLE only: has_function_privilege alone would miss this login.
+      ['setter', `GRANT "${roles.runtime}" TO "${roles.setter}"`, () => canLock('setter', roles.runtime)],
+    ];
+    for (const [login, grant, takesLock] of drifts) {
+      await exec(grant);
+      expect(await takesLock(), login).toBe(true);
+      const drifted = verify();
+      expect(drifted.ok, login).toBe(false);
+      expect(drifted.out).toMatch(new RegExp(`can execute it .*${roles[login]}`));
+
+      // Re-applying the restriction is not a repair: it refuses (fail closed),
+      // names the role, and changes neither the grants nor the original capture.
+      const reapplied = apply();
+      expect(reapplied.ok, login).toBe(false);
+      expect(reapplied.out).toMatch(
+        new RegExp(`unsupported layout: these roles can inherit from or SET ROLE to runtime role ${roles.runtime}: ${roles[login]}`)
+      );
+      expect(await direct()).toEqual(restricted.direct);
+      expect(await captures()).toEqual(restricted.captures);
+      expect(await takesLock(), `${login} still reaches the lock after the refused re-apply`).toBe(true);
+
+      // Only the separately approved role-layout correction restores the
+      // invariant; the restriction itself needs no re-apply.
+      await exec(`REVOKE "${roles.runtime}" FROM "${roles[login]}"`);
+      expect(await takesLock(), login).toBe(false);
+      expect(verify().ok, login).toBe(true);
+      expect(await direct()).toEqual(restricted.direct);
+      expect(await captures()).toEqual(restricted.captures);
+    }
   });
 });

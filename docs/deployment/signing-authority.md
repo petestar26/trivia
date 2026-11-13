@@ -71,6 +71,11 @@ is what makes it matter.
 
 ## Recommendations (decisions, not applied)
 
+> Recommendations 1 and 2 are also implemented, mandatory rather than dormant,
+> by PR #80 (`5be21eb`). Only one implementation may ship; see
+> `reset-reconciliation-pr80.md` for the comparison and the plan, which keeps
+> this branch's explicit-client routing.
+
 1. **Bind reset completion to an issuance record. Built, dormant:**
    `docs/deployment/owner-password-reset-issuance.sql` and
    `PASSWORD_RESET_ISSUANCE=enforce`.

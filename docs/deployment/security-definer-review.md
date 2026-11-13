@@ -118,11 +118,16 @@ Options (decisions; nothing applied):
     checked in a dry run: it plans a change for this function before the
     restriction and none after. `ledger_apply_runtime_grants` leaves it
     unchanged, and the preDeploy runtime check still passes.
-  - A migration using `CREATE OR REPLACE` keeps the restriction. One that
-    drops and recreates the function resets it to `PUBLIC`, and so does any
-    later grant or membership that reaches the runtime. The verify file catches
-    each of these, so run it after every migration and provisioning step.
-    Re-applying restores the restriction and keeps the original capture.
+  - **What breaks it, and what repairs each case.** Run the verify file
+    after every migration and provisioning step; it catches all three:
+
+    | Drift | Effect | Repair |
+    | --- | --- | --- |
+    | A migration drops and recreates the function | Its grants reset to `PUBLIC` | **Re-applying the restriction repairs it** and keeps the original capture (tested) |
+    | A later direct grant to another role | That role can call it | Re-applying refuses until the role is listed in `revoke_roles`; listing it is a decision about a named consumer |
+    | A later membership through which a login can inherit from or `SET ROLE` to the runtime | That login can call it | **Re-applying does not repair it.** It refuses, fail closed, names the role, and changes neither the grants nor the capture (tested). The repair is a separately approved role-layout correction, usually revoking that membership. Verify then passes with no re-apply needed |
+
+    A migration using `CREATE OR REPLACE` keeps the restriction.
 
   **Verified** in `src/database/economy-lock-restriction.native.ts` (10 tests,
   PostgreSQL 13 to 18, effective access asserted by calling the function as
@@ -134,15 +139,18 @@ Options (decisions; nothing applied):
     through apply and exact rollback;
   - re-runs, rollback refusals, and the runtime's own prior grant option;
   - the provisioning dry run and the migration recreate;
-  - drift by inheritance and by `SET ROLE` only.
+  - drift by inheritance and by `SET ROLE` only. Re-applying is refused with
+    the grants and the capture unchanged, and the drifted login can still take
+    the lock until the role-layout correction.
 
   13 mutation checks across the three files are each caught. The disposable
   rehearsal applies, verifies (listing the `SET`-only migrator as
   owner-equivalent: refused as itself, able after `SET ROLE` to the owner) and
   rolls back to an identical baseline inventory.
 
-  **Separately reviewed candidate `6818dbe3`.** I could not reach it from this
-  repository:
+  **Comparison with the separately reviewed candidate `6818dbe3`: incomplete.**
+  It stays incomplete until the authorized artifact for that commit is made
+  available. I could not reach it from this repository:
   - no remote ref points at it, and no fetched branch contains it;
   - no pull request, issue or commit search finds it;
   - it is not in the archive supplied earlier.

@@ -1,3 +1,4 @@
+import { createHmac, randomUUID } from 'node:crypto';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
 import cookie from '@fastify/cookie';
@@ -55,6 +56,7 @@ vi.mock('@socialplay/config', () => ({
 vi.mock('../rewards/activity-service.js', () => ({ safeRecordActivity: vi.fn() }));
 
 import { authRoutes } from '../routes/auth.js';
+import { issueOwnerReset } from '../auth/password-reset.js';
 import { ApiError } from '../middleware/api-error.js';
 import { hashPassword } from '../utils/auth.js';
 import { config } from '@socialplay/config';
@@ -211,6 +213,30 @@ describe('authentication, sessions and referrals use only the injected member cl
     });
     expect(response.statusCode).toBe(403);
     expect(credential.user.findUnique).toHaveBeenCalledTimes(1);
+  });
+
+  it('routes owner reset issuance and reset completion to the injected credential client', async () => {
+    // Guards the explicit-client invariant for the reset paths: a module-level
+    // client (as on other branches) would trip the default-client tripwire.
+    const tx = { $queryRaw: vi.fn(async () => []) };
+    const transaction = async (fn: (t: typeof tx) => unknown) => fn(tx);
+    credential.$transaction.mockImplementationOnce(transaction).mockImplementationOnce(transaction);
+    const purpose = 'salem-owner-password-reset-v1';
+    const claims = { purpose, sub: randomUUID(), version: 0, role: 'USER', nonce: randomUUID(), exp: Date.now() + 10 * 60_000 };
+    const body = Buffer.from(JSON.stringify(claims)).toString('base64url');
+    const key = createHmac('sha256', config.JWT_ACCESS_SECRET).update(purpose).digest();
+    const token = `${body}.${createHmac('sha256', key).update(body).digest('base64url')}`;
+    const completed = await server.inject({
+      method: 'POST',
+      url: '/auth/password-reset',
+      payload: { token, password: 'Synthetic-Member-3!' },
+    });
+    expect(completed.statusCode).toBe(401); // the injected client has no such account
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(1);
+    await expect(issueOwnerReset(credential as never, randomUUID(), 'member@example.test')).rejects.toMatchObject({
+      statusCode: 403, // the injected client is not the database owner
+    });
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(2);
   });
 
   it('refuses to register auth routes without explicit clients', async () => {

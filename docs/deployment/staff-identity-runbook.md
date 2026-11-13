@@ -409,7 +409,8 @@ Closes `security-definer-review.md` finding 1. Each file runs as the owner of
    set `idle_in_transaction_session_timeout` on service logins.
 7. **Make verify part of every migration and provisioning step,** because a
    migration that drops and recreates the function silently resets it to
-   `PUBLIC`.
+   `PUBLIC`, and a later membership can give another login a path to the
+   runtime. See "Drift response" below.
 
 **Apply:**
 
@@ -434,6 +435,18 @@ psql -X -v ON_ERROR_STOP=1 -f docs/deployment/economy-lock-rollback.sql
 
 Keep the `economy_lock_restriction` schema: it holds the capture, and after a
 rollback it is the record of what was restored.
+
+**Drift response.** When verify fails after the restriction was applied:
+
+| Verify reports | Cause | Response |
+| --- | --- | --- |
+| `EXECUTE is held by PUBLIC` (and the runtime grant missing) | The function was dropped and recreated by a migration | Re-apply the restriction. It keeps the original capture, so a later rollback still returns to the pre-change grants |
+| `EXECUTE is held by <role>` | A new direct grant | Decide whether `<role>` is a real caller. If it is not, re-apply with `-v revoke_roles=<role>` |
+| `these logins can execute it …: <login>` | A membership lets `<login>` inherit from or `SET ROLE` to the runtime (or the owner) | **Do not re-apply: it refuses and changes nothing.** Make the role-layout correction (usually `REVOKE <runtime> FROM <login>`, or the chain role) as a separately approved change, with the role administrator and the owner of that login's service. Then run verify |
+
+A role-layout correction is never done by the restriction script. It changes
+what another service can do, so it needs its own approval and its own check
+that the service still works.
 
 Verified in `src/database/economy-lock-restriction.native.ts` and in the
 disposable rehearsal (section 1).
