@@ -52,8 +52,12 @@ FAIL: postgres (13/16/18) "Payment lifecycle, authorization and recovery" (180 o
       country (P2002 on payment_method_definitions (countryId, type, name)).
 FIXED IN CANDIDATE REVISION v7-derived-typefix-1-fixture-1 (c8e5b4b; manifest
       evidence/deposit-candidate/v7-derived-typefix-1-fixture-1.manifest.json). Test-only. Local PostgreSQL 16:
-      payments 182/643 failing -> 643/643 passing; Play Together 36/61 failing -> 61/61 passing. CI rerun pending
-      at the time of writing; see PR #81 for its result.
+      payments 182/643 failing -> 643/643 passing; Play Together 36/61 failing -> 61/61 passing. CI on 46f2c25:
+      contracts 13/16/18 PASS (all steps); payments, regressions, capacity-layout PASS; postgres 13/16/18 steps 1-28
+      PASS, step 29 "Fresh and populated migration regression" FAIL because the candidate migration
+      20261113060000_deposit_destination_revisions is missing from the test's explicit NOVEMBER_RELEASES allow-list
+      (not fixed; needs a decision); steps 30-40 skipped. Local PostgreSQL 16: migration regression 58/58 with the entry
+      added temporarily; steps 30-40 all pass. See evidence/deposit-candidate/README.md.
 
 NOT RUN:
 - Migration and recovery rehearsal for the chosen candidate identity (needs a fresh disposable PostgreSQL and

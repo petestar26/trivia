@@ -48,5 +48,42 @@ Also passed on the revision: API `tsc --noEmit` and `node build.js`; `vitest.rev
 `admin-account.native.ts` (7); ESLint and `git diff --check` on the changed files; Prettier on
 the new test. The modified fixture file keeps the candidate's original formatting.
 
-PostgreSQL 13 and 18 and the downstream CI steps are covered by the CI rerun on PR #81, not
-locally.
+## CI on PR #81 at `46f2c25` (this revision)
+
+- **Passed on 13, 16 and 18:**
+  - `contracts`: every step. On 16 that includes the five steps previously skipped after the
+    fixture failure: group/sportsbook regressions, Birr/admin/agent/reward contracts, rules
+    and access checks, production builds, and interface languages with offline install.
+  - `payments`, `regressions`, `capacity-layout`.
+- **Passed on 13, 16 and 18 in `postgres`:** steps 1-28. That includes "Payment lifecycle,
+  authorization and recovery", which failed before, and three steps that had never run: legacy
+  API compatibility, predeploy runtime identity guard and ledger guard regressions.
+- **Failed on 13, 16 and 18 in `postgres`:** step 29, "Fresh and populated migration
+  regression" (`src/ledger/ledger-upgrade.migration.test.ts:447`). The suite's explicit
+  forward-migration allow-list (`NOVEMBER_RELEASES`) does not include the candidate's
+  `20261113060000_deposit_destination_revisions`, so its `beforeAll` guard fails and none of
+  the 58 tests run. This omission is in `v7-derived-typefix-1` itself; the step was always
+  skipped before. **Not fixed:** it changes an existing assertion's expected list outside the
+  candidate and needs an explicit decision.
+- **Skipped in CI after step 29:** steps 30-40.
+
+## Local PostgreSQL 16 evidence for the CI gaps (not CI results)
+
+- With `20261113060000_deposit_destination_revisions` temporarily appended to
+  `NOVEMBER_RELEASES` (reverted, not committed), the migration regression passes **58/58**:
+  fresh install, replay, populated upgrade and gate recovery.
+- Steps 30-40, run with the CI commands on a fresh migrated database, all pass:
+  - 30 Isolated financial admission, draw, settlement and refund: 70/70.
+  - 31 Probe offline CLI entry: blocked as expected.
+  - 32 Compiled practice worker lifecycle and restricted-role rehearsal: 4/4.
+  - 33 Practice worker TypeScript contracts: clean.
+  - 34 Scheduled practice web contracts: 422/422.
+  - 35 Virtual Football web contracts: 603/603.
+  - 36 Group game room and chat contracts: 245/245.
+  - 37 Cookie session renewal contracts: 17/17.
+  - 38 Production web build (`NODE_ENV=production VITE_API_PROXY=true`): OK.
+  - 39 PWA navigation contracts: 30/30.
+  - 40 Gateway and WebSocket contracts: 11/11.
+
+These local runs cover PostgreSQL 16 only. PostgreSQL 13 and 18 for steps 29-40 remain unverified
+until CI runs them.
