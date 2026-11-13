@@ -3,22 +3,49 @@ import { isBrowserAuthRequest, requireCookieOrigin } from '../plugins/cookie-ori
 import { anonymousRateLimitKey, createRefreshRateLimitKey } from '../plugins/rate-limit-identity.js';
 import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { prisma } from '@socialplay/database';
+import type { Prisma } from '@socialplay/database';
 import { config } from '@socialplay/config';
 import { registerSchema, loginSchema, RefreshTokenPayload } from '@socialplay/shared';
-import { ApiError, authenticate } from '../middleware/index.js';
+import { ApiError, createAuthenticate } from '../middleware/index.js';
 import { ErrorCode } from '@socialplay/shared';
 import { generateTokens, hashPassword, verifyPassword } from '../utils/auth.js';
 import { safeRecordActivity } from '../rewards/activity-service.js';
-import { completePasswordReset } from '../auth/password-reset.js';
-import { changeOwnPassword } from '../auth/change-password.js';
+import { getSocketServer } from '../realtime/broadcast.js';
+import { completePasswordReset, type ResetIssuanceMode } from '../auth/password-reset.js';
+import { changeOwnPassword, type CredentialDatabase } from '../auth/change-password.js';
+import type { TransactionalDatabase } from '../database/identity.js';
 import {
   canonicalizeReferralCode,
   isValidReferralCode,
   generateUniqueReferralCode,
 } from '../referrals/referral-service.js';
 
-export async function authRoutes(server: FastifyInstance): Promise<void> {
+/**
+ * Member identity used for registration, sign-in, sessions and referral
+ * attribution. Supplied by the composition root; auth routes never import a
+ * database client, so no route here can silently reach a default one.
+ */
+export type AuthDatabase = TransactionalDatabase &
+  Pick<Prisma.TransactionClient, 'user' | 'userAuthIdentity' | 'session'>;
+
+export type AuthRouteOptions = {
+  db: AuthDatabase;
+  /** Logger-free client for password change and owner-issued reset completion. */
+  credentialDb: CredentialDatabase;
+  /** Whether reset completion must consume the owner's issuance record. Default: dormant. */
+  resetIssuance?: ResetIssuanceMode;
+};
+
+// Explicit projections: refresh and returning sign-in never read password
+// material or whole rows, and writes return only the id they do not use.
+const sessionUserSelect = { id: true, email: true, username: true, role: true, status: true, tokenVersion: true } as const;
+const googleUserSelect = { ...sessionUserSelect, displayName: true, isVerified: true } as const;
+const loginUserSelect = { ...sessionUserSelect, passwordHash: true, displayName: true, createdAt: true, isVerified: true } as const;
+
+export async function authRoutes(server: FastifyInstance, options: AuthRouteOptions): Promise<void> {
+  const { db, credentialDb } = options ?? ({} as Partial<AuthRouteOptions>);
+  if (!db || !credentialDb) throw new Error('AUTH_DATABASE_REQUIRED');
+  const authenticate = createAuthenticate(db);
   server.addHook('onRequest', async (request) => {
     if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method) && isBrowserAuthRequest(request)) requireCookieOrigin(request);
   });
@@ -30,7 +57,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
   server.post('/password-reset', {
     config: { rateLimit: { keyGenerator: request => anonymousRateLimitKey(request, config.WEB_GATEWAY_SECRET), max: 5, timeWindow: '15 minutes' } },
   }, async (request, reply) => {
-    const result = await completePasswordReset(request.body);
+    const result = await completePasswordReset(credentialDb, request.body, options.resetIssuance ?? 'dormant');
     clearAuthCookies(reply);
     return reply.send({ success: true, data: result });
   });
@@ -38,7 +65,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
     preHandler: [authenticate], bodyLimit: 8192,
     config: { rateLimit: { hook: 'preHandler', max: 5, timeWindow: '15 minutes', keyGenerator: request => `password-change:${request.user!.sub}` } },
   }, async (request, reply) => {
-    const data = await changeOwnPassword(request.user!.sub, request.body);
+    const data = await changeOwnPassword(credentialDb, request.user!.sub, request.body);
     clearAuthCookies(reply);
     return reply.send({ success: true, data });
   });
@@ -82,8 +109,9 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
       const { username, email, phone, password, displayName } = parsed.data;
       const provider = phone ? 'PHONE' : 'EMAIL';
       const providerSubject = phone ?? email!;
-      const existingIdentity = phone ? await prisma.userAuthIdentity.findUnique({
+      const existingIdentity = phone ? await db.userAuthIdentity.findUnique({
         where: { provider_providerSubject: { provider, providerSubject } },
+        select: { id: true },
       }) : null;
       if (existingIdentity) throw ApiError.conflict('Login identifier already registered');
 
@@ -102,10 +130,11 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
         suppliedCode = canonical;
       }
 
-      const existingUser = await prisma.user.findFirst({
+      const existingUser = await db.user.findFirst({
         where: {
           OR: [...(email ? [{ email }] : []), { username }],
         },
+        select: { email: true },
       });
 
       if (existingUser) {
@@ -124,8 +153,8 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
 
       for (let attempt = 0; attempt < MAX_REGISTRATION_RETRIES; attempt++) {
         try {
-          const { user, tokens } = await prisma.$transaction(async (tx) => {
-            const ownCode = await generateUniqueReferralCode();
+          const { user, tokens } = await db.$transaction(async (tx) => {
+            const ownCode = await generateUniqueReferralCode(tx);
 
             const user = await tx.user.create({
               data: {
@@ -155,6 +184,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
                 providerSubject,
                 verifiedAt: null,
               },
+              select: { id: true },
             });
 
             // Referral attribution (if a valid code was supplied).
@@ -178,6 +208,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
                   referrerUserId: referrer.id,
                   referralCode: suppliedCode,
                 },
+                select: { id: true },
               });
             }
 
@@ -191,6 +222,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
                 ip: request.ip,
                 expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
               },
+              select: { id: true },
             });
 
             return { user, tokens };
@@ -257,11 +289,11 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
       const parsed = loginSchema.safeParse(request.body);
       if (!parsed.success) throw ApiError.badRequest('Invalid login details');
       const { email, phone, password } = parsed.data;
-      const identity = phone ? await prisma.userAuthIdentity.findUnique({
+      const identity = phone ? await db.userAuthIdentity.findUnique({
         where: { provider_providerSubject: { provider: 'PHONE', providerSubject: phone } },
-        include: { user: true },
+        select: { user: { select: loginUserSelect } },
       }) : null;
-      const user = phone ? identity?.user : await prisma.user.findUnique({ where: { email } });
+      const user = phone ? identity?.user : await db.user.findUnique({ where: { email }, select: loginUserSelect });
 
       if (!user) {
         throw ApiError.unauthorized('Invalid credentials');
@@ -286,14 +318,15 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
         throw ApiError.forbidden('Account is not active');
       }
 
-      await prisma.user.update({
+      await db.user.update({
         where: { id: user.id },
         data: { lastLoginAt: new Date() },
+        select: { id: true },
       });
 
       const tokens = generateTokens(user.id, user.email, user.username, [user.role], user.tokenVersion);
 
-      await prisma.session.create({
+      await db.session.create({
         data: {
           userId: user.id,
           refreshToken: tokens.refreshToken,
@@ -301,6 +334,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
           ip: request.ip,
           expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
         },
+        select: { id: true },
       });
 
       setAuthCookies(reply, tokens);
@@ -335,7 +369,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
       },
       config: {
         rateLimit: { hook: 'preHandler', keyGenerator: createRefreshRateLimitKey(config.JWT_REFRESH_SECRET,
-          token => prisma.session.findUnique({where:{refreshToken:token},select:{userId:true,expiresAt:true,user:{select:{status:true,tokenVersion:true}}}}),
+          token => db.session.findUnique({where:{refreshToken:token},select:{userId:true,expiresAt:true,user:{select:{status:true,tokenVersion:true}}}}),
           config.WEB_GATEWAY_SECRET), max: config.RATE_LIMIT_AUTH_MAX_REQUESTS, timeWindow: config.RATE_LIMIT_AUTH_WINDOW_MS },
       },
       schema: {
@@ -355,9 +389,9 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
       const refreshToken = bodyToken ?? request.cookies.sp_refresh_token;
       if (!refreshToken) throw ApiError.unauthorized('Session unavailable');
 
-      const session = await prisma.session.findUnique({
+      const session = await db.session.findUnique({
         where: { refreshToken },
-        include: { user: true },
+        select: { id: true, expiresAt: true, user: { select: sessionUserSelect } },
       });
 
       if (!session || session.expiresAt < new Date()) {
@@ -379,7 +413,9 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
           // secret as `key` so the refresh token's HS256 signature checks out.
           key: config.JWT_REFRESH_SECRET,
         });
-        if (decoded.tokenVersion !== session.user.tokenVersion) {
+        // The signed subject must own this session row: a valid token for one
+        // user must never rotate a session that belongs to another.
+        if (decoded.sub !== session.user.id || decoded.tokenVersion !== session.user.tokenVersion) {
           throw ApiError.unauthorized('Token revoked', { code: ErrorCode.TOKEN_EXPIRED });
         }
       } catch (err) {
@@ -404,10 +440,18 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
       );
 
       try {
-        await prisma.$transaction(async (tx) => {
+        await db.$transaction(async (tx) => {
+          // Re-check revocation under a lock on the account. Logout advances
+          // tokenVersion while holding this row, so a logout that committed
+          // after the session was read above cannot be outrun: the rotation
+          // fails instead of minting a replacement for a revoked version.
+          const [current] = await tx.$queryRaw<{ tokenVersion: number; status: string }[]>`
+            SELECT "tokenVersion", status::text AS status FROM users WHERE id = ${session.user.id} FOR SHARE`;
+          if (!current || current.status !== 'ACTIVE' || current.tokenVersion !== session.user.tokenVersion)
+            throw ApiError.unauthorized('Token revoked', { code: ErrorCode.TOKEN_EXPIRED });
           // Conditional delete: only succeeds if the session still matches
           // (a concurrent refresh may have already rotated it).
-          await tx.session.delete({ where: { id: session.id } });
+          await tx.session.delete({ where: { id: session.id }, select: { id: true } });
 
           await tx.session.create({
             data: {
@@ -417,6 +461,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
               ip: request.ip,
               expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
             },
+            select: { id: true },
           });
         });
       } catch (err) {
@@ -449,7 +494,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
       if (request.cookies.sp_refresh_token || request.cookies.sp_access_token) {
         requireCookieOrigin(request);
         if (request.cookies.sp_refresh_token) {
-          const session = await prisma.session.findUnique({
+          const session = await db.session.findUnique({
             where: { refreshToken: request.cookies.sp_refresh_token },
             select: { userId: true },
           });
@@ -464,10 +509,29 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
           if (!(err instanceof ApiError) || err.statusCode !== 401) throw err;
         }
       }
-      // Delete all sessions for this user and clear auth cookies.
-      // (Single-session logout would require the refresh-token cookie/body;
-      //  see audit note D12. This preserves existing all-device behavior.)
-      if (userId) await prisma.session.deleteMany({ where: { userId } });
+      // All-device logout. In one transaction: advance tokenVersion, which
+      // every access-token consumer re-checks (HTTP authenticate/optionalAuth,
+      // socket handshake, every inbound socket packet and every private
+      // delivery), and delete every refresh session. Both commit or neither
+      // does; on failure cookies are left untouched. tokenVersion is bumped
+      // with raw SQL so users.updatedAt (staff optimistic concurrency) is not
+      // disturbed by a sign-out.
+      if (userId) {
+        const revokedUser = userId;
+        await db.$transaction(async (tx) => {
+          const bumped = await tx.$executeRaw`
+            UPDATE users SET "tokenVersion" = "tokenVersion" + 1 WHERE id = ${revokedUser}`;
+          if (bumped !== 1) throw ApiError.internal('Sign-out could not be completed');
+          await tx.session.deleteMany({ where: { userId: revokedUser } });
+        });
+        // Prompt local disconnect. Sockets on other instances are refused at
+        // their next packet or delivery by the tokenVersion re-check.
+        try {
+          getSocketServer()?.in(`user:${revokedUser}`).disconnectSockets(true);
+        } catch {
+          /* tokenVersion already guards every socket path */
+        }
+      }
 
       clearAuthCookies(reply);
 
@@ -482,7 +546,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
     '/me',
     { preHandler: [authenticate] },
     async (request, reply) => {
-      const user = await prisma.user.findUnique({
+      const user = await db.user.findUnique({
         where: { id: request.user!.sub },
         select: {
           id: true,
@@ -614,19 +678,19 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
 
       // 1. Ownership key is (GOOGLE, sub). A found identity takes the
       //    RETURNING LOGIN path immediately — collision checks never run.
-      const existing = await prisma.userAuthIdentity.findUnique({
+      const existing = await db.userAuthIdentity.findUnique({
         where: { provider_providerSubject: { provider: 'GOOGLE', providerSubject: claims.sub } },
-        include: { user: true },
+        select: { id: true, user: { select: googleUserSelect } },
       });
 
       if (existing) {
-        await completeGoogleLogin(existing, request, reply);
+        await completeGoogleLogin(db, existing, request, reply);
         return;
       }
 
       // 2. New identity: authoritative-email collision check (no auto-link).
       if (isGoogleAuthoritativeEmail(claims) && claims.email) {
-        const emailOwner = await prisma.user.findFirst({
+        const emailOwner = await db.user.findFirst({
           where: { email: { equals: claims.email, mode: 'insensitive' } },
           select: { id: true },
         });
@@ -664,8 +728,8 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
       const MAX_GOOGLE_CREATE_RETRIES = 5;
       for (let attempt = 0; attempt < MAX_GOOGLE_CREATE_RETRIES; attempt += 1) {
         try {
-          const outcome = await prisma.$transaction(async (tx) => {
-            const ownCode = await generateUniqueReferralCode();
+          const outcome = await db.$transaction(async (tx) => {
+            const ownCode = await generateUniqueReferralCode(tx);
             const created = await tx.user.create({
               data: {
                 email: null,
@@ -694,6 +758,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
                 verifiedAt: new Date(),
                 lastUsedAt: new Date(),
               },
+              select: { id: true },
             });
 
             if (suppliedCode) {
@@ -710,6 +775,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
                   referrerUserId: referrer.id,
                   referralCode: suppliedCode,
                 },
+                select: { id: true },
               });
             }
 
@@ -723,6 +789,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
                 ip: request.ip,
                 expiresAt: new Date(Date.now() + SESSION_TTL_MS),
               },
+              select: { id: true },
             });
 
             return { user: created, tokens };
@@ -756,15 +823,15 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
 
             if (isProviderRace) {
               // Same-sub twin committed first. Re-read and complete as login.
-              const committed = await prisma.userAuthIdentity.findUnique({
+              const committed = await db.userAuthIdentity.findUnique({
                 where: { provider_providerSubject: { provider: 'GOOGLE', providerSubject: claims.sub } },
-                include: { user: true },
+                select: { id: true, user: { select: googleUserSelect } },
               });
               if (!committed) throw err;
               if (committed.user.status !== 'ACTIVE') {
                 throw ApiError.forbidden('Account is not active');
               }
-              await completeGoogleLogin(committed, request, reply);
+              await completeGoogleLogin(db, committed, request, reply);
               return;
             }
 
@@ -772,19 +839,19 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
               // Could this be OUR same-sub twin racing on an identical
               // username? DB authority says winner's username is canonical; if
               // the attempt is our own twin, complete as login instead of 409.
-              const twin = await prisma.userAuthIdentity.findFirst({
+              const twin = await db.userAuthIdentity.findFirst({
                 where: {
                   provider: 'GOOGLE',
                   providerSubject: claims.sub,
                   user: { username: selectedUsername },
                 },
-                include: { user: true },
+                select: { id: true, user: { select: googleUserSelect } },
               });
               if (twin) {
                 if (twin.user.status !== 'ACTIVE') {
                   throw ApiError.forbidden('Account is not active');
                 }
-                await completeGoogleLogin(twin, request, reply);
+                await completeGoogleLogin(db, twin, request, reply);
                 return;
               }
               throw ApiError.conflict('Username already taken');
@@ -893,6 +960,7 @@ function sanitizeGoogleUser(user: GoogleUserShape) {
  * Never creates/modifies a Referral.
  */
 async function completeGoogleLogin(
+  db: AuthDatabase,
   identity: GoogleLoginIdentity,
   request: FastifyRequest,
   reply: FastifyReply
@@ -904,11 +972,12 @@ async function completeGoogleLogin(
 
   const tokens = generateTokens(user.id, user.email, user.username, [String(user.role)], user.tokenVersion ?? 0);
 
-  await prisma.$transaction(async (tx) => {
-    await tx.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
+  await db.$transaction(async (tx) => {
+    await tx.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() }, select: { id: true } });
     await tx.userAuthIdentity.update({
       where: { id: identity.id },
       data: { lastUsedAt: new Date() },
+      select: { id: true },
     });
     await tx.session.create({
       data: {
@@ -918,6 +987,7 @@ async function completeGoogleLogin(
         ip: request.ip,
         expiresAt: new Date(Date.now() + SESSION_TTL_MS),
       },
+      select: { id: true },
     });
   });
 

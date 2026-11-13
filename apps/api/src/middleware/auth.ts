@@ -1,4 +1,4 @@
-import { prisma } from '@socialplay/database';
+import { prisma, type Prisma } from '@socialplay/database';
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { JwtPayload, ErrorCode } from '@socialplay/shared';
 import { ApiError } from './error-handler.js';
@@ -21,7 +21,28 @@ declare module '@fastify/jwt' {
   }
 }
 
+/** The account lookup `authenticate` needs: current status and token version. */
+export type ActorDatabase = Pick<Prisma.TransactionClient, 'user'>;
+
+/**
+ * Bind authentication to an explicit client. Auth routes use this with their
+ * injected member client; `authenticate` below stays bound to the default
+ * runtime client for every other route.
+ */
+export function createAuthenticate(db: ActorDatabase) {
+  if (!db) throw new Error('AUTH_DATABASE_REQUIRED');
+  return (request: FastifyRequest, reply: FastifyReply) => authenticateWith(db, request, reply);
+}
+
 export async function authenticate(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+  return authenticateWith(prisma, request, reply);
+}
+
+async function authenticateWith(
+  db: ActorDatabase,
+  request: FastifyRequest,
+  _reply: FastifyReply
+): Promise<void> {
   try {
     // request.jwtVerify() resolves the token from the Authorization header
     // (Bearer) OR from the configured cookie (sp_access_token) — see the
@@ -39,7 +60,7 @@ export async function authenticate(request: FastifyRequest, reply: FastifyReply)
   }
   // A still-valid token must not preserve access after suspension/deletion.
   // Keep DB failures outside the token catch: an outage is not a bad credential.
-  const actor = await prisma.user.findUnique({
+  const actor = await db.user.findUnique({
     where: { id: request.user!.sub },
     select: { status: true, tokenVersion: true },
   });

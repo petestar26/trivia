@@ -175,8 +175,10 @@ railway variables set \
 The worker never issues or verifies a JWT, but it imports the same shared
 `@socialplay/config` package the API does, and that package's env schema requires
 `JWT_ACCESS_SECRET`/`JWT_REFRESH_SECRET` unconditionally (no default) — the worker
-process fails at startup without them. Use different values than the API's if you
-prefer, or the same ones; nothing depends on them matching for the worker.
+process fails at startup without them. Generate fresh random values for the worker;
+never reuse the API's. Nothing depends on them matching, and a shared
+`JWT_ACCESS_SECRET` would let anything that reads the worker's environment mint
+API access tokens and password-reset links (docs/deployment/signing-authority.md).
 
 If your Railway project uses a shared/team variable group for staging parity with the
 API service, you may also include `SECURITY_TOTP_ENCRYPTION_KEY=<64-hex>` here even

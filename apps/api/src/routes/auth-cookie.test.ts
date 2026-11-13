@@ -7,7 +7,7 @@ import { ApiError } from '../middleware/api-error.js';
 
 const db = vi.hoisted(() => ({ session: {
   findUnique: vi.fn(), delete: vi.fn(), create: vi.fn(), deleteMany: vi.fn(),
-}, $transaction: vi.fn() }));
+}, $transaction: vi.fn(), $queryRaw: vi.fn(), $executeRaw: vi.fn() }));
 vi.mock('@socialplay/database', () => ({ prisma: db }));
 vi.mock('@socialplay/config', () => ({ config: {
   FRONTEND_URL: 'https://app.example.test', CORS_ORIGIN: 'https://app.example.test,https://other.example.test',
@@ -18,9 +18,10 @@ vi.mock('@socialplay/config', () => ({ config: {
 } }));
 vi.mock('../middleware', async () => {
   const { ApiError } = await import('../middleware/api-error.js');
-  return { ApiError, authenticate: async (request: any) => {
+  const authenticate = async (request: any) => {
     try { request.user = await request.jwtVerify(); } catch { throw ApiError.unauthorized('Expired'); }
-  } };
+  };
+  return { ApiError, authenticate, createAuthenticate: () => authenticate };
 });
 vi.mock('../rewards/activity-service', () => ({ safeRecordActivity: vi.fn() }));
 vi.mock('../referrals/referral-service.js', () => ({ canonicalizeReferralCode: vi.fn(), isValidReferralCode: vi.fn(), generateUniqueReferralCode: vi.fn() }));
@@ -39,11 +40,14 @@ beforeEach(async () => {
   server.setErrorHandler((error, _request, reply) => {
     reply.code(error instanceof ApiError ? error.statusCode : error.statusCode ?? 500).send({ error: { message: error.message } });
   });
-  await server.register(authRoutes, { prefix: '/auth' });
+  await server.register(authRoutes, { prefix: '/auth', db: db as never, credentialDb: db as never });
   token = generateTokens('alice', 'fixture@example.test', 'fixture', ['USER'], 0).refreshToken;
   db.session.findUnique.mockResolvedValue({ id: 'session', userId: 'alice', expiresAt: new Date(Date.now() + 60000),
     user: { id: 'alice', email: 'fixture@example.test', username: 'fixture', role: 'USER', status: 'ACTIVE', tokenVersion: 0 } });
   db.$transaction.mockImplementation((action: any) => action(db));
+  // Refresh re-checks the locked account; logout advances tokenVersion.
+  db.$queryRaw.mockResolvedValue([{ tokenVersion: 0, status: 'ACTIVE' }]);
+  db.$executeRaw.mockResolvedValue(1);
 });
 afterEach(async () => { await server.close(); });
 const headers = () => ({ origin: 'https://app.example.test', cookie: `sp_refresh_token=${token}` });
@@ -103,7 +107,7 @@ describe('browser cookie renewal and logout', () => {
     expect(r.headers['cache-control']).toBe('private, no-store');
     expect(r.cookies.map(c => c.name)).toEqual(['sp_access_token', 'sp_refresh_token']);
     expect(r.cookies.every(c => c.httpOnly && c.secure && c.sameSite === 'Lax')).toBe(true);
-    expect(db.session.delete).toHaveBeenCalledWith({ where: { id: 'session' } });
+    expect(db.session.delete).toHaveBeenCalledWith({ where: { id: 'session' }, select: { id: true } });
     expect(db.session.create).toHaveBeenCalledTimes(1);
   });
   it.each([undefined, 'null', '*', 'https://evil.test', 'https://app.example.test.evil.test'])('rejects untrusted cookie origin %s before looking up credentials', async (origin) => {
@@ -135,15 +139,26 @@ describe('browser cookie renewal and logout', () => {
     const r = await server.inject({ method: 'POST', url: '/auth/refresh', headers: headers(), payload: {} });
     expect(r.statusCode).toBe(401); expect(r.headers['set-cookie']).toBeUndefined();
   });
+  it('refuses a rotation when the locked account was revoked after the session was read', async () => {
+    db.$queryRaw.mockResolvedValue([{ tokenVersion: 1, status: 'ACTIVE' }]);
+    const r = await server.inject({ method: 'POST', url: '/auth/refresh', headers: headers(), payload: {} });
+    expect(r.statusCode).toBe(401);
+    expect(r.headers['set-cookie']).toBeUndefined();
+    expect(db.session.delete).not.toHaveBeenCalled();
+    expect(db.session.create).not.toHaveBeenCalled();
+  });
   it('revokes and clears cookies after access expiry using the stored refresh session', async () => {
     const r = await server.inject({ method: 'POST', url: '/auth/logout', headers: headers() });
     expect(r.statusCode).toBe(200);
     expect(db.session.deleteMany).toHaveBeenCalledWith({ where: { userId: 'alice' } });
+    // Access tokens are revoked in the same transaction as the sessions.
+    expect(db.$transaction).toHaveBeenCalledTimes(1);
+    expect(db.$executeRaw).toHaveBeenCalledTimes(1);
     expect(r.cookies).toHaveLength(2); expect(r.cookies.every(c => c.value === '')).toBe(true);
   });
   it('rejects cross-origin logout without revocation or cookie changes', async () => {
     const r = await server.inject({ method: 'POST', url: '/auth/logout', headers: { ...headers(), origin: 'https://evil.test' } });
-    expect(r.statusCode).toBe(403); expect(db.session.deleteMany).not.toHaveBeenCalled(); expect(r.cookies).toHaveLength(0);
+    expect(r.statusCode).toBe(403); expect(db.session.deleteMany).not.toHaveBeenCalled(); expect(db.$executeRaw).not.toHaveBeenCalled(); expect(r.cookies).toHaveLength(0);
   });
 });
 

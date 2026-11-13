@@ -1,4 +1,4 @@
-import { prisma, type AgentStatus, type NotificationType } from '@socialplay/database';
+import { prisma, type AgentStatus, type NotificationType, type Prisma } from '@socialplay/database';
 import { ApiError } from '../middleware/index.js';
 
 const PLATFORM_ADMIN_ROLES = ['ADMIN', 'SUPER_ADMIN'];
@@ -17,7 +17,12 @@ type AgentStatusContext = { ip?: string; userAgent?: string; expectedUpdatedAt?:
  * first line of defense, this is the second, and neither is optional.
  */
 export async function assertPlatformAdmin(userId: string) {
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, role: true, status: true } });
+  return assertPlatformAdminWith(prisma, userId);
+}
+
+/** Same check through an explicit client (restricted staff operations pass their own). */
+export async function assertPlatformAdminWith(db: Pick<Prisma.TransactionClient, 'user'>, userId: string) {
+  const user = await db.user.findUnique({ where: { id: userId }, select: { id: true, role: true, status: true } });
   if (!user) throw ApiError.unauthorized('Authentication required');
   if (user.status !== 'ACTIVE' || !PLATFORM_ADMIN_ROLES.includes(user.role)) {
     throw ApiError.forbidden('Admin privileges required');

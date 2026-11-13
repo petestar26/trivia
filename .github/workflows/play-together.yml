@@ -13,9 +13,19 @@ on:
       - 'apps/api/src/workspaces/**'
       - 'apps/api/src/member-rewards/**'
       - 'apps/api/src/auth/**'
+      - 'apps/api/src/database/**'
+      - 'apps/api/vitest.staff-native.config.ts'
+      - 'docs/deployment/staff-member-status-boundary.sql'
+      - 'docs/deployment/staff-identity-inventory.sql'
+      - 'docs/deployment/owner-password-reset-issuance.sql'
+      - 'docs/deployment/economy-lock-restriction.sql'
+      - 'docs/deployment/economy-lock-rollback.sql'
+      - 'docs/deployment/economy-lock-verify.sql'
+      - 'scripts/staff-identity-rehearsal.sh'
       - 'apps/api/src/providers/softaggregator/**'
       - 'apps/api/src/server.ts'
       - 'apps/api/src/routes/index.ts'
+      - 'apps/api/src/routes/auth.ts'
       - 'apps/api/src/routes/groups.ts'
       - 'apps/api/vitest.together*.ts'
       - 'apps/web/src/**'
@@ -161,6 +171,12 @@ jobs:
         run: |
           pnpm build:api
           pnpm build:web
+      - name: Staff identity setup, rollback and recovery rehearsal (disposable)
+        if: matrix.postgres == 16
+        env:
+          STAFF_REHEARSAL_ACK: disposable
+          REHEARSAL_ADMIN_URL: postgresql://postgres:isolated-together-test-password@127.0.0.1:5432/postgres
+        run: scripts/staff-identity-rehearsal.sh
       - name: Interface languages and offline install
         if: matrix.postgres == 16
         run: |

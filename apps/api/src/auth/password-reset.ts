@@ -2,7 +2,8 @@ import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import { config } from '@socialplay/config';
 import { passwordSchema } from '@socialplay/shared';
-import { credentialDb as db } from '../agents/credential-database.js';
+import type { Prisma } from '@socialplay/database';
+import type { TransactionalDatabase } from '../database/identity.js';
 import { hashPassword } from '../utils/auth.js';
 import { ApiError } from '../middleware/api-error.js';
 import { getSocketServer } from '../realtime/broadcast.js';
@@ -19,21 +20,54 @@ const claimsSchema = z
   })
   .strict();
 type Claims = z.infer<typeof claimsSchema>;
-const signature = (body: string) =>
-  createHmac('sha256', createHmac('sha256', config.JWT_ACCESS_SECRET).update(purpose).digest())
-    .update(body)
-    .digest();
+const KEY_HEX = /^(?:[0-9a-fA-F]{2}){32,64}$/;
+/**
+ * The key that signs reset links. With PASSWORD_RESET_SIGNING_KEY (hex, 32-64
+ * bytes) set, links are signed with it alone, so a holder of JWT_ACCESS_SECRET
+ * can no longer write one (docs/deployment/signing-authority.md). Unset:
+ * derived from JWT_ACCESS_SECRET, today's behaviour. Malformed: null, and
+ * resets fail closed (503) instead of falling back to the shared secret.
+ * Read at call time: the API and the owner CLI each use their own environment.
+ */
+export function resetSigningKey(env: NodeJS.ProcessEnv = process.env): Buffer | null {
+  const hex = env.PASSWORD_RESET_SIGNING_KEY;
+  const root =
+    hex === undefined || hex === ''
+      ? Buffer.from(config.JWT_ACCESS_SECRET, 'utf8')
+      : KEY_HEX.test(hex)
+        ? Buffer.from(hex, 'hex')
+        : null;
+  return root && createHmac('sha256', root).update(purpose).digest();
+}
+const signature = (key: Buffer, body: string) => createHmac('sha256', key).update(body).digest();
 const invalid = () =>
   ApiError.unauthorized(
     'This reset link is invalid, expired, or already used. Request a new link.'
   );
+const unavailable = () => ApiError.serviceUnavailable('Password reset is temporarily unavailable');
+
+/**
+ * Whether completing a reset must consume the owner's issuance record
+ * (docs/deployment/owner-password-reset-issuance.sql). Unset: dormant, today's
+ * behaviour. "enforce": required. Anything else: resets fail closed (503), so a
+ * typo never silently drops the check.
+ */
+export type ResetIssuanceMode = 'dormant' | 'enforce' | 'unavailable';
+export function resetIssuanceMode(env: NodeJS.ProcessEnv): ResetIssuanceMode {
+  const value = env.PASSWORD_RESET_ISSUANCE;
+  if (value === undefined || value === '') return 'dormant';
+  return value === 'enforce' ? 'enforce' : 'unavailable';
+}
+const RECORD_ISSUANCE = 'owner_password_reset.record_issuance(uuid,text,integer,timestamptz)';
 
 export function readResetToken(token: string): Claims {
+  const key = resetSigningKey();
+  if (!key) throw unavailable();
   try {
     if (token.length > 2048 || !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{43}$/.test(token)) throw invalid();
     const [body, mac] = token.split('.');
     const supplied = Buffer.from(mac, 'base64url');
-    const expected = signature(body);
+    const expected = signature(key, body);
     if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected))
       throw invalid();
     const claims = claimsSchema.parse(JSON.parse(Buffer.from(body, 'base64url').toString()));
@@ -45,7 +79,11 @@ export function readResetToken(token: string): Claims {
 }
 
 /** Only the explicit owner CLI calls this. No public reset-link issuance route. */
-export async function issueOwnerReset(userId: string, email: string) {
+export async function issueOwnerReset(db: TransactionalDatabase, userId: string, email: string) {
+  if (!db) throw new Error('CREDENTIAL_DATABASE_REQUIRED');
+  // Checked before anything changes: a malformed key must not revoke sessions.
+  const key = resetSigningKey();
+  if (!key) throw unavailable();
   try {
     return await db.$transaction(async (tx) => {
       const [owner] = await tx.$queryRaw<{ allowed: boolean }[]>`SELECT EXISTS (
@@ -67,7 +105,14 @@ export async function issueOwnerReset(userId: string, email: string) {
         nonce: randomUUID(),
         exp: Date.now() + 15 * 60_000,
       };
-      await tx.user.update({ where: { id: user.id }, data: { tokenVersion: { increment: 1 } } });
+      await tx.user.update({ where: { id: user.id }, data: { tokenVersion: { increment: 1 } }, select: { id: true } });
+      // Record the issuance once the owner has installed the records; the API
+      // then refuses, when enforced, any link the owner did not issue.
+      const [hook] = await tx.$queryRaw<{ installed: boolean }[]>`
+        SELECT pg_catalog.to_regprocedure(${RECORD_ISSUANCE}) IS NOT NULL AS installed`;
+      if (hook?.installed)
+        await tx.$executeRaw`SELECT owner_password_reset.record_issuance(
+          ${claims.nonce}::uuid, ${user.id}, ${claims.version}::integer, ${new Date(claims.exp)}::timestamptz)`;
       await tx.session.deleteMany({ where: { userId: user.id } });
       await tx.auditLog.create({
         data: {
@@ -81,10 +126,11 @@ export async function issueOwnerReset(userId: string, email: string) {
             authority: 'database-owner',
           },
         },
+        select: { id: true },
       });
       const body = Buffer.from(JSON.stringify(claims)).toString('base64url');
       return {
-        token: `${body}.${signature(body).toString('base64url')}`,
+        token: `${body}.${signature(key, body).toString('base64url')}`,
         expiresAt: new Date(claims.exp).toISOString(),
       };
     });
@@ -94,7 +140,13 @@ export async function issueOwnerReset(userId: string, email: string) {
   }
 }
 
-export async function completePasswordReset(input: unknown) {
+export async function completePasswordReset(
+  db: TransactionalDatabase,
+  input: unknown,
+  issuance: ResetIssuanceMode = 'dormant'
+) {
+  if (!db) throw new Error('CREDENTIAL_DATABASE_REQUIRED');
+  if (issuance === 'unavailable') throw unavailable();
   const parsed = z
     .object({
       token: z.string().max(2048),
@@ -125,9 +177,11 @@ export async function completePasswordReset(input: unknown) {
         claims.exp <= Date.now()
       )
         throw invalid();
+      if (issuance === 'enforce') await consumeIssuance(tx, claims);
       await tx.user.update({
         where: { id: user.id },
         data: { passwordHash: hash, tokenVersion: { increment: 1 } },
+        select: { id: true },
       });
       await tx.session.deleteMany({ where: { userId: user.id } });
       await tx.auditLog.create({
@@ -138,6 +192,7 @@ export async function completePasswordReset(input: unknown) {
           entityId: user.id,
           newData: { nonce: claims.nonce, sessionsRevoked: true },
         },
+        select: { id: true },
       });
     });
   } catch (error) {
@@ -152,4 +207,22 @@ export async function completePasswordReset(input: unknown) {
     /* Token versions also guard every socket packet and private delivery. */
   }
   return { reset: true };
+}
+
+/**
+ * Consume the owner's record of this link, in the password-change transaction.
+ * Every refusal reads as an invalid link; a missing boundary or grant fails
+ * closed (42883: not installed, 42501: EXECUTE not granted).
+ */
+async function consumeIssuance(tx: Prisma.TransactionClient, claims: Claims) {
+  let rows: { outcome: string | null }[];
+  try {
+    rows = await tx.$queryRaw<{ outcome: string | null }[]>`
+      SELECT public.owner_password_reset_consume(${claims.nonce}, ${claims.sub}, ${claims.version}::integer) AS outcome`;
+  } catch (error) {
+    const code = (error as { meta?: { code?: unknown } }).meta?.code;
+    if (code === '42883' || code === '42501') throw unavailable();
+    throw error;
+  }
+  if (rows[0]?.outcome !== 'OK') throw invalid();
 }

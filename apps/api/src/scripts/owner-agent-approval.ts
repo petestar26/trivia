@@ -82,7 +82,9 @@ try {
   } else {
     console.log(
       JSON.stringify(
+        // Explicit owner client: this CLI already verified it runs as the database owner.
         await approveExistingMemberAgent(
+          credentialDb,
           adminId,
           {
             email: memberEmail,

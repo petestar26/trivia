@@ -1,5 +1,13 @@
 import { randomInt } from 'node:crypto';
-import { prisma } from '@socialplay/database';
+import type { Prisma } from '@socialplay/database';
+
+/**
+ * The only database capability referral helpers use. Callers pass it
+ * explicitly — inside registration this is the registration transaction, so
+ * the uniqueness pre-check runs on the same connection and identity as the
+ * insert. There is deliberately no default client.
+ */
+export type ReferralDatabase = Pick<Prisma.TransactionClient, 'user'>;
 
 // ─── Constants ────────────────────────────────────────────────
 // Locked canonical alphabet. Excluded: 0, O, 1, I, L
@@ -41,13 +49,14 @@ export function generateReferralCode(): string {
 /**
  * Generate a unique referral code by retrying on collision.
  * Returns the generated code or throws after MAX_CODE_GEN_RETRIES attempts.
- * Must be called inside a transaction context so collisions surface
- * as P2002 — but this function does a pre-check to reduce attempts.
+ * Pass the enclosing transaction so collisions surface as P2002 there — this
+ * function only pre-checks to reduce attempts.
  */
-export async function generateUniqueReferralCode(): Promise<string> {
+export async function generateUniqueReferralCode(db: ReferralDatabase): Promise<string> {
+  if (!db) throw new Error('REFERRAL_DATABASE_REQUIRED');
   for (let attempt = 0; attempt < MAX_CODE_GEN_RETRIES; attempt++) {
     const candidate = generateReferralCode();
-    const existing = await prisma.user.findUnique({
+    const existing = await db.user.findUnique({
       where: { referralCode: candidate },
       select: { id: true },
     });
@@ -61,8 +70,12 @@ export type ReferrerResolution =
   | { ok: true; referrerId: string }
   | { ok: false; error: string };
 
-export async function resolveReferrer(canonicalCode: string): Promise<ReferrerResolution> {
-  const referrer = await prisma.user.findUnique({
+export async function resolveReferrer(
+  db: ReferralDatabase,
+  canonicalCode: string
+): Promise<ReferrerResolution> {
+  if (!db) throw new Error('REFERRAL_DATABASE_REQUIRED');
+  const referrer = await db.user.findUnique({
     where: { referralCode: canonicalCode },
     select: { id: true, status: true },
   });

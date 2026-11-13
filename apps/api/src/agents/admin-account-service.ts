@@ -1,9 +1,25 @@
-import { credentialDb as prisma } from './credential-database.js';
+import { DatabaseIdentityError, type TransactionalDatabase } from '../database/identity.js';
+import type { CredentialDatabase } from '../auth/change-password.js';
 import { z } from 'zod';
 import { emailSchema, passwordSchema, usernameSchema } from '@socialplay/shared';
 import { ApiError } from '../middleware/index.js';
 import { hashPassword, verifyPassword } from '../utils/auth.js';
-import { assertPlatformAdmin } from './agent-service.js';
+import { assertPlatformAdminWith } from './agent-service.js';
+
+/**
+ * Restricted staff operations take their database explicitly (a StaffDatabase
+ * from the composition root, or a test client). This module imports no client,
+ * so a staff operation can never fall back to the default runtime identity.
+ * Every staff query, including the administrator pre-check, runs inside a
+ * transaction on that client, which is where a guarded client verifies its
+ * identity.
+ */
+const requireDb = <T>(db: T): T => {
+  if (!db) throw new Error('STAFF_DATABASE_REQUIRED');
+  return db;
+};
+const assertStaffAdmin = (db: TransactionalDatabase, adminId: string) =>
+  db.$transaction((tx) => assertPlatformAdminWith(tx, adminId));
 
 const safePassword = passwordSchema.refine((value) => Buffer.byteLength(value, 'utf8') <= 72);
 export const adminAgentSchema = z
@@ -29,7 +45,8 @@ const existingAgentSchema = z.object({
 }).strict();
 const DUMMY_HASH = '$2a$12$W2Ji.cO4XXOUNGX56WvLlOWP0oAGdNZ0UDeFj5TCLuWWV2oUo/Q9W';
 function sanitize(error: unknown): never {
-  if (error instanceof ApiError) throw error;
+  // A refused staff identity is reported as 503 by the error handler.
+  if (error instanceof ApiError || error instanceof DatabaseIdentityError) throw error;
   if ((error as { code?: string })?.code === 'P2002')
     throw ApiError.conflict(
       'Username or email already exists. Check the account directory before retrying.'
@@ -39,7 +56,8 @@ function sanitize(error: unknown): never {
     'Account setup could not be completed. Check account status before retrying.'
   );
 }
-export async function createAdminAgent(adminId: string, input: unknown) {
+export async function createAdminAgent(db: TransactionalDatabase, adminId: string, input: unknown) {
+  requireDb(db);
   const parsed = adminAgentSchema.safeParse(input);
   if (!parsed.success) {
     const field = parsed.error.issues[0]?.path[0];
@@ -53,10 +71,10 @@ export async function createAdminAgent(adminId: string, input: unknown) {
     throw ApiError.badRequest(messages[String(field)] ?? 'Check the account details and try again.');
   }
   const args = parsed.data;
-  await assertPlatformAdmin(adminId);
+  await assertStaffAdmin(db, adminId);
   try {
     const credentialHash = await hashPassword(args.temporaryPassword);
-    return await prisma.$transaction(async (tx) => {
+    return await db.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM public.users WHERE id=${adminId} FOR SHARE`;
       const admin = await tx.user.findUnique({
         where: { id: adminId },
@@ -140,13 +158,19 @@ export async function createAdminAgent(adminId: string, input: unknown) {
 }
 
 /** Approve a registered member without replacing their password or wallet. */
-export async function approveExistingMemberAgent(adminId: string, input: unknown, expectedUserId?: string) {
+export async function approveExistingMemberAgent(
+  db: TransactionalDatabase,
+  adminId: string,
+  input: unknown,
+  expectedUserId?: string
+) {
+  requireDb(db);
   const parsed = existingAgentSchema.safeParse(input);
   if (!parsed.success) throw ApiError.badRequest('A valid member email, display name and country are required.');
   const args = parsed.data;
-  await assertPlatformAdmin(adminId);
+  await assertStaffAdmin(db, adminId);
   try {
-    return await prisma.$transaction(async tx => {
+    return await db.$transaction(async tx => {
       await tx.$queryRaw`SELECT id FROM public.users WHERE id=${adminId} FOR SHARE`;
       const admin = await tx.user.findUnique({ where: { id: adminId }, select: { role: true, status: true } });
       if (!admin || admin.status !== 'ACTIVE' || !['ADMIN', 'SUPER_ADMIN'].includes(admin.role))
@@ -173,7 +197,9 @@ export async function approveExistingMemberAgent(adminId: string, input: unknown
     });
   } catch (error) { sanitize(error); }
 }
-export async function activateAdminAgent(input: unknown) {
+/** Agent self-activation: member-facing, so it uses the credential client, not staff. */
+export async function activateAdminAgent(credentialDb: CredentialDatabase, input: unknown) {
+  requireDb(credentialDb);
   const parsed = activateAgentSchema.safeParse(input);
   if (!parsed.success)
     throw ApiError.badRequest(
@@ -181,7 +207,7 @@ export async function activateAdminAgent(input: unknown) {
     );
   const args = parsed.data;
   try {
-    const candidate = await prisma.user.findUnique({
+    const candidate = await credentialDb.user.findUnique({
       where: { email: args.email },
       include: { agentAccountSetup: true },
     });
@@ -202,7 +228,7 @@ export async function activateAdminAgent(input: unknown) {
     if (await verifyPassword(args.newPassword, setup.credentialHash))
       throw ApiError.badRequest('Choose a new password different from the temporary password');
     const passwordHash = await hashPassword(args.newPassword);
-    await prisma.$transaction(async (tx) => {
+    await credentialDb.$transaction(async (tx) => {
       // Same lock ordering on all account changes: user, then setup row.
       await tx.$queryRaw`SELECT id FROM public.users WHERE id=${candidate.id} FOR UPDATE`;
       const current = await tx.user.findUnique({
@@ -240,23 +266,31 @@ export async function activateAdminAgent(input: unknown) {
   }
 }
 
-export async function listPendingAgentAccounts(adminId: string) {
-  await assertPlatformAdmin(adminId);
-  return prisma.agentAccountSetup.findMany({
-    where: { consumedAt: null, user: { status: 'PENDING_VERIFICATION' } },
-    take: 100,
-    orderBy: [{ createdAt: 'desc' }, { userId: 'desc' }],
-    select: { userId: true, expiresAt: true, user: { select: { username: true, email: true } } },
+export async function listPendingAgentAccounts(db: TransactionalDatabase, adminId: string) {
+  return requireDb(db).$transaction(async (tx) => {
+    await assertPlatformAdminWith(tx, adminId);
+    return tx.agentAccountSetup.findMany({
+      where: { consumedAt: null, user: { status: 'PENDING_VERIFICATION' } },
+      take: 100,
+      orderBy: [{ createdAt: 'desc' }, { userId: 'desc' }],
+      select: { userId: true, expiresAt: true, user: { select: { username: true, email: true } } },
+    });
   });
 }
-export async function reissueAgentPassword(adminId: string, userId: string, input: unknown) {
+export async function reissueAgentPassword(
+  db: TransactionalDatabase,
+  adminId: string,
+  userId: string,
+  input: unknown
+) {
+  requireDb(db);
   const parsed = z.object({ temporaryPassword: safePassword }).strict().safeParse(input);
   if (!parsed.success || !z.string().uuid().safeParse(userId).success)
     throw ApiError.badRequest('Valid account and strong temporary password required');
-  await assertPlatformAdmin(adminId);
+  await assertStaffAdmin(db, adminId);
   try {
     const credentialHash = await hashPassword(parsed.data.temporaryPassword);
-    return await prisma.$transaction(async (tx) => {
+    return await db.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM public.users WHERE id=${adminId} FOR SHARE`;
       const admin = await tx.user.findUnique({ where: { id: adminId } });
       if (!admin || admin.status !== 'ACTIVE' || !['ADMIN', 'SUPER_ADMIN'].includes(admin.role))

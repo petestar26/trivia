@@ -52,7 +52,7 @@ it('approves an existing member once, preserves credentials and wallet, and reje
   const f = await fixture();
   await prisma.wallet.create({ data: { userId: f.member.id } });
   const attempts = await Promise.allSettled(
-    [1, 2].map(() => approveExistingMemberAgent(f.admin.id, f.input))
+    [1, 2].map(() => approveExistingMemberAgent(credentialDb, f.admin.id, f.input))
   );
   expect(attempts.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
   expect(await prisma.agent.count({ where: { userId: f.member.id } })).toBe(1);
@@ -76,32 +76,32 @@ it('approves an existing member once, preserves credentials and wallet, and reje
     })
   ).toBe(1);
   await expect(
-    approveExistingMemberAgent(f.admin.id, { ...f.input, role: 'ADMIN' })
+    approveExistingMemberAgent(credentialDb, f.admin.id, { ...f.input, role: 'ADMIN' })
   ).rejects.toMatchObject({ statusCode: 400 });
 });
 
 it('rejects non-admin enrollment, inactive members/countries, staff identities and unknown email', async () => {
   const f = await fixture();
-  await expect(approveExistingMemberAgent(f.member.id, f.input)).rejects.toMatchObject({
+  await expect(approveExistingMemberAgent(credentialDb, f.member.id, f.input)).rejects.toMatchObject({
     statusCode: 403,
   });
   await expect(
-    approveExistingMemberAgent(f.admin.id, { ...f.input, email: `${randomUUID()}@example.test` })
+    approveExistingMemberAgent(credentialDb, f.admin.id, { ...f.input, email: `${randomUUID()}@example.test` })
   ).rejects.toMatchObject({ statusCode: 404 });
   await prisma.user.update({ where: { id: f.member.id }, data: { status: 'SUSPENDED' } });
-  await expect(approveExistingMemberAgent(f.admin.id, f.input)).rejects.toMatchObject({
+  await expect(approveExistingMemberAgent(credentialDb, f.admin.id, f.input)).rejects.toMatchObject({
     statusCode: 400,
   });
   await prisma.user.update({
     where: { id: f.member.id },
     data: { status: 'ACTIVE', role: 'ADMIN' },
   });
-  await expect(approveExistingMemberAgent(f.admin.id, f.input)).rejects.toMatchObject({
+  await expect(approveExistingMemberAgent(credentialDb, f.admin.id, f.input)).rejects.toMatchObject({
     statusCode: 400,
   });
   await prisma.user.update({ where: { id: f.member.id }, data: { role: 'USER' } });
   await prisma.country.update({ where: { id: f.country.id }, data: { isActive: false } });
-  await expect(approveExistingMemberAgent(f.admin.id, f.input)).rejects.toMatchObject({
+  await expect(approveExistingMemberAgent(credentialDb, f.admin.id, f.input)).rejects.toMatchObject({
     statusCode: 400,
   });
   expect(await prisma.agent.count({ where: { userId: f.member.id } })).toBe(0);
@@ -109,7 +109,7 @@ it('rejects non-admin enrollment, inactive members/countries, staff identities a
 
 it('returns scoped agent operations and safe account details without creating a wallet', async () => {
   const f = await fixture();
-  const agent = await approveExistingMemberAgent(f.admin.id, f.input);
+  const agent = await approveExistingMemberAgent(credentialDb, f.admin.id, f.input);
   const overview = await agentOverview(f.member.id);
   expect(overview.agent.id).toBe(agent.agentId);
   expect(overview.inventory.available).toBe(0);
@@ -138,7 +138,7 @@ it('returns scoped agent operations and safe account details without creating a 
 
 it('rejects stale agent changes and blocks suspended agents from their workspace', async () => {
   const f = await fixture();
-  const agent = await approveExistingMemberAgent(f.admin.id, f.input);
+  const agent = await approveExistingMemberAgent(credentialDb, f.admin.id, f.input);
   const before = await prisma.agent.findUniqueOrThrow({ where: { id: agent.agentId } });
   await expect(
     suspendAgent(f.admin.id, agent.agentId, 'Fixture review', {
@@ -168,7 +168,7 @@ it('moderates only ordinary members with a fresh version and preserves financial
     expectedUpdatedAt: f.member.updatedAt.toISOString(),
   };
   const attempts = await Promise.allSettled(
-    [1, 2].map(() => setMemberAccountStatus(f.admin.id, f.member.id, input))
+    [1, 2].map(() => setMemberAccountStatus(credentialDb, f.admin.id, f.member.id, input))
   );
   expect(attempts.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
   const paused = await prisma.user.findUniqueOrThrow({ where: { id: f.member.id } });
@@ -183,16 +183,16 @@ it('moderates only ordinary members with a fresh version and preserves financial
     })
   ).toBe(1);
   expect(await prisma.walletTransaction.count({ where: { userId: f.member.id } })).toBe(0);
-  await setMemberAccountStatus(f.admin.id, f.member.id, {
+  await setMemberAccountStatus(credentialDb, f.admin.id, f.member.id, {
     ...input,
     status: 'ACTIVE',
     expectedUpdatedAt: paused.updatedAt.toISOString(),
   });
-  await expect(setMemberAccountStatus(f.admin.id, f.admin.id, input)).rejects.toMatchObject({
+  await expect(setMemberAccountStatus(credentialDb, f.admin.id, f.admin.id, input)).rejects.toMatchObject({
     statusCode: 403,
   });
   await prisma.user.update({ where: { id: f.member.id }, data: { role: 'ADMIN' } });
-  await expect(setMemberAccountStatus(f.admin.id, f.member.id, input)).rejects.toMatchObject({
+  await expect(setMemberAccountStatus(credentialDb, f.admin.id, f.member.id, input)).rejects.toMatchObject({
     statusCode: 403,
   });
 });
@@ -208,13 +208,13 @@ it('changes an authenticated password only with current proof and revokes prior 
     },
   });
   await expect(
-    changeOwnPassword(f.member.id, { currentPassword: 'wrong', newPassword })
+    changeOwnPassword(credentialDb, f.member.id, { currentPassword: 'wrong', newPassword })
   ).rejects.toMatchObject({ statusCode: 401 });
   await expect(
-    changeOwnPassword(f.member.id, { currentPassword: password, newPassword: password })
+    changeOwnPassword(credentialDb, f.member.id, { currentPassword: password, newPassword: password })
   ).rejects.toMatchObject({ statusCode: 400 });
   const attempts = await Promise.allSettled(
-    [1, 2].map(() => changeOwnPassword(f.member.id, { currentPassword: password, newPassword }))
+    [1, 2].map(() => changeOwnPassword(credentialDb, f.member.id, { currentPassword: password, newPassword }))
   );
   expect(attempts.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
   const updated = await prisma.user.findUniqueOrThrow({ where: { id: f.member.id } });

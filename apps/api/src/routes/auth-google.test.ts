@@ -21,7 +21,7 @@ beforeEach(async () => {
   db.$transaction.mockImplementation(fn => fn(db));
   server = Fastify(); await server.register(cookie);
   server.setErrorHandler((err: FastifyError, _req: FastifyRequest, reply: FastifyReply) => reply.code(err instanceof ApiError ? err.statusCode : err.statusCode ?? 500).send({ error: { message: err.message, code: (err as ApiError).code } }));
-  await server.register(authRoutes, { prefix: '/api/v1/auth' });
+  await server.register(authRoutes, { prefix: '/api/v1/auth', db: db as never, credentialDb: db as never });
 });
 afterEach(async () => server.close());
 const send = (body: object = { credential: 'signed-google-token', username: 'fixture' }, origin = 'https://app.example.test', cookieValue = 'sp_google_nonce=raw-fixture') => server.inject({ method: 'POST', url: '/api/v1/auth/google', headers: { origin, cookie: cookieValue }, payload: body });

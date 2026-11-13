@@ -12,6 +12,8 @@ const m = vi.hoisted(() => ({
   $queryRaw: vi.fn(),
 }));
 vi.mock('@socialplay/database', () => ({ prisma: m }));
+// Explicit staff client: unauthorized requests must never open a staff transaction.
+const staff = vi.hoisted(() => ({ mode: 'dormant', $transaction: vi.fn(), verify: vi.fn(), $disconnect: vi.fn() }));
 vi.mock('../middleware/index.js', async (importOriginal) => {
   const actual = await importOriginal<any>();
   return {
@@ -37,7 +39,7 @@ beforeEach(async () => {
   app.setErrorHandler((e: FastifyError, _req: FastifyRequest, reply: FastifyReply) =>
     reply.status(e.statusCode ?? 500).send({ message: e.message })
   );
-  await app.register(workspaceRoutes, { prefix: '/workspaces' });
+  await app.register(workspaceRoutes, { prefix: '/workspaces', staffDb: staff as never });
 });
 afterEach(() => app.close());
 const read = (path: string) =>
@@ -61,6 +63,14 @@ it('denies anonymous, demoted and suspended actors before member moderation', as
     m.user.findUnique.mockResolvedValue(actor);
     expect((await app.inject({ ...route, headers: { authorization: 'fixture' } })).statusCode).toBe(403);
   }
+  expect(staff.$transaction).not.toHaveBeenCalled();
+});
+it('refuses to register without an explicit staff database', async () => {
+  const bare = Fastify();
+  await expect(bare.register(workspaceRoutes as never, { prefix: '/workspaces' }).ready()).rejects.toThrow(
+    'STAFF_DATABASE_REQUIRED'
+  );
+  await bare.close();
 });
 it('requires authentication and an active assigned agent for the overview', async () => {
   expect((await app.inject({ url: '/workspaces/agent/overview' })).statusCode).toBe(401);

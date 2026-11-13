@@ -22,7 +22,7 @@ beforeEach(async () => {
   db.$transaction.mockImplementation(fn => fn(db));
   server = Fastify(); await server.register(cookie); await server.register(rateLimit);
   server.setErrorHandler((err: FastifyError, _req: FastifyRequest, reply: FastifyReply) => reply.code(err instanceof ApiError ? err.statusCode : err.statusCode ?? 500).send({ message: err.message }));
-  await server.register(authRoutes, { prefix: '/auth' });
+  await server.register(authRoutes, { prefix: '/auth', db: db as never, credentialDb: db as never });
 });
 afterEach(async () => { await server.close(); });
 const send = (route: string, payload: object) => server.inject({ method: 'POST', url: '/auth/' + route, payload });
@@ -59,7 +59,7 @@ describe('phone/password identities without verification', () => {
     db.userAuthIdentity.findUnique.mockResolvedValue({ user });
     const result = await send('login', { phone: '+251 911 234567', password });
     expect(result.statusCode, result.body).toBe(200);
-    expect(db.userAuthIdentity.findUnique).toHaveBeenCalledWith({ where: { provider_providerSubject: { provider: 'PHONE', providerSubject: '+251911234567' } }, include: { user: true } });
+    expect(db.userAuthIdentity.findUnique).toHaveBeenCalledWith({ where: { provider_providerSubject: { provider: 'PHONE', providerSubject: '+251911234567' } }, select: { user: { select: { id: true, email: true, username: true, role: true, status: true, tokenVersion: true, passwordHash: true, displayName: true, createdAt: true, isVerified: true } } } });
     expect(db.user.findUnique).not.toHaveBeenCalled();
   });
   it.each(['missing', 'wrong-password', 'provider-only', 'banned'])('denies %s without a session', async kind => {

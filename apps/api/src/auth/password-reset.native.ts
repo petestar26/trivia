@@ -41,7 +41,7 @@ beforeAll(async () => {
   await app.register(cookie);
   await app.register(jwt, { secret: config.JWT_ACCESS_SECRET });
   app.setErrorHandler(errorHandler);
-  await app.register(authRoutes, { prefix: '/auth' });
+  await app.register(authRoutes, { prefix: '/auth', db: prisma, credentialDb });
   app.get('/private', { preHandler: authenticate }, async () => ({ ok: true }));
   await app.ready();
 });
@@ -60,14 +60,14 @@ it('allows one reset winner, keeps the administrator role, and revokes old sessi
   expect(
     (await app.inject({ url: '/private', headers: { authorization: oldAuth } })).statusCode
   ).toBe(200);
-  const link = await issueOwnerReset(user.id, user.email!);
+  const link = await issueOwnerReset(credentialDb, user.id, user.email!);
   expect(
     (await app.inject({ url: '/private', headers: { authorization: oldAuth } })).statusCode
   ).toBe(401);
   const during = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
   const duringAuth = authorization(during);
   const attempts = await Promise.allSettled(
-    [1, 2, 3].map(() => completePasswordReset({ token: link.token, password: newPassword }))
+    [1, 2, 3].map(() => completePasswordReset(credentialDb, { token: link.token, password: newPassword }))
   );
   expect(attempts.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
   const updated = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
@@ -101,42 +101,42 @@ it('allows one reset winner, keeps the administrator role, and revokes old sessi
 
 it('rejects forged, expired, reused and superseded links', async () => {
   const user = await account();
-  const old = await issueOwnerReset(user.id, user.email!);
+  const old = await issueOwnerReset(credentialDb, user.id, user.email!);
   expect(() => readResetToken(`x${old.token}`)).toThrow('invalid');
   const now = vi.spyOn(Date, 'now').mockReturnValue(Date.parse(old.expiresAt) + 1);
   expect(() => readResetToken(old.token)).toThrow('expired');
   now.mockRestore();
-  const current = await issueOwnerReset(user.id, user.email!);
-  await expect(completePasswordReset({ token: old.token, password: newPassword })).rejects.toThrow(
+  const current = await issueOwnerReset(credentialDb, user.id, user.email!);
+  await expect(completePasswordReset(credentialDb, { token: old.token, password: newPassword })).rejects.toThrow(
     'invalid'
   );
-  await completePasswordReset({ token: current.token, password: newPassword });
+  await completePasswordReset(credentialDb, { token: current.token, password: newPassword });
   await expect(
-    completePasswordReset({ token: current.token, password: newPassword })
+    completePasswordReset(credentialDb, { token: current.token, password: newPassword })
   ).rejects.toThrow('already used');
 });
 
 it('does not bypass suspension, role changes, account matching, or password strength', async () => {
   const user = await account();
-  await expect(issueOwnerReset(user.id, 'wrong@example.test')).rejects.toThrow(
+  await expect(issueOwnerReset(credentialDb, user.id, 'wrong@example.test')).rejects.toThrow(
     'Exact active account'
   );
-  const link = await issueOwnerReset(user.id, user.email!);
-  await expect(completePasswordReset({ token: link.token, password: 'weak' })).rejects.toThrow(
+  const link = await issueOwnerReset(credentialDb, user.id, user.email!);
+  await expect(completePasswordReset(credentialDb, { token: link.token, password: 'weak' })).rejects.toThrow(
     '8 or more'
   );
   await expect(
-    completePasswordReset({ token: link.token, password: 'Aa1!' + '🎁'.repeat(20) })
+    completePasswordReset(credentialDb, { token: link.token, password: 'Aa1!' + '🎁'.repeat(20) })
   ).rejects.toThrow('72 UTF-8');
   await prisma.user.update({ where: { id: user.id }, data: { role: 'USER' } });
-  await expect(completePasswordReset({ token: link.token, password: newPassword })).rejects.toThrow(
+  await expect(completePasswordReset(credentialDb, { token: link.token, password: newPassword })).rejects.toThrow(
     'invalid'
   );
   await prisma.user.update({
     where: { id: user.id },
     data: { role: 'ADMIN', status: 'SUSPENDED' },
   });
-  await expect(completePasswordReset({ token: link.token, password: newPassword })).rejects.toThrow(
+  await expect(completePasswordReset(credentialDb, { token: link.token, password: newPassword })).rejects.toThrow(
     'invalid'
   );
   expect(
@@ -149,7 +149,7 @@ it('does not bypass suspension, role changes, account matching, or password stre
 
 it('protects browser origins and returns a private result without leaking credentials', async () => {
   const user = await account();
-  const link = await issueOwnerReset(user.id, user.email!);
+  const link = await issueOwnerReset(credentialDb, user.id, user.email!);
   const payload = { token: link.token, password: newPassword };
   expect(
     (
