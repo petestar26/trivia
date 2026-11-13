@@ -13,6 +13,7 @@ import { workspaceRoutes } from './workspaces.js';
 import { socialGroupRoutes } from '../groups/routes.js';
 import { FastifyInstance } from 'fastify';
 import { authRoutes } from './auth.js';
+import { resetIssuanceMode } from '../auth/password-reset.js';
 import { groupRoutes } from './groups.js';
 import { chatRoutes } from './chat.js';
 import { storageRoutes } from './storage.js';
@@ -76,7 +77,12 @@ export async function registerRoutes(server: FastifyInstance): Promise<void> {
     staffDb,
     statusApproval: createStatusApprovalSigner(process.env),
   });
-  await server.register(authRoutes, { prefix: '/auth', db: prisma, credentialDb });
+  await server.register(authRoutes, {
+    prefix: '/auth',
+    db: prisma,
+    credentialDb,
+    resetIssuance: resetIssuanceMode(process.env),
+  });
   await server.register(socialGroupRoutes, { prefix: '/groups' });
   await server.register(groupRoutes, { prefix: '/groups' });
   await server.register(groupPvpRoutes, { prefix: '/groups' });

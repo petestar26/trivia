@@ -20,6 +20,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DB=staff_identity_rehearsal_throwaway
 BOUNDARY="$ROOT/docs/deployment/staff-member-status-boundary.sql"
+ISSUANCE="$ROOT/docs/deployment/owner-password-reset-issuance.sql"
 INVENTORY="$ROOT/docs/deployment/staff-identity-inventory.sql"
 SIG='public.staff_set_member_status(text, text, text, text, text, integer, text, text, text, text)'
 
@@ -60,6 +61,7 @@ as() {  # as <login> [psql args...]: connects to the rehearsal database
 }
 url() { printf 'postgresql://sir_%s:%s@%s:%s/%s' "$1" "${PW[$1]}" "$HOST" "$PORT" "$DB"; }
 install_boundary() { as migrator -f "$BOUNDARY" 2>"$WORK/install.err" || { cat "$WORK/install.err" >&2; fail 'boundary install'; }; }
+install_issuance() { as migrator -f "$ISSUANCE" 2>"$WORK/install.err" || { cat "$WORK/install.err" >&2; fail 'reset issuance install'; }; }
 # Keys go in as bind parameters: a failing install logs "$1, $2", never the key.
 install_key() {  # install_key <function> <key id> <hex key>
   # shellcheck disable=SC2016  # $1/$2 are SQL placeholders, not shell variables
@@ -122,15 +124,17 @@ grep -q '^reach|sir_migrator|superuser=false,member_of_users_owner=true,can_set_
   || fail 'migrator must reach the owner only through SET'
 pass 'baseline inventory recorded; runtime reaches no owner'
 
-# 2. Install the boundary (no grants) and verify it changes nothing else.
-install_boundary
+# 2. Install the status boundary and the reset issuance records (no grants);
+#    verify they change nothing else.
+install_boundary; install_issuance
 inventory installed
-unexpected="$(changed baseline installed | grep -vE 'staff_status_approval|staff_set_member_status|^[<>] owner\|objects in public\|' || true)"
-[[ -z "$unexpected" ]] || { echo "$unexpected"; fail 'install changed something outside the boundary'; }
+unexpected="$(changed baseline installed \
+  | grep -vE 'staff_status_approval|staff_set_member_status|owner_password_reset|^[<>] owner\|objects in public\|' || true)"
+[[ -z "$unexpected" ]] || { echo "$unexpected"; fail 'install changed something outside the boundary and issuance records'; }
 changed baseline installed | grep -E '^[<>] grant\|' && fail 'install granted something'
-install_boundary; inventory reinstalled
+install_boundary; install_issuance; inventory reinstalled
 [[ -z "$(changed installed reinstalled)" ]] || fail 'reinstall is not idempotent'
-pass 'boundary installed by the owner: grants nothing, touches nothing else, reinstall idempotent'
+pass 'boundary and reset issuance records installed by the owner: grant nothing, touch nothing else, reinstall idempotent'
 
 # 3. Activation steps, rehearsed here only: status key, staff grants, EXECUTE.
 install_key staff_status_approval.install_key "$STATUS_KEY_ID" "$STATUS_KEY"
@@ -174,6 +178,8 @@ as staff -c "UPDATE users SET status = 'SUSPENDED' WHERE id = '$member_id'" 2>/d
 as runtime -c "UPDATE users SET status = 'SUSPENDED' WHERE id = '$member_id'" 2>/dev/null && fail 'runtime updated status directly'
 for who in staff runtime; do
   as "$who" -c 'SELECT 1 FROM staff_status_approval.keys' 2>/dev/null && fail "$who read the status key table"
+  as "$who" -c 'SELECT 1 FROM owner_password_reset.issuances' 2>/dev/null && fail "$who read the reset issuance records"
+  as "$who" -c "SELECT public.owner_password_reset_consume('x', 'y', 0)" 2>/dev/null && fail "$who consumed a reset record"
   as "$who" -c 'SELECT 1 FROM public.ledger_approval_keys' 2>/dev/null && fail "$who read the ledger key table"
 done
 as migrator -Atc "SELECT public.ledger_apply_runtime_grants('sir_runtime')" >/dev/null
@@ -209,7 +215,9 @@ pass 'rotated: new key verifies, retired key refused'
 # 7. Rollback level 2 (full removal; destroys approval evidence, rehearsal only).
 as migrator -c "REVOKE EXECUTE ON FUNCTION $SIG FROM sir_staff" -c "DROP FUNCTION IF EXISTS $SIG" \
             -c "REVOKE SELECT ON public.users FROM sir_staff" -c "REVOKE USAGE ON SCHEMA public FROM sir_staff" \
-            -c "DROP SCHEMA staff_status_approval CASCADE" 2>/dev/null
+            -c "DROP SCHEMA staff_status_approval CASCADE" \
+            -c "DROP FUNCTION IF EXISTS public.owner_password_reset_consume(text, text, integer)" \
+            -c "DROP SCHEMA owner_password_reset CASCADE" 2>/dev/null
 inventory removed
 [[ -z "$(changed baseline removed)" ]] || { changed baseline removed; fail 'full removal did not restore the baseline'; }
 preflight removed

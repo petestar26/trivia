@@ -11,7 +11,7 @@ import { ErrorCode } from '@socialplay/shared';
 import { generateTokens, hashPassword, verifyPassword } from '../utils/auth.js';
 import { safeRecordActivity } from '../rewards/activity-service.js';
 import { getSocketServer } from '../realtime/broadcast.js';
-import { completePasswordReset } from '../auth/password-reset.js';
+import { completePasswordReset, type ResetIssuanceMode } from '../auth/password-reset.js';
 import { changeOwnPassword, type CredentialDatabase } from '../auth/change-password.js';
 import type { TransactionalDatabase } from '../database/identity.js';
 import {
@@ -32,6 +32,8 @@ export type AuthRouteOptions = {
   db: AuthDatabase;
   /** Logger-free client for password change and owner-issued reset completion. */
   credentialDb: CredentialDatabase;
+  /** Whether reset completion must consume the owner's issuance record. Default: dormant. */
+  resetIssuance?: ResetIssuanceMode;
 };
 
 // Explicit projections: refresh and returning sign-in never read password
@@ -55,7 +57,7 @@ export async function authRoutes(server: FastifyInstance, options: AuthRouteOpti
   server.post('/password-reset', {
     config: { rateLimit: { keyGenerator: request => anonymousRateLimitKey(request, config.WEB_GATEWAY_SECRET), max: 5, timeWindow: '15 minutes' } },
   }, async (request, reply) => {
-    const result = await completePasswordReset(credentialDb, request.body);
+    const result = await completePasswordReset(credentialDb, request.body, options.resetIssuance ?? 'dormant');
     clearAuthCookies(reply);
     return reply.send({ success: true, data: result });
   });

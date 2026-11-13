@@ -71,13 +71,23 @@ is what makes it matter.
 
 ## Recommendations (decisions, not applied)
 
-1. **Bind reset completion to an issuance record.** The owner CLI inserts the
-   nonce digest, account, version and expiry into an owner-only table. The
-   public route consumes it through an owner-defined function (single use)
-   before changing the password. Then a signing key alone cannot produce a
-   usable link, and completion enforces the owner authority the audit row
-   claims. This needs operator SQL and a short window (links last at most 15
-   minutes).
+1. **Bind reset completion to an issuance record. Built, dormant:**
+   `docs/deployment/owner-password-reset-issuance.sql` and
+   `PASSWORD_RESET_ISSUANCE=enforce`.
+   - Once installed, the owner CLI records each link's nonce, account, version
+     and expiry in an owner-only schema.
+   - When enforced, the public route must consume that record, once, through
+     an owner-defined function, in the same transaction that changes the
+     password.
+   - A correctly signed link the owner never issued is refused like any invalid
+     link, so the access secret alone no longer resets a password, and
+     completion enforces the owner authority that issuance claims.
+   - Unset, nothing changes. Any other value fails closed (503).
+   - Verified on disposable PostgreSQL in
+     `src/auth/password-reset-issuance.native.ts` (14 tests, 10 mutation
+     checks); setup and rollback are in `staff-identity-runbook.md`, section 9.
+   - Activating it is still a decision. Links issued before activation stop
+     working (they last at most 15 minutes).
 2. **Give resets their own key** (`PASSWORD_RESET_SIGNING_KEY`), held only by
    the API and the owner CLI, never derived from `JWT_ACCESS_SECRET`. Rotating
    it voids outstanding links only.

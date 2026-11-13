@@ -19,8 +19,10 @@ In every environment that is not disposable, these stay **unset**:
   on today's credential client.
 - `STAFF_DATABASE_URL`, `STAFF_DATABASE_ROLE`.
 - `STAFF_STATUS_APPROVAL_KEY_ID`, `STAFF_STATUS_APPROVAL_KEY`.
+- `PASSWORD_RESET_ISSUANCE` (section 9).
 
-Also: the boundary SQL is not installed, and no staff login exists.
+Also: neither the boundary SQL nor the reset issuance SQL is installed, and no
+staff login exists.
 Invitations are not implemented on this branch (the candidate's invitation
 flow was not ported), so there is nothing to switch on.
 
@@ -269,8 +271,8 @@ healthy throughout.
 
 - Ownership layout, and how and when to convert an existing database
   (`database-ownership-assessment.md`).
-- Reset-link binding to an owner issuance record, and a dedicated reset key
-  (`signing-authority.md`, finding 1).
+- Whether to activate reset issuance records (section 9; built, dormant), and
+  a dedicated reset key (`signing-authority.md`, finding 1).
 - Separate JWT secrets for workers, or remove them from worker configuration.
 - Whether the API may hold both the status signing key and the staff
   credential, or whether approvals move to a separate signer.
@@ -279,3 +281,54 @@ healthy throughout.
 - The connection-pooler mode: the guarded client refuses `SET ROLE` and needs
   `session_user` to be the staff login.
 - Porting invitations and guarded account creation, which stay inactive.
+
+## 9. Owner password-reset issuance records (separate decision)
+
+Closes `signing-authority.md` finding 1. It is independent of the staff
+identity and can be activated on its own.
+
+**Setup.** Run each step in a separate window from the staff steps.
+
+1. Take an inventory.
+2. As the users owner, install the records:
+
+   ```bash
+   psql -X -v ON_ERROR_STOP=1 -f docs/deployment/owner-password-reset-issuance.sql
+   ```
+
+   The inventory diff may change only lines naming `owner_password_reset`, and
+   the function count in `owner|objects in public|…`. No `grant|` line may
+   change.
+3. From then on the owner CLI records every link it issues. Confirm with one
+   synthetic account: issue a link, and check that
+   `key|owner_password_reset issuance records|present` appears.
+4. Allow the login behind the API's credential client to consume records:
+
+   ```sql
+   GRANT EXECUTE ON FUNCTION public.owner_password_reset_consume(text, text, integer) TO <credential login>;
+   ```
+
+5. Set `PASSWORD_RESET_ISSUANCE=enforce` on the API and restart. Links issued
+   before step 2 have no record and stop working; they last at most 15
+   minutes.
+
+**Verify, with synthetic accounts only.**
+
+- A link from the owner CLI resets the password once (HTTP 200), and a second
+  use returns 401.
+- A link computed from the signing secret alone returns 401 and changes
+  nothing.
+- `key|readable owner_password_reset.issuances|…` names no service login.
+- With `EXECUTE` revoked, resets return 503 and change nothing.
+
+**Rollback.**
+
+| Level | Steps | Effect |
+| --- | --- | --- |
+| 0 | Unset `PASSWORD_RESET_ISSUANCE` and restart | Back to signature-only completion. Records are kept |
+| 1 | `REVOKE EXECUTE` on the consume function, then `DROP FUNCTION IF EXISTS public.owner_password_reset_consume(text, text, integer);` | While enforced, resets return 503. Reinstalling the file restores it and keeps the records; grant `EXECUTE` again |
+| 2 (irreversible) | After exporting `owner_password_reset.issuances` under the retention policy, drop the function and `DROP SCHEMA owner_password_reset CASCADE;` | The owner CLI stops recording; the inventory returns to its baseline (rehearsal step 12) |
+
+Verified in `src/auth/password-reset-issuance.native.ts`; installation and
+full removal are also part of the disposable rehearsal (section 1).
+

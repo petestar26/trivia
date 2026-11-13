@@ -22,13 +22,14 @@
 --                 files;
 --   owner         owners of the database, of each non-system schema, and the
 --                 count of objects per owner in public and
---                 staff_status_approval (extension members listed apart);
+--                 staff_status_approval and owner_password_reset (extension
+--                 members listed apart);
 --   guard         users_privilege_guard: definition digest, owner, trigger
 --                 state; boundary and append-only triggers;
 --   definer       every SECURITY DEFINER function: owner, search_path, ACL;
 --   grant         every privilege held by anyone but the owner on schemas,
 --                 tables, columns, sequences and functions in public and
---                 staff_status_approval;
+--                 staff_status_approval and owner_password_reset;
 --   default_acl   default privileges that would apply to future objects;
 --   extension     extensions, versions, schemas, owners;
 --   key           key IDs and installed/retired dates (never the secret),
@@ -105,17 +106,17 @@ FROM (
            WHEN 'm' THEN 'matview' WHEN 'i' THEN 'index' WHEN 'I' THEN 'index' ELSE 'relation' END AS kind,
          EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_class'::regclass AND d.objid = c.oid AND d.deptype = 'e') AS ext
   FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-  WHERE n.nspname IN ('public', 'staff_status_approval') AND c.relkind NOT IN ('t', 'c')
+  WHERE n.nspname IN ('public', 'staff_status_approval', 'owner_password_reset') AND c.relkind NOT IN ('t', 'c')
   UNION ALL
   SELECT n.nspname, pg_get_userbyid(p.proowner), 'function',
          EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'e')
   FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-  WHERE n.nspname IN ('public', 'staff_status_approval')
+  WHERE n.nspname IN ('public', 'staff_status_approval', 'owner_password_reset')
   UNION ALL
   SELECT n.nspname, pg_get_userbyid(t.typowner), 'type',
          EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_type'::regclass AND d.objid = t.oid AND d.deptype = 'e')
   FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace
-  WHERE n.nspname IN ('public', 'staff_status_approval') AND t.typrelid = 0 AND t.typelem = 0
+  WHERE n.nspname IN ('public', 'staff_status_approval', 'owner_password_reset') AND t.typrelid = 0 AND t.typelem = 0
 ) x
 GROUP BY x.nsp, x.ext, x.owner, x.kind
 ORDER BY 1, 2, 3;
@@ -125,7 +126,8 @@ SELECT 'guard', 'function ' || p.oid::regprocedure::text,
   concat_ws(',', 'owner=' || pg_get_userbyid(p.proowner), 'md5=' || md5(pg_get_functiondef(p.oid)))
 FROM pg_proc p
 WHERE p.oid IN (to_regprocedure('public.users_privilege_guard()'),
-                to_regprocedure('staff_status_approval.approvals_append_only()'))
+                to_regprocedure('staff_status_approval.approvals_append_only()'),
+                to_regprocedure('owner_password_reset.issuances_guard()'))
 UNION ALL
 SELECT 'guard', 'trigger ' || t.tgrelid::regclass::text || '.' || t.tgname,
   concat_ws(',', 'function=' || t.tgfoid::regproc::text,
@@ -133,13 +135,14 @@ SELECT 'guard', 'trigger ' || t.tgrelid::regclass::text || '.' || t.tgname,
                    WHEN 'A' THEN 'always' END)
 FROM pg_trigger t
 WHERE NOT t.tgisinternal
-  AND t.tgrelid IN (to_regclass('public.users'), to_regclass('staff_status_approval.approvals'))
+  AND t.tgrelid IN (to_regclass('public.users'), to_regclass('staff_status_approval.approvals'),
+                    to_regclass('owner_password_reset.issuances'))
 UNION ALL
 SELECT 'guard', 'boundary ' || p.oid::regprocedure::text,
   concat_ws(',', 'owner=' || pg_get_userbyid(p.proowner), 'definer=' || p.prosecdef,
     'config=' || COALESCE(array_to_string(p.proconfig, ';'), 'none'), 'md5=' || md5(pg_get_functiondef(p.oid)))
 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-WHERE n.nspname = 'public' AND p.proname = 'staff_set_member_status'
+WHERE n.nspname = 'public' AND p.proname IN ('staff_set_member_status', 'owner_password_reset_consume')
 ORDER BY 1, 2;
 
 -- definer
@@ -156,7 +159,7 @@ ORDER BY 1, 2;
 
 -- grant: everything held by someone other than the object's owner.
 WITH ns AS (
-  SELECT oid, nspname, nspacl, nspowner FROM pg_namespace WHERE nspname IN ('public', 'staff_status_approval')),
+  SELECT oid, nspname, nspacl, nspowner FROM pg_namespace WHERE nspname IN ('public', 'staff_status_approval', 'owner_password_reset')),
 acl AS (
   SELECT 'schema ' || ns.nspname AS obj, ns.nspowner AS owner,
          (aclexplode(COALESCE(ns.nspacl, acldefault('n', ns.nspowner)))).*
@@ -198,7 +201,8 @@ SELECT 'key', 'readable ' || k.tab, COALESCE((
   WHERE r.rolcanlogin AND (r.rolsuper OR has_any_column_privilege(r.oid, k.reg, 'SELECT')
     OR pg_has_role(r.oid, 'pg_read_all_data', 'MEMBER'))), 'none')
 FROM (SELECT t AS tab, to_regclass(t) AS reg
-      FROM unnest(ARRAY['public.ledger_approval_keys', 'staff_status_approval.keys']) t) k
+      FROM unnest(ARRAY['public.ledger_approval_keys', 'staff_status_approval.keys',
+                        'owner_password_reset.issuances']) t) k
 WHERE k.reg IS NOT NULL
 ORDER BY 1, 2;
 -- Key IDs and dates only (never the secret column); skipped when the table is absent.
@@ -207,6 +211,9 @@ SELECT CASE WHEN to_regclass('staff_status_approval.keys') IS NULL THEN 'SELECT 
   END AS q \gset
 :q;
 SELECT 'key', 'staff_status_approval evidence rows', CASE WHEN to_regclass('staff_status_approval.approvals') IS NULL THEN 'absent'
+  ELSE 'present' END
+UNION ALL
+SELECT 'key', 'owner_password_reset issuance records', CASE WHEN to_regclass('owner_password_reset.issuances') IS NULL THEN 'absent'
   ELSE 'present' END;
 
 -- migration

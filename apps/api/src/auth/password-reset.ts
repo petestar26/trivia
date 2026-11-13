@@ -2,6 +2,7 @@ import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import { config } from '@socialplay/config';
 import { passwordSchema } from '@socialplay/shared';
+import type { Prisma } from '@socialplay/database';
 import type { TransactionalDatabase } from '../database/identity.js';
 import { hashPassword } from '../utils/auth.js';
 import { ApiError } from '../middleware/api-error.js';
@@ -27,6 +28,21 @@ const invalid = () =>
   ApiError.unauthorized(
     'This reset link is invalid, expired, or already used. Request a new link.'
   );
+const unavailable = () => ApiError.serviceUnavailable('Password reset is temporarily unavailable');
+
+/**
+ * Whether completing a reset must consume the owner's issuance record
+ * (docs/deployment/owner-password-reset-issuance.sql). Unset: dormant, today's
+ * behaviour. "enforce": required. Anything else: resets fail closed (503), so a
+ * typo never silently drops the check.
+ */
+export type ResetIssuanceMode = 'dormant' | 'enforce' | 'unavailable';
+export function resetIssuanceMode(env: NodeJS.ProcessEnv): ResetIssuanceMode {
+  const value = env.PASSWORD_RESET_ISSUANCE;
+  if (value === undefined || value === '') return 'dormant';
+  return value === 'enforce' ? 'enforce' : 'unavailable';
+}
+const RECORD_ISSUANCE = 'owner_password_reset.record_issuance(uuid,text,integer,timestamptz)';
 
 export function readResetToken(token: string): Claims {
   try {
@@ -69,6 +85,13 @@ export async function issueOwnerReset(db: TransactionalDatabase, userId: string,
         exp: Date.now() + 15 * 60_000,
       };
       await tx.user.update({ where: { id: user.id }, data: { tokenVersion: { increment: 1 } }, select: { id: true } });
+      // Record the issuance once the owner has installed the records; the API
+      // then refuses, when enforced, any link the owner did not issue.
+      const [hook] = await tx.$queryRaw<{ installed: boolean }[]>`
+        SELECT pg_catalog.to_regprocedure(${RECORD_ISSUANCE}) IS NOT NULL AS installed`;
+      if (hook?.installed)
+        await tx.$executeRaw`SELECT owner_password_reset.record_issuance(
+          ${claims.nonce}::uuid, ${user.id}, ${claims.version}::integer, ${new Date(claims.exp)}::timestamptz)`;
       await tx.session.deleteMany({ where: { userId: user.id } });
       await tx.auditLog.create({
         data: {
@@ -96,8 +119,13 @@ export async function issueOwnerReset(db: TransactionalDatabase, userId: string,
   }
 }
 
-export async function completePasswordReset(db: TransactionalDatabase, input: unknown) {
+export async function completePasswordReset(
+  db: TransactionalDatabase,
+  input: unknown,
+  issuance: ResetIssuanceMode = 'dormant'
+) {
   if (!db) throw new Error('CREDENTIAL_DATABASE_REQUIRED');
+  if (issuance === 'unavailable') throw unavailable();
   const parsed = z
     .object({
       token: z.string().max(2048),
@@ -128,6 +156,7 @@ export async function completePasswordReset(db: TransactionalDatabase, input: un
         claims.exp <= Date.now()
       )
         throw invalid();
+      if (issuance === 'enforce') await consumeIssuance(tx, claims);
       await tx.user.update({
         where: { id: user.id },
         data: { passwordHash: hash, tokenVersion: { increment: 1 } },
@@ -157,4 +186,22 @@ export async function completePasswordReset(db: TransactionalDatabase, input: un
     /* Token versions also guard every socket packet and private delivery. */
   }
   return { reset: true };
+}
+
+/**
+ * Consume the owner's record of this link, in the password-change transaction.
+ * Every refusal reads as an invalid link; a missing boundary or grant fails
+ * closed (42883: not installed, 42501: EXECUTE not granted).
+ */
+async function consumeIssuance(tx: Prisma.TransactionClient, claims: Claims) {
+  let rows: { outcome: string | null }[];
+  try {
+    rows = await tx.$queryRaw<{ outcome: string | null }[]>`
+      SELECT public.owner_password_reset_consume(${claims.nonce}, ${claims.sub}, ${claims.version}::integer) AS outcome`;
+  } catch (error) {
+    const code = (error as { meta?: { code?: unknown } }).meta?.code;
+    if (code === '42883' || code === '42501') throw unavailable();
+    throw error;
+  }
+  if (rows[0]?.outcome !== 'OK') throw invalid();
 }
