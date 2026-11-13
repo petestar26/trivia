@@ -363,6 +363,8 @@ jobs:
         run: pnpm --filter api exec vitest run --config vitest.session.config.ts
       - name: Build web and typecheck
         env:
+          # Do not bundle React's development runtime from the job's test environment.
+          NODE_ENV: production
           VITE_API_PROXY: 'true'
         run: pnpm --filter web build
       - name: Generated PWA navigation contracts
