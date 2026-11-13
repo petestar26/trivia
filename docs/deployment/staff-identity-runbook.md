@@ -229,7 +229,9 @@ reviews the evidence.
    - its login is disabled;
    - the URL names another role.
 
-   Restoring each condition recovers without a restart.
+   Restoring the role (removing `CREATEROLE`, re-enabling login) recovers
+   without a restart; correcting the URL needs an environment change and a
+   restart.
 5. Run steps F–H. Run section 3, including two administrators suspending the
    same synthetic member at once (exactly one succeeds, the other gets 409).
 6. Run rollback levels 0 and 1 and recover from each. Rotate the key
