@@ -33,8 +33,8 @@ const INSTALL = readFileSync(
 );
 const SIGNATURE = 'public.staff_set_member_status(text,text,text,text,text,integer,text,text,text,text)';
 const UNINSTALL = `DROP FUNCTION IF EXISTS ${SIGNATURE}`;
-/** Throwaway database only: also removes keys and evidence. */
-const PURGE = 'DROP SCHEMA IF EXISTS staff_status_approval CASCADE';
+/** Throwaway database only: also removes keys, evidence and any schema a failed run left renamed. */
+const PURGE = 'DROP SCHEMA IF EXISTS staff_status_approval, staff_status_approval_moved CASCADE';
 const s = randomUUID().replaceAll('-', '').slice(0, 10);
 const roles = { runtime: `msb_runtime_${s}`, staff: `msb_staff_${s}` };
 const passwords = { runtime: randomUUID(), staff: randomUUID() };
@@ -268,11 +268,15 @@ describe('installation', () => {
       }
       // A same-named schema owned by anyone else is refused before anything is created in it.
       await exec('ALTER SCHEMA staff_status_approval RENAME TO staff_status_approval_moved');
-      await exec(`CREATE SCHEMA staff_status_approval AUTHORIZATION "${intruder}"`);
-      await expect(exec(INSTALL)).rejects.toThrow(/not owned by the owner of public\.users/);
-      await exec('DROP SCHEMA staff_status_approval');
-      await exec('ALTER SCHEMA staff_status_approval_moved RENAME TO staff_status_approval');
+      try {
+        await exec(`CREATE SCHEMA staff_status_approval AUTHORIZATION "${intruder}"`);
+        await expect(exec(INSTALL)).rejects.toThrow(/not owned by the owner of public\.users/);
+      } finally {
+        await exec('DROP SCHEMA IF EXISTS staff_status_approval CASCADE');
+        await exec('ALTER SCHEMA staff_status_approval_moved RENAME TO staff_status_approval');
+      }
     } finally {
+      await exec(`DROP OWNED BY "${intruder}"`).catch(() => undefined);
       await exec(`DROP ROLE IF EXISTS "${intruder}"`);
     }
     await exec(INSTALL);
