@@ -23,7 +23,7 @@ REVOKE ALL ON password_reset_private.issuances FROM PUBLIC;
 CREATE FUNCTION public.consume_owner_password_reset(
   p_nonce uuid, p_user_id text, p_role text, p_version integer, p_expiry timestamptz
 ) RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER
-SET search_path = pg_catalog
+SET search_path = pg_catalog, pg_temp
 AS $$
 DECLARE n integer;
 BEGIN

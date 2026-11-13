@@ -31,6 +31,11 @@ try {
     "SELECT a.privilege_type FROM pg_proc p CROSS JOIN LATERAL aclexplode(p.proacl) a WHERE p.oid='public.consume_owner_password_reset(uuid,text,text,integer,timestamptz)'::regprocedure AND a.grantee=0"
   );
   assert.equal(r.rows.length, 0);
+  r = await db.query(
+    "SELECT prosecdef, proconfig FROM pg_proc WHERE oid='public.consume_owner_password_reset(uuid,text,text,integer,timestamptz)'::regprocedure"
+  );
+  assert.equal(r.rows[0].prosecdef, true);
+  assert.deepEqual(r.rows[0].proconfig, ['search_path=pg_catalog, pg_temp']);
   console.log(
     'PASS: failed migration fully rolls back; retry succeeds; PUBLIC inherited defaults stripped for schema/table/function. In-memory only; no credentials created.'
   );

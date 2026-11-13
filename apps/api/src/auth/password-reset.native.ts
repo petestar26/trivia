@@ -462,3 +462,18 @@ it('fails closed during unavailable ledger and recovers without consuming the is
   }
   await completePasswordReset({ token: link.token, password: newPassword });
 });
+
+it('retains the exact I3 security-definer search path and no implicit PUBLIC execution', async () => {
+  const [definition] = await prisma.$queryRaw<
+    { prosecdef: boolean; proconfig: string[]; public_execute: boolean }[]
+  >`
+    SELECT p.prosecdef, p.proconfig, EXISTS (
+      SELECT 1 FROM aclexplode(p.proacl) a WHERE a.grantee=0 AND a.privilege_type='EXECUTE'
+    ) AS public_execute FROM pg_proc p
+    WHERE p.oid='public.consume_owner_password_reset(uuid,text,text,integer,timestamptz)'::regprocedure`;
+  expect(definition).toEqual({
+    prosecdef: true,
+    proconfig: ['search_path=pg_catalog, pg_temp'],
+    public_execute: false,
+  });
+});
