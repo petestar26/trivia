@@ -13,6 +13,7 @@ export default defineConfig({
       'src/database/no-default-fallback.test.ts',
       'src/database/staff-identity.native.ts',
       'src/database/member-status-boundary.native.ts',
+      'src/database/auth-restricted-identity.native.ts',
     ],
     fileParallelism: false,
     pool: 'forks',

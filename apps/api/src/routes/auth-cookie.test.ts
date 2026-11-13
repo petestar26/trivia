@@ -104,7 +104,7 @@ describe('browser cookie renewal and logout', () => {
     expect(r.headers['cache-control']).toBe('private, no-store');
     expect(r.cookies.map(c => c.name)).toEqual(['sp_access_token', 'sp_refresh_token']);
     expect(r.cookies.every(c => c.httpOnly && c.secure && c.sameSite === 'Lax')).toBe(true);
-    expect(db.session.delete).toHaveBeenCalledWith({ where: { id: 'session' } });
+    expect(db.session.delete).toHaveBeenCalledWith({ where: { id: 'session' }, select: { id: true } });
     expect(db.session.create).toHaveBeenCalledTimes(1);
   });
   it.each([undefined, 'null', '*', 'https://evil.test', 'https://app.example.test.evil.test'])('rejects untrusted cookie origin %s before looking up credentials', async (origin) => {

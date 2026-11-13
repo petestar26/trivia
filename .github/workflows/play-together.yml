@@ -19,6 +19,7 @@ on:
       - 'apps/api/src/providers/softaggregator/**'
       - 'apps/api/src/server.ts'
       - 'apps/api/src/routes/index.ts'
+      - 'apps/api/src/routes/auth.ts'
       - 'apps/api/src/routes/groups.ts'
       - 'apps/api/vitest.together*.ts'
       - 'apps/web/src/**'

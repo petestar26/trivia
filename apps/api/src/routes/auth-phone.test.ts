@@ -59,7 +59,7 @@ describe('phone/password identities without verification', () => {
     db.userAuthIdentity.findUnique.mockResolvedValue({ user });
     const result = await send('login', { phone: '+251 911 234567', password });
     expect(result.statusCode, result.body).toBe(200);
-    expect(db.userAuthIdentity.findUnique).toHaveBeenCalledWith({ where: { provider_providerSubject: { provider: 'PHONE', providerSubject: '+251911234567' } }, include: { user: true } });
+    expect(db.userAuthIdentity.findUnique).toHaveBeenCalledWith({ where: { provider_providerSubject: { provider: 'PHONE', providerSubject: '+251911234567' } }, select: { user: { select: { id: true, email: true, username: true, role: true, status: true, tokenVersion: true, passwordHash: true, displayName: true, createdAt: true, isVerified: true } } } });
     expect(db.user.findUnique).not.toHaveBeenCalled();
   });
   it.each(['missing', 'wrong-password', 'provider-only', 'banned'])('denies %s without a session', async kind => {

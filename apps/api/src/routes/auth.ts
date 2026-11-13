@@ -33,6 +33,12 @@ export type AuthRouteOptions = {
   credentialDb: CredentialDatabase;
 };
 
+// Explicit projections: refresh and returning sign-in never read password
+// material or whole rows, and writes return only the id they do not use.
+const sessionUserSelect = { id: true, email: true, username: true, role: true, status: true, tokenVersion: true } as const;
+const googleUserSelect = { ...sessionUserSelect, displayName: true, isVerified: true } as const;
+const loginUserSelect = { ...sessionUserSelect, passwordHash: true, displayName: true, createdAt: true, isVerified: true } as const;
+
 export async function authRoutes(server: FastifyInstance, options: AuthRouteOptions): Promise<void> {
   const { db, credentialDb } = options ?? ({} as Partial<AuthRouteOptions>);
   if (!db || !credentialDb) throw new Error('AUTH_DATABASE_REQUIRED');
@@ -102,6 +108,7 @@ export async function authRoutes(server: FastifyInstance, options: AuthRouteOpti
       const providerSubject = phone ?? email!;
       const existingIdentity = phone ? await db.userAuthIdentity.findUnique({
         where: { provider_providerSubject: { provider, providerSubject } },
+        select: { id: true },
       }) : null;
       if (existingIdentity) throw ApiError.conflict('Login identifier already registered');
 
@@ -124,6 +131,7 @@ export async function authRoutes(server: FastifyInstance, options: AuthRouteOpti
         where: {
           OR: [...(email ? [{ email }] : []), { username }],
         },
+        select: { email: true },
       });
 
       if (existingUser) {
@@ -173,6 +181,7 @@ export async function authRoutes(server: FastifyInstance, options: AuthRouteOpti
                 providerSubject,
                 verifiedAt: null,
               },
+              select: { id: true },
             });
 
             // Referral attribution (if a valid code was supplied).
@@ -196,6 +205,7 @@ export async function authRoutes(server: FastifyInstance, options: AuthRouteOpti
                   referrerUserId: referrer.id,
                   referralCode: suppliedCode,
                 },
+                select: { id: true },
               });
             }
 
@@ -209,6 +219,7 @@ export async function authRoutes(server: FastifyInstance, options: AuthRouteOpti
                 ip: request.ip,
                 expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
               },
+              select: { id: true },
             });
 
             return { user, tokens };
@@ -277,9 +288,9 @@ export async function authRoutes(server: FastifyInstance, options: AuthRouteOpti
       const { email, phone, password } = parsed.data;
       const identity = phone ? await db.userAuthIdentity.findUnique({
         where: { provider_providerSubject: { provider: 'PHONE', providerSubject: phone } },
-        include: { user: true },
+        select: { user: { select: loginUserSelect } },
       }) : null;
-      const user = phone ? identity?.user : await db.user.findUnique({ where: { email } });
+      const user = phone ? identity?.user : await db.user.findUnique({ where: { email }, select: loginUserSelect });
 
       if (!user) {
         throw ApiError.unauthorized('Invalid credentials');
@@ -307,6 +318,7 @@ export async function authRoutes(server: FastifyInstance, options: AuthRouteOpti
       await db.user.update({
         where: { id: user.id },
         data: { lastLoginAt: new Date() },
+        select: { id: true },
       });
 
       const tokens = generateTokens(user.id, user.email, user.username, [user.role], user.tokenVersion);
@@ -319,6 +331,7 @@ export async function authRoutes(server: FastifyInstance, options: AuthRouteOpti
           ip: request.ip,
           expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
         },
+        select: { id: true },
       });
 
       setAuthCookies(reply, tokens);
@@ -375,7 +388,7 @@ export async function authRoutes(server: FastifyInstance, options: AuthRouteOpti
 
       const session = await db.session.findUnique({
         where: { refreshToken },
-        include: { user: true },
+        select: { id: true, expiresAt: true, user: { select: sessionUserSelect } },
       });
 
       if (!session || session.expiresAt < new Date()) {
@@ -397,7 +410,9 @@ export async function authRoutes(server: FastifyInstance, options: AuthRouteOpti
           // secret as `key` so the refresh token's HS256 signature checks out.
           key: config.JWT_REFRESH_SECRET,
         });
-        if (decoded.tokenVersion !== session.user.tokenVersion) {
+        // The signed subject must own this session row: a valid token for one
+        // user must never rotate a session that belongs to another.
+        if (decoded.sub !== session.user.id || decoded.tokenVersion !== session.user.tokenVersion) {
           throw ApiError.unauthorized('Token revoked', { code: ErrorCode.TOKEN_EXPIRED });
         }
       } catch (err) {
@@ -425,7 +440,7 @@ export async function authRoutes(server: FastifyInstance, options: AuthRouteOpti
         await db.$transaction(async (tx) => {
           // Conditional delete: only succeeds if the session still matches
           // (a concurrent refresh may have already rotated it).
-          await tx.session.delete({ where: { id: session.id } });
+          await tx.session.delete({ where: { id: session.id }, select: { id: true } });
 
           await tx.session.create({
             data: {
@@ -435,6 +450,7 @@ export async function authRoutes(server: FastifyInstance, options: AuthRouteOpti
               ip: request.ip,
               expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
             },
+            select: { id: true },
           });
         });
       } catch (err) {
@@ -634,7 +650,7 @@ export async function authRoutes(server: FastifyInstance, options: AuthRouteOpti
       //    RETURNING LOGIN path immediately — collision checks never run.
       const existing = await db.userAuthIdentity.findUnique({
         where: { provider_providerSubject: { provider: 'GOOGLE', providerSubject: claims.sub } },
-        include: { user: true },
+        select: { id: true, user: { select: googleUserSelect } },
       });
 
       if (existing) {
@@ -712,6 +728,7 @@ export async function authRoutes(server: FastifyInstance, options: AuthRouteOpti
                 verifiedAt: new Date(),
                 lastUsedAt: new Date(),
               },
+              select: { id: true },
             });
 
             if (suppliedCode) {
@@ -728,6 +745,7 @@ export async function authRoutes(server: FastifyInstance, options: AuthRouteOpti
                   referrerUserId: referrer.id,
                   referralCode: suppliedCode,
                 },
+                select: { id: true },
               });
             }
 
@@ -741,6 +759,7 @@ export async function authRoutes(server: FastifyInstance, options: AuthRouteOpti
                 ip: request.ip,
                 expiresAt: new Date(Date.now() + SESSION_TTL_MS),
               },
+              select: { id: true },
             });
 
             return { user: created, tokens };
@@ -776,7 +795,7 @@ export async function authRoutes(server: FastifyInstance, options: AuthRouteOpti
               // Same-sub twin committed first. Re-read and complete as login.
               const committed = await db.userAuthIdentity.findUnique({
                 where: { provider_providerSubject: { provider: 'GOOGLE', providerSubject: claims.sub } },
-                include: { user: true },
+                select: { id: true, user: { select: googleUserSelect } },
               });
               if (!committed) throw err;
               if (committed.user.status !== 'ACTIVE') {
@@ -796,7 +815,7 @@ export async function authRoutes(server: FastifyInstance, options: AuthRouteOpti
                   providerSubject: claims.sub,
                   user: { username: selectedUsername },
                 },
-                include: { user: true },
+                select: { id: true, user: { select: googleUserSelect } },
               });
               if (twin) {
                 if (twin.user.status !== 'ACTIVE') {
@@ -924,10 +943,11 @@ async function completeGoogleLogin(
   const tokens = generateTokens(user.id, user.email, user.username, [String(user.role)], user.tokenVersion ?? 0);
 
   await db.$transaction(async (tx) => {
-    await tx.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
+    await tx.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() }, select: { id: true } });
     await tx.userAuthIdentity.update({
       where: { id: identity.id },
       data: { lastUsedAt: new Date() },
+      select: { id: true },
     });
     await tx.session.create({
       data: {
@@ -937,6 +957,7 @@ async function completeGoogleLogin(
         ip: request.ip,
         expiresAt: new Date(Date.now() + SESSION_TTL_MS),
       },
+      select: { id: true },
     });
   });
 

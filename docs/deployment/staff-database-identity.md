@@ -12,6 +12,13 @@ setting is part of this change.
   `apps/api/src/routes/index.ts` (plus the two owner CLIs, which pass their own).
 - Registration's own-referral-code uniqueness pre-check now runs on the
   registration transaction (`tx`) instead of the global client.
+- `/auth/refresh` refuses (401, session kept) a correctly signed refresh token
+  whose subject is not the user who owns the matching session row, in addition
+  to the `tokenVersion` check.
+- Sign-in, refresh and Google sign-in read explicit columns only (refresh no
+  longer reads `passwordHash` or whole rows), and their writes return only `id`.
+  Tested through a column-restricted login that cannot read session IP/user
+  agent or `users.updatedAt`, with `passwordHash` revoked after sign-in.
 - Route plugins (`authRoutes`, `workspaceRoutes`, `adminAgentAccountRoutes`)
   refuse to register without their clients, and staff operations throw
   `STAFF_DATABASE_REQUIRED` without one. There is no default to fall back to.

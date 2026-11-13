@@ -168,6 +168,7 @@ describe('authentication, sessions and referrals use only the injected member cl
     );
     expect(member.tx.referral.create).toHaveBeenCalledWith({
       data: { referredUserId: ids.member, referrerUserId: ids.referrer, referralCode: 'ABCD2345' },
+      select: { id: true },
     });
     expect(member.tx.session.create).toHaveBeenCalledTimes(1);
   });
