@@ -283,6 +283,11 @@ healthy throughout.
 - The connection-pooler mode: the guarded client refuses `SET ROLE` and needs
   `session_user` to be the staff login.
 - Porting invitations and guarded account creation, which stay inactive.
+- `security-definer-review.md`, finding 1: any database login, the staff login
+  included once it exists, can call `ledger_lock_economy_for_invariant_check()`
+  and block writes to the economy tables for as long as its transaction stays
+  open. Decide whether to restrict `EXECUTE` and set idle-transaction
+  timeouts on service logins before creating new logins.
 
 ## 9. Owner password-reset issuance records (separate decision)
 

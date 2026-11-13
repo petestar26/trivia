@@ -91,7 +91,7 @@ in-database part. Run it as the owner before and after every step and diff:
 - every `SECURITY DEFINER` function's owner, pinned `search_path` and
   `EXECUTE` grantees. Seventeen pre-existing ones are executable by `PUBLIC`
   and gate themselves (trigger guards, signature-checked ledger approvals);
-  the review should confirm each;
+  the review should confirm each (done in `security-definer-review.md`);
 - every privilege held by a non-owner in `public` and `staff_status_approval`
   (schema, table, column, sequence, function), with grantor;
 - default ACLs, extensions with schema and owner, key IDs and dates (never the
