@@ -1,4 +1,4 @@
-import { fixtureUsdPolicy } from './payment-policy-fixture.js';
+import { fixtureEtbPolicy } from './payment-policy-fixture.js';
 // Shared fixtures for the ledger-integrity contract tests. Users are funded
 // through the real agent-order purchase path; malformed legacy states are
 // planted with triggers bypassed (session_replication_role = replica), the
@@ -51,8 +51,8 @@ export async function purchasedFixture(amount: number) {
     data: { countryId: country.id, type: 'BANK_TRANSFER', name: `Integrity bank ${tag}`,
       fieldSchema: { requiredFields: ['bankName', 'accountNumber'] }, isActive: true },
   });
-  await prisma.exchangeRateConfig.create({ data: { countryId: country.id, fiatCurrency: 'ETB', coinsPerUnit: 2, isActive: true,
-      setBy: admin.id, effectiveAt: new Date(Date.now() - 1000) , pricingPolicy: fixtureUsdPolicy(2)} });
+  await prisma.exchangeRateConfig.create({ data: { countryId: country.id, fiatCurrency: 'ETB', coinsPerUnit: 1, isActive: true,
+      setBy: admin.id, effectiveAt: new Date(Date.now() - 1000) , pricingPolicy: fixtureEtbPolicy()} });
   const policy = await prisma.countryCasinoPolicy.create({
     data: {
       countryCode, version: 1, status: 'ENABLED', enabledAt: new Date(),
@@ -78,7 +78,7 @@ export async function purchasedFixture(amount: number) {
   await fundAgentFiatLiquidity(superAdmin.id, agent.id, 'ETB', BigInt(amount * 4), uid('liquidity'));
   const created = await createAgentOrder(buyer.id, {
     agentId: agent.id, countryId: country.id, paymentAccountId: agentAccount.id,
-    fiatAmount: amount / 2, idempotencyKey: uid('order'),
+    fiatAmount: amount, idempotencyKey: uid('order'),
   });
   await submitOrderPayment(buyer.id, created.order.id);
   await settleAgentOrder(agentUser.id, created.order.id);
