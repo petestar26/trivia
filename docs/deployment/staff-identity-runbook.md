@@ -89,13 +89,15 @@ psql -X -At -F '|' -v ON_ERROR_STOP=1 -f docs/deployment/staff-identity-inventor
 **A. Baseline.** As the users owner: inventory-0. Run the preDeploy commands
 as the runtime and keep their output.
 
-**B. Staff login (role administrator).** Never put the password on a command
-line. Give it no role settings (the guard refuses `SET ROLE`) and no
-memberships.
+**B. Staff login (role administrator).** Give it no role settings (the guard
+refuses `SET ROLE`) and no memberships. Set the password with psql's
+`\password`, which hashes it on the client so only a SCRAM verifier reaches the
+server. Never put a password in SQL text, where `log_statement = 'ddl'` or a
+failed statement would log it.
 
 ```sql
-\prompt 'staff password: ' pw
-CREATE ROLE <staff> LOGIN PASSWORD :'pw' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+CREATE ROLE <staff> LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+\password <staff>
 ```
 
 **C. Staff grants (users owner).** Use exactly the list in
@@ -133,12 +135,25 @@ the API's secret store, then delete the file.
 umask 077; openssl rand -hex 32 > <private>/status.key
 ```
 
+Pass the key as a bind parameter (psql 16 or later). PostgreSQL logs the text
+of any statement that fails, so a key written into the SQL would land in the
+server log. This was rehearsed: a failing install with the key in the text
+logged the key; the same failure through `\bind` logged only `$1, $2`. Bind
+parameters are still logged on success when `log_statement = 'all'` or
+`log_min_duration_statement` is 0 or more, so check those first. If they are
+set, have the database administrator turn them off for the window; a
+non-superuser cannot change them per session.
+
 ```sql
+SHOW log_statement;                      -- none, ddl or mod
+SHOW log_min_duration_statement;         -- -1
+SHOW log_parameter_max_length_on_error;  -- 0
 \set k `cat <private>/status.key`
-SELECT staff_status_approval.install_key('<key_id>', decode(:'k', 'hex'));
+SELECT staff_status_approval.install_key($1, decode($2, 'hex')) \bind '<key_id>' :k \g
 ```
 
-The key must differ from every other secret (`signing-authority.md`).
+The key must differ from every other secret (`signing-authority.md`). (The
+API's own ledger key install already binds its parameters.)
 
 **H. Allow the staff login to call the boundary (users owner).**
 

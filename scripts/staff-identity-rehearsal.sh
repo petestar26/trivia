@@ -36,6 +36,7 @@ HOSTPORT="$(node -e '
   || refuse 'REHEARSAL_ADMIN_URL must be postgres(ql)://…@127.0.0.1|localhost[:port]/postgres'
 read -r HOST PORT <<<"$HOSTPORT"
 for tool in psql openssl node pnpm; do command -v "$tool" >/dev/null || refuse "$tool is required"; done
+[[ "$(psql --version | grep -oE '[0-9]+' | head -1)" -ge 16 ]] || refuse 'psql 16 or later is required (\bind keeps keys out of server logs)'
 for f in ledger-runtime-identity-check ledger-upgrade-preflight; do
   [[ -f "$ROOT/apps/api/dist/scripts/$f.js" ]] || refuse "build first: apps/api/dist/scripts/$f.js is missing"
 done
@@ -59,6 +60,11 @@ as() {  # as <login> [psql args...]: connects to the rehearsal database
 }
 url() { printf 'postgresql://sir_%s:%s@%s:%s/%s' "$1" "${PW[$1]}" "$HOST" "$PORT" "$DB"; }
 install_boundary() { as migrator -f "$BOUNDARY" 2>"$WORK/install.err" || { cat "$WORK/install.err" >&2; fail 'boundary install'; }; }
+# Keys go in as bind parameters: a failing install logs "$1, $2", never the key.
+install_key() {  # install_key <function> <key id> <hex key>
+  # shellcheck disable=SC2016  # $1/$2 are SQL placeholders, not shell variables
+  printf 'SELECT %s($1, decode($2, '"'hex'"')) \\bind %s %s \\g\n' "$1" "$2" "$3" | as migrator -At -f - >/dev/null
+}
 inventory() { as migrator -At -F '|' -f "$INVENTORY" | grep -v '^session|' > "$WORK/$1.inv"; }
 changed() { diff "$WORK/$1.inv" "$WORK/$2.inv" | grep -E '^[<>]' || true; }
 
@@ -89,7 +95,7 @@ pass 'roles: NOLOGIN non-superuser owner, SET-only migrator, runtime and staff l
 pass 'all migrations applied by the non-superuser owner'
 
 as migrator -Atc "SELECT public.ledger_apply_runtime_grants('sir_runtime')" >/dev/null
-printf "SELECT public.ledger_install_approval_key('%s', decode('%s', 'hex'));\n" "$LEDGER_KEY_ID" "$LEDGER_KEY" | as migrator -At -f - >/dev/null
+install_key public.ledger_install_approval_key "$LEDGER_KEY_ID" "$LEDGER_KEY"
 pass 'runtime grants and ledger approval key installed by the owner'
 
 preflight() {  # the API's preDeployCommand checks, as the runtime login
@@ -127,7 +133,7 @@ install_boundary; inventory reinstalled
 pass 'boundary installed by the owner: grants nothing, touches nothing else, reinstall idempotent'
 
 # 3. Activation steps, rehearsed here only: status key, staff grants, EXECUTE.
-printf "SELECT staff_status_approval.install_key('%s', decode('%s', 'hex'));\n" "$STATUS_KEY_ID" "$STATUS_KEY" | as migrator -At -f - >/dev/null
+install_key staff_status_approval.install_key "$STATUS_KEY_ID" "$STATUS_KEY"
 as migrator -c "GRANT USAGE ON SCHEMA public TO sir_staff" -c "GRANT SELECT ON public.users TO sir_staff" \
             -c "GRANT EXECUTE ON FUNCTION $SIG TO sir_staff"
 inventory activated
@@ -192,7 +198,7 @@ pass 'recovered: reinstall and re-grant; the kept key still verifies'
 # 6. Key rotation: new key ID installed, old one retired.
 OLD_ID="$STATUS_KEY_ID"; OLD_KEY="$STATUS_KEY"
 STATUS_KEY_ID="rehearsal-$(rand 4)"; STATUS_KEY="$(rand 32)"
-printf "SELECT staff_status_approval.install_key('%s', decode('%s', 'hex'));\n" "$STATUS_KEY_ID" "$STATUS_KEY" | as migrator -At -f - >/dev/null
+install_key staff_status_approval.install_key "$STATUS_KEY_ID" "$STATUS_KEY"
 [[ "$(call valid)" == OK ]] || fail 'new key must verify'
 as migrator -Atc "SELECT staff_status_approval.retire_key('$OLD_ID')" >/dev/null
 NEW_ID="$STATUS_KEY_ID"; NEW_KEY="$STATUS_KEY"; STATUS_KEY_ID="$OLD_ID"; STATUS_KEY="$OLD_KEY"

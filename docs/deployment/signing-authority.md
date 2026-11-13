@@ -99,6 +99,11 @@ is what makes it matter.
 - `docs/deployment/staff-identity-inventory.sql` (read only) lists the logins
   that could read each key table, and the key IDs and dates. It never selects
   a secret.
+- Install keys with bind parameters (`\bind` in psql 16+, or a parameterized
+  client call as the ledger key already uses), and set passwords with psql's
+  `\password`. PostgreSQL logs the text of a failed statement, so a key or
+  password written into SQL can end up in the server log. This was rehearsed
+  on disposable PostgreSQL (`staff-identity-runbook.md`, step G).
 - That a key pair matches is shown by behaviour, never by printing:
   - the ledger preflight verifies its key;
   - a status change with a matching key returns 200, a mismatched one 403.
