@@ -61,6 +61,7 @@ export async function changeOwnPassword(
       await tx.user.update({
         where: { id: userId },
         data: { passwordHash, tokenVersion: { increment: 1 } },
+        select: { id: true },
       });
       await tx.session.deleteMany({ where: { userId } });
       await tx.auditLog.create({
@@ -71,6 +72,7 @@ export async function changeOwnPassword(
           entityId: userId,
           newData: { sessionsRevoked: true },
         },
+        select: { id: true },
       });
     });
   } catch (error) {

@@ -8,7 +8,8 @@ import { prisma as owner, PrismaClient } from '@socialplay/database';
 import { config } from '@socialplay/config';
 import { authRoutes } from '../routes/auth.js';
 import { errorHandler } from '../middleware/error-handler.js';
-import { generateTokens, hashPassword } from '../utils/auth.js';
+import { generateTokens, hashPassword, verifyPassword } from '../utils/auth.js';
+import { issueOwnerReset } from '../auth/password-reset.js';
 
 /**
  * Sign-in, refresh, /me and sign-out through an injected, column-restricted
@@ -28,10 +29,14 @@ if (
 const s = randomUUID().replaceAll('-', '').slice(0, 10);
 const role = `ar_auth_${s}`;
 const rolePassword = randomUUID();
+// Credential login: exactly the boundary in the candidate's auth-flow review.
+const credentialRole = `ar_cred_${s}`;
+const credentialPassword = randomUUID();
 const password = 'Synthetic-Member-1!';
 const phone = `+2519${String(Date.now()).slice(-8)}`;
 const exec = (sql: string) => owner.$executeRawUnsafe(sql);
 let restricted: PrismaClient;
+let credential: PrismaClient;
 const app = Fastify({ logger: false });
 let member: { id: string; email: string | null };
 
@@ -53,6 +58,22 @@ beforeAll(async () => {
   url.password = rolePassword;
   restricted = new PrismaClient({ datasourceUrl: url.toString(), log: [] });
 
+  await exec(
+    `CREATE ROLE "${credentialRole}" LOGIN PASSWORD '${credentialPassword}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION`
+  );
+  for (const sql of [
+    `GRANT USAGE ON SCHEMA public TO "${credentialRole}"`,
+    `GRANT SELECT (id, status, role, "passwordHash", "tokenVersion") ON public.users TO "${credentialRole}"`,
+    `GRANT UPDATE ("passwordHash", "tokenVersion", "updatedAt") ON public.users TO "${credentialRole}"`,
+    `GRANT SELECT ("userId"), DELETE ON public.sessions TO "${credentialRole}"`,
+    `GRANT SELECT (id), INSERT ON public.audit_logs TO "${credentialRole}"`,
+  ])
+    await exec(sql);
+  const credentialUrl = new URL(base);
+  credentialUrl.username = credentialRole;
+  credentialUrl.password = credentialPassword;
+  credential = new PrismaClient({ datasourceUrl: credentialUrl.toString(), log: [] });
+
   const created = await owner.user.create({
     data: {
       username: `ar_member_${s}`,
@@ -69,22 +90,25 @@ beforeAll(async () => {
   await app.register(jwt, { secret: config.JWT_ACCESS_SECRET });
   await app.register(rateLimit, { max: 1000 });
   app.setErrorHandler(errorHandler);
-  await app.register(authRoutes, { prefix: '/auth', db: restricted, credentialDb: restricted });
+  await app.register(authRoutes, { prefix: '/auth', db: restricted, credentialDb: credential });
   await app.ready();
 });
 
 afterAll(async () => {
   await app.close();
   await restricted?.$disconnect();
-  await exec(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE usename = '${role}'`).catch(() => undefined);
-  await exec(`DROP OWNED BY "${role}"`).catch(() => undefined);
-  await exec(`DROP ROLE IF EXISTS "${role}"`).catch(() => undefined);
+  await credential?.$disconnect();
+  for (const name of [role, credentialRole]) {
+    await exec(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE usename = '${name}'`).catch(() => undefined);
+    await exec(`DROP OWNED BY "${name}"`).catch(() => undefined);
+    await exec(`DROP ROLE IF EXISTS "${name}"`).catch(() => undefined);
+  }
   await owner.$disconnect();
 });
 
-const columnAllowed = async (table: string, column: string) => {
+const columnAllowed = async (table: string, column: string, grantee = role) => {
   const [row] = await owner.$queryRaw<{ allowed: boolean }[]>`
-    SELECT pg_catalog.has_column_privilege(${role}, ${table}, ${column}, 'SELECT') AS allowed`;
+    SELECT pg_catalog.has_column_privilege(${grantee}, ${table}, ${column}, 'SELECT') AS allowed`;
   return row.allowed;
 };
 
@@ -137,4 +161,49 @@ it('refuses a correctly signed refresh token for another subject and keeps the s
   expect(await owner.session.findUnique({ where: { id: session.id } })).not.toBeNull();
   expect(await owner.session.count({ where: { userId: owned.id } })).toBe(1);
   expect(await owner.session.count({ where: { userId: other.id } })).toBe(0);
+});
+
+it('changes a password and completes an owner-issued reset through a credential login that cannot read emails, tokens or audits', async () => {
+  for (const [table, column] of [
+    ['public.users', 'email'],
+    ['public.sessions', 'refreshToken'],
+    ['public.audit_logs', 'newData'],
+  ] as const)
+    expect(await columnAllowed(table, column, credentialRole), `${table}.${column}`).toBe(false);
+
+  const account = await owner.user.create({
+    data: {
+      username: `ar_cred_member_${s}`.slice(0, 30),
+      email: `cred_${s}@fixture.invalid`,
+      passwordHash: await hashPassword(password),
+    },
+  });
+  const signedIn = await app.inject({ method: 'POST', url: '/auth/login', payload: { email: account.email, password } });
+  expect(signedIn.statusCode, signedIn.body).toBe(200);
+  const changed = 'Synthetic-Member-2!';
+  const change = await app.inject({
+    method: 'POST',
+    url: '/auth/change-password',
+    headers: { authorization: `Bearer ${signedIn.json().data.accessToken}` },
+    payload: { currentPassword: password, newPassword: changed },
+  });
+  expect(change.statusCode, change.body).toBe(200);
+  const afterChange = await owner.user.findUniqueOrThrow({ where: { id: account.id } });
+  expect(afterChange.tokenVersion).toBe(account.tokenVersion + 1);
+  expect(await verifyPassword(changed, afterChange.passwordHash!)).toBe(true);
+  expect(await owner.session.count({ where: { userId: account.id } })).toBe(0);
+  expect(await owner.auditLog.count({ where: { entityId: account.id, action: 'ACCOUNT_PASSWORD_CHANGED' } })).toBe(1);
+
+  // Issuance stays owner-only (the owner CLI path); completion uses the credential login.
+  const link = await issueOwnerReset(owner, account.id, account.email!);
+  const reset = 'Synthetic-Member-3!';
+  const completed = await app.inject({ method: 'POST', url: '/auth/password-reset', payload: { token: link.token, password: reset } });
+  expect(completed.statusCode, completed.body).toBe(200);
+  const afterReset = await owner.user.findUniqueOrThrow({ where: { id: account.id } });
+  expect(afterReset.tokenVersion).toBe(afterChange.tokenVersion + 2);
+  expect(await verifyPassword(reset, afterReset.passwordHash!)).toBe(true);
+  expect(await owner.auditLog.count({ where: { entityId: account.id, action: 'OWNER_PASSWORD_RESET_COMPLETED' } })).toBe(1);
+  const replay = await app.inject({ method: 'POST', url: '/auth/password-reset', payload: { token: link.token, password: 'Synthetic-Member-4!' } });
+  expect(replay.statusCode).toBe(401);
+  expect((await app.inject({ method: 'POST', url: '/auth/login', payload: { email: account.email, password: reset } })).statusCode).toBe(200);
 });

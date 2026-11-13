@@ -68,7 +68,7 @@ export async function issueOwnerReset(db: TransactionalDatabase, userId: string,
         nonce: randomUUID(),
         exp: Date.now() + 15 * 60_000,
       };
-      await tx.user.update({ where: { id: user.id }, data: { tokenVersion: { increment: 1 } } });
+      await tx.user.update({ where: { id: user.id }, data: { tokenVersion: { increment: 1 } }, select: { id: true } });
       await tx.session.deleteMany({ where: { userId: user.id } });
       await tx.auditLog.create({
         data: {
@@ -82,6 +82,7 @@ export async function issueOwnerReset(db: TransactionalDatabase, userId: string,
             authority: 'database-owner',
           },
         },
+        select: { id: true },
       });
       const body = Buffer.from(JSON.stringify(claims)).toString('base64url');
       return {
@@ -130,6 +131,7 @@ export async function completePasswordReset(db: TransactionalDatabase, input: un
       await tx.user.update({
         where: { id: user.id },
         data: { passwordHash: hash, tokenVersion: { increment: 1 } },
+        select: { id: true },
       });
       await tx.session.deleteMany({ where: { userId: user.id } });
       await tx.auditLog.create({
@@ -140,6 +142,7 @@ export async function completePasswordReset(db: TransactionalDatabase, input: un
           entityId: user.id,
           newData: { nonce: claims.nonce, sessionsRevoked: true },
         },
+        select: { id: true },
       });
     });
   } catch (error) {

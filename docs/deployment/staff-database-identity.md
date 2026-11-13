@@ -19,6 +19,12 @@ setting is part of this change.
   longer reads `passwordHash` or whole rows), and their writes return only `id`.
   Tested through a column-restricted login that cannot read session IP/user
   agent or `users.updatedAt`, with `passwordHash` revoked after sign-in.
+- Password change and owner-issued reset completion write without returning
+  rows. Tested through a separate credential login holding only users
+  `SELECT(id, status, role, passwordHash, tokenVersion)` and
+  `UPDATE(passwordHash, tokenVersion, updatedAt)`, sessions
+  `SELECT(userId)`/`DELETE` and audit `SELECT(id)`/`INSERT`; it cannot read
+  emails, refresh tokens or audit contents.
 - Route plugins (`authRoutes`, `workspaceRoutes`, `adminAgentAccountRoutes`)
   refuse to register without their clients, and staff operations throw
   `STAFF_DATABASE_REQUIRED` without one. There is no default to fall back to.
