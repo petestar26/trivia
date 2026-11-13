@@ -19,6 +19,8 @@ on:
       - 'docs/deployment/staff-identity-inventory.sql'
       - 'docs/deployment/owner-password-reset-issuance.sql'
       - 'docs/deployment/economy-lock-restriction.sql'
+      - 'docs/deployment/economy-lock-rollback.sql'
+      - 'docs/deployment/economy-lock-verify.sql'
       - 'scripts/staff-identity-rehearsal.sh'
       - 'apps/api/src/providers/softaggregator/**'
       - 'apps/api/src/server.ts'

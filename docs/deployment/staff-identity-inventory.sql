@@ -106,17 +106,17 @@ FROM (
            WHEN 'm' THEN 'matview' WHEN 'i' THEN 'index' WHEN 'I' THEN 'index' ELSE 'relation' END AS kind,
          EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_class'::regclass AND d.objid = c.oid AND d.deptype = 'e') AS ext
   FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-  WHERE n.nspname IN ('public', 'staff_status_approval', 'owner_password_reset') AND c.relkind NOT IN ('t', 'c')
+  WHERE n.nspname IN ('public', 'staff_status_approval', 'owner_password_reset', 'economy_lock_restriction') AND c.relkind NOT IN ('t', 'c')
   UNION ALL
   SELECT n.nspname, pg_get_userbyid(p.proowner), 'function',
          EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'e')
   FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-  WHERE n.nspname IN ('public', 'staff_status_approval', 'owner_password_reset')
+  WHERE n.nspname IN ('public', 'staff_status_approval', 'owner_password_reset', 'economy_lock_restriction')
   UNION ALL
   SELECT n.nspname, pg_get_userbyid(t.typowner), 'type',
          EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_type'::regclass AND d.objid = t.oid AND d.deptype = 'e')
   FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace
-  WHERE n.nspname IN ('public', 'staff_status_approval', 'owner_password_reset') AND t.typrelid = 0 AND t.typelem = 0
+  WHERE n.nspname IN ('public', 'staff_status_approval', 'owner_password_reset', 'economy_lock_restriction') AND t.typrelid = 0 AND t.typelem = 0
 ) x
 GROUP BY x.nsp, x.ext, x.owner, x.kind
 ORDER BY 1, 2, 3;
@@ -159,7 +159,7 @@ ORDER BY 1, 2;
 
 -- grant: everything held by someone other than the object's owner.
 WITH ns AS (
-  SELECT oid, nspname, nspacl, nspowner FROM pg_namespace WHERE nspname IN ('public', 'staff_status_approval', 'owner_password_reset')),
+  SELECT oid, nspname, nspacl, nspowner FROM pg_namespace WHERE nspname IN ('public', 'staff_status_approval', 'owner_password_reset', 'economy_lock_restriction')),
 acl AS (
   SELECT 'schema ' || ns.nspname AS obj, ns.nspowner AS owner,
          (aclexplode(COALESCE(ns.nspacl, acldefault('n', ns.nspowner)))).*
@@ -214,6 +214,9 @@ SELECT 'key', 'staff_status_approval evidence rows', CASE WHEN to_regclass('staf
   ELSE 'present' END
 UNION ALL
 SELECT 'key', 'owner_password_reset issuance records', CASE WHEN to_regclass('owner_password_reset.issuances') IS NULL THEN 'absent'
+  ELSE 'present' END
+UNION ALL
+SELECT 'key', 'economy_lock_restriction captures', CASE WHEN to_regclass('economy_lock_restriction.acl_snapshots') IS NULL THEN 'absent'
   ELSE 'present' END;
 
 -- migration

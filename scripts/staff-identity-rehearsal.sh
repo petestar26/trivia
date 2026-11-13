@@ -22,6 +22,8 @@ DB=staff_identity_rehearsal_throwaway
 BOUNDARY="$ROOT/docs/deployment/staff-member-status-boundary.sql"
 ISSUANCE="$ROOT/docs/deployment/owner-password-reset-issuance.sql"
 ECONOMY_LOCK="$ROOT/docs/deployment/economy-lock-restriction.sql"
+ECONOMY_LOCK_VERIFY="$ROOT/docs/deployment/economy-lock-verify.sql"
+ECONOMY_LOCK_ROLLBACK="$ROOT/docs/deployment/economy-lock-rollback.sql"
 LOCK_FN='public.ledger_lock_economy_for_invariant_check()'
 INVENTORY="$ROOT/docs/deployment/staff-identity-inventory.sql"
 SIG='public.staff_set_member_status(text, text, text, text, text, integer, text, text, text, text)'
@@ -191,6 +193,12 @@ as staff -c "BEGIN; SELECT $LOCK_FN; ROLLBACK;" >/dev/null 2>&1 || fail 'release
 as migrator -v runtime_role=sir_runtime -f "$ECONOMY_LOCK" 2>"$WORK/install.err" || { cat "$WORK/install.err" >&2; fail 'economy lock restriction'; }
 as staff -c "BEGIN; SELECT $LOCK_FN; ROLLBACK;" >/dev/null 2>&1 && fail 'staff can still take the economy lock'
 as runtime -c "BEGIN; SELECT $LOCK_FN; ROLLBACK;" >/dev/null 2>&1 || fail 'runtime lost the economy lock'
+# The migrator reaches the owner only by SET ROLE: refused as itself, able as the owner (owner-equivalent).
+as migrator -c "SET ROLE NONE" -c "BEGIN; SELECT $LOCK_FN; ROLLBACK;" >/dev/null 2>&1 && fail 'migrator took the lock without SET ROLE'
+as migrator -c "SET ROLE sir_owner" -c "BEGIN; SELECT $LOCK_FN; ROLLBACK;" >/dev/null 2>&1 || fail 'owner could not take the lock'
+as migrator -v runtime_role=sir_runtime -f "$ECONOMY_LOCK_VERIFY" >"$WORK/verify.out" 2>&1 || { cat "$WORK/verify.out" >&2; fail 'economy lock verify'; }
+grep -q 'runtime-only (sir_runtime); also always able: .*sir_migrator (owner-equivalent)' "$WORK/verify.out" \
+  || { cat "$WORK/verify.out" >&2; fail 'economy lock verify must list the owner-equivalent migrator'; }
 preflight activated
 pass 'verified: forged and replayed approvals refused, signed changes work, no direct status writes, keys private, economy lock runtime-only, preDeploy unchanged'
 
@@ -225,7 +233,9 @@ as migrator -c "REVOKE EXECUTE ON FUNCTION $SIG FROM sir_staff" -c "DROP FUNCTIO
             -c "DROP SCHEMA staff_status_approval CASCADE" \
             -c "DROP FUNCTION IF EXISTS public.owner_password_reset_consume(text, text, integer)" \
             -c "DROP SCHEMA owner_password_reset CASCADE" \
-            -c "GRANT EXECUTE ON FUNCTION $LOCK_FN TO PUBLIC" -c "REVOKE EXECUTE ON FUNCTION $LOCK_FN FROM sir_runtime" 2>/dev/null
+            2>/dev/null
+as migrator -f "$ECONOMY_LOCK_ROLLBACK" 2>"$WORK/install.err" || { cat "$WORK/install.err" >&2; fail 'economy lock rollback'; }
+as migrator -c "DROP SCHEMA economy_lock_restriction CASCADE" 2>/dev/null
 inventory removed
 [[ -z "$(changed baseline removed)" ]] || { changed baseline removed; fail 'full removal did not restore the baseline'; }
 preflight removed

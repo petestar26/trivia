@@ -288,7 +288,7 @@ healthy throughout.
   and block writes to the economy tables for as long as its transaction stays
   open. Decide whether to restrict `EXECUTE` and set idle-transaction
   timeouts on service logins before creating new logins. The restriction is
-  prepared as `docs/deployment/economy-lock-restriction.sql` (dormant).
+  prepared as dormant operator SQL (section 11).
 
 ## 9. Owner password-reset issuance records (separate decision)
 
@@ -374,4 +374,67 @@ any session is revoked, and nothing falls back to the shared secret. Fix the
 value and restart.
 
 Verified in `src/auth/password-reset-key.native.ts`.
+
+## 11. Economy-lock restriction (separate decision)
+
+Closes `security-definer-review.md` finding 1. Each file runs as the owner of
+`public.ledger_lock_economy_for_invariant_check()`, with psql 10 or later.
+
+**Prerequisites before production (none met by this branch):**
+
+1. **Establish the target's actual state, read only.** Do not assume the
+   release default or any candidate's evidence.
+   - Take an inventory (`definer|public.ledger_lock_economy…` and `grant|`
+     rows).
+   - Run `docs/deployment/economy-lock-verify.sql`, which is expected to fail
+     before the restriction. Its message names `PUBLIC` or the logins that can
+     execute the function.
+2. **Name every current caller.** In code, the only caller is the API runtime
+   (`economy/ledger-admin-service.ts`, enabling a ledger gate). For every
+   other role holding its own grant (for example from practice activation),
+   confirm it never calls the function before listing it in `revoke_roles`.
+   External tools and consoles count as callers.
+3. **Resolve any layout the restriction refuses.** That means a login that
+   can inherit from or `SET ROLE` to the runtime, a runtime that can act as
+   the owner, or grants made by someone other than the owner. Change the
+   memberships deliberately; do not work around the refusal.
+4. **Confirm the owner-equivalent logins** the verify file will list
+   (superusers, and members of the owner role such as a migrator) are the
+   intended operators.
+5. **Rehearse on staging** with the same files and record the inventories
+   before and after, including a rollback.
+6. **Schedule the window.** Sessions that already hold the lock keep it until
+   their transaction ends, and an open transaction is not interrupted by the
+   change. Drain or terminate stale idle-in-transaction sessions first, and
+   set `idle_in_transaction_session_timeout` on service logins.
+7. **Make verify part of every migration and provisioning step,** because a
+   migration that drops and recreates the function silently resets it to
+   `PUBLIC`.
+
+**Apply:**
+
+```bash
+psql -X -v ON_ERROR_STOP=1 -v runtime_role=<API runtime login> -v revoke_roles=<role>,<role> -f docs/deployment/economy-lock-restriction.sql
+```
+
+```bash
+psql -X -v ON_ERROR_STOP=1 -v runtime_role=<API runtime login> -f docs/deployment/economy-lock-verify.sql
+```
+
+Omit `revoke_roles` when only `PUBLIC` holds the grant. The apply refuses,
+changing nothing, if the list does not match exactly. Then confirm the API can
+still enable a ledger gate on staging.
+
+**Rollback** restores exactly the captured pre-change grants, and refuses if a
+captured role no longer exists:
+
+```bash
+psql -X -v ON_ERROR_STOP=1 -f docs/deployment/economy-lock-rollback.sql
+```
+
+Keep the `economy_lock_restriction` schema: it holds the capture, and after a
+rollback it is the record of what was restored.
+
+Verified in `src/database/economy-lock-restriction.native.ts` and in the
+disposable rehearsal (section 1).
 

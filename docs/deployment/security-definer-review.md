@@ -66,28 +66,96 @@ but every existing service login keeps the lock, while a login created later
 does not get it.
 
 Options (decisions; nothing applied):
-- **Prepared, dormant:** `docs/deployment/economy-lock-restriction.sql`.
-  - Run as the owner with `-v runtime_role=<API runtime login>`. It leaves
-    `EXECUTE` with the owner and the runtime login only, revoking `PUBLIC` and
-    every per-role grant (practice activation's included), and verifies the
-    result.
-  - It refuses a non-owner (whose `GRANT`/`REVOKE` would only warn), and a
-    runtime role that is missing, cannot log in, is a superuser or is the
-    owner.
-  - Re-running it is harmless. Rollback is
-    `GRANT EXECUTE ON FUNCTION public.ledger_lock_economy_for_invariant_check() TO PUBLIC;`.
-  - Practice activation skips the function afterwards, since it is no longer
-    `PUBLIC`.
-  - Verified in `src/database/economy-lock-restriction.native.ts`:
-    - the release behaviour (a login with no table privilege holds 11 locks);
-    - refusals that change nothing;
-    - after it runs, that login is refused and the runtime still locks;
-    - it holds after runtime grants are re-applied, and the preDeploy runtime
-      access check still passes;
-    - re-running and rollback.
+- **Prepared, dormant:** three operator files, all run as the function's
+  owner. Nothing in the repository applies them.
 
-    Removing each of the public revoke, the per-role revokes, the runtime
-    grant, the owner check and the runtime-role validation makes it fail.
+  | File | Purpose |
+  | --- | --- |
+  | `docs/deployment/economy-lock-restriction.sql` | Apply, with `-v runtime_role=<API runtime login>` and, when named consumers exist, `-v revoke_roles=<role>,<role>` |
+  | `docs/deployment/economy-lock-verify.sql` | Read-only check, with `-v runtime_role=…` |
+  | `docs/deployment/economy-lock-rollback.sql` | Exact rollback |
+
+  **Unsupported layouts fail closed.** The restriction refuses, changing
+  nothing:
+  - a non-owner, whose `GRANT` and `REVOKE` would only warn;
+  - a runtime role that is missing, cannot log in, is a superuser, is the
+    owner, or can act as the owner through any membership;
+  - any other role (superusers and owner-equivalents aside) that can inherit
+    from, or `SET ROLE` to, the runtime, directly or through a chain of roles.
+    Restricting `EXECUTE` to the runtime would quietly extend it to them;
+  - an `EXECUTE` grant made by someone other than the owner, which the owner
+    cannot revoke;
+  - named consumers (roles with their own grant, such as those practice
+    activation leaves) that are not listed exactly in `revoke_roles`. A role
+    is never revoked silently.
+
+  **What it changes.** Before its first change it captures the exact
+  pre-change grants, grant options included, in an owner-only schema
+  (`economy_lock_restriction`). A re-run keeps the original capture. It then:
+  - grants the runtime `EXECUTE` without grant option;
+  - revokes `PUBLIC` and the listed roles;
+  - verifies the direct ACL (owner and runtime only) and the effective access.
+
+  **Effective access** means any way a login could run the function: directly,
+  through an inherited role, or after `SET ROLE` to any role, the runtime
+  included. Only superusers and owner-equivalent logins may do so besides the
+  runtime. The verify file lists those logins, so a reviewer can confirm they
+  are the expected operators.
+
+  **Rollback** restores exactly the captured grants:
+  - `PUBLIC` for the release default;
+  - the named roles, with their grant options, for a start that was already
+    restricted.
+
+  It refuses when there is nothing to restore, when run by a non-owner, or when
+  a captured role no longer exists; it then marks the capture restored.
+  There is no generic `GRANT … TO PUBLIC` rollback any more.
+
+  **Provisioning and migrations.**
+  - Practice activation (`restrictKnownPublicCapabilities`) and
+    `staging-practice-owner.ts` act only on functions `PUBLIC` can still
+    execute, so they skip it once restricted. The real activation code was
+    checked in a dry run: it plans a change for this function before the
+    restriction and none after. `ledger_apply_runtime_grants` leaves it
+    unchanged, and the preDeploy runtime check still passes.
+  - A migration using `CREATE OR REPLACE` keeps the restriction. One that
+    drops and recreates the function resets it to `PUBLIC`, and so does any
+    later grant or membership that reaches the runtime. The verify file catches
+    each of these, so run it after every migration and provisioning step.
+    Re-applying restores the restriction and keeps the original capture.
+
+  **Verified** in `src/database/economy-lock-restriction.native.ts` (10 tests,
+  PostgreSQL 13 to 18, effective access asserted by calling the function as
+  real logins). The tests cover:
+  - every unsupported layout above, including `SET ROLE` through a NOINHERIT
+    login, the explicit `INHERIT FALSE, SET TRUE` form on PostgreSQL 16+, and
+    a NOLOGIN chain;
+  - an already restricted start, with a group consumer and a grant option,
+    through apply and exact rollback;
+  - re-runs, rollback refusals, and the runtime's own prior grant option;
+  - the provisioning dry run and the migration recreate;
+  - drift by inheritance and by `SET ROLE` only.
+
+  13 mutation checks across the three files are each caught. The disposable
+  rehearsal applies, verifies (listing the `SET`-only migrator as
+  owner-equivalent: refused as itself, able after `SET ROLE` to the owner) and
+  rolls back to an identical baseline inventory.
+
+  **Separately reviewed candidate `6818dbe3`.** I could not reach it from this
+  repository:
+  - no remote ref points at it, and no fetched branch contains it;
+  - no pull request, issue or commit search finds it;
+  - it is not in the archive supplied earlier.
+
+  It was not reconstructed. That archive's review notes (an earlier
+  candidate) report two things, and this design follows both:
+  - catalog evidence in which the economy lock already had owner-only or
+    named-consumer grants. This has not been verified here;
+  - a design that preserves named (non-`PUBLIC`) grants and restores a
+    complete ACL snapshot on failure.
+
+  Its deployed state must be established with the read-only inventory and the
+  verify file, not assumed from either.
 - As defence in depth, set `idle_in_transaction_session_timeout` and
   `lock_timeout` on every login other than the owner (for example
   `ALTER ROLE <login> SET idle_in_transaction_session_timeout = '30s'`).
