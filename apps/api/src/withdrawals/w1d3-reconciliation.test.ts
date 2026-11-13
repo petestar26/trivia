@@ -1,4 +1,4 @@
-import { fixtureUsdPolicy } from '../test/payment-policy-fixture.js';
+import { fixtureEtbPolicy } from '../test/payment-policy-fixture.js';
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { prisma } from '@socialplay/database';
 import { submitAgentApplication, approveAgentApplication } from '../agents/agent-service.js';
@@ -94,7 +94,7 @@ async function createExchangeRate(countryId: string, fiatCurrency: string, coins
       isActive: true,
       setBy: adminId,
       effectiveAt: new Date(Date.now() - 1_000),
-      pricingPolicy: fixtureUsdPolicy(coinsPerUnit)} });
+      pricingPolicy: fixtureEtbPolicy()} });
 }
 
 async function createFundedAgent(
@@ -145,7 +145,7 @@ async function createHeldWithdrawal(
   const country = await createCountry(tag);
   const method = await createPaymentMethod(country.id, tag);
   await activateTestWithdrawalPolicy(country.id, admin.id);
-  await createExchangeRate(country.id, 'ETB', 2, admin.id);
+  await createExchangeRate(country.id, 'ETB', 1, admin.id);
   const { agentUser, agent } = await createFundedAgent(tag, country.id, admin, superAdmin, opts.liquidityUsd ?? 500_000n);
   const user = await createFundedUser(tag, opts.coins ?? 50_000);
   const payoutAccount = await createActivePayoutAccount(user.id, country.id, method.id);

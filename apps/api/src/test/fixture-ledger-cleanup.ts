@@ -117,6 +117,22 @@ async function purgeFixtureChallengeSessions(where: unknown): Promise<void> {
 }
 
 prisma.$use(async (params, next) => {
+  // Legacy suite teardown removes its own country-scoped rate fixtures. The
+  // append-only production guard stays enabled outside this loopback scratch DB.
+  if (params.model === 'ExchangeRateConfig' && params.action === 'deleteMany') {
+    const where = params.args?.where as Record<string, unknown> | undefined;
+    const countryIds = idsFromUserFilter(where?.countryId).filter((id) => id.length > 0);
+    if (!countryIds.length) throw new Error('Unscoped ExchangeRateConfig fixture purge refused');
+    await assertThrowawayDatabase();
+    const rows = await prisma.exchangeRateConfig.findMany({ where: { ...params.args.where, countryId: { in: countryIds } }, select: { id: true } });
+    if (!rows.length) return { count: 0 };
+    const rateIds = Prisma.join(rows.map((row) => row.id));
+    return prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe('SET LOCAL session_replication_role = replica');
+      return { count: await tx.$executeRaw`DELETE FROM "exchange_rate_configs" WHERE "id" IN (${rateIds})` };
+    });
+  }
+
   if (params.model === 'AgentOrderSettlement' && params.action === 'deleteMany') {
     const where = params.args?.where as Record<string, unknown> | undefined;
     if (!where || (!where.orderId && !where.order)) {

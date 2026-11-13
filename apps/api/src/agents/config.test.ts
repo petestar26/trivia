@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { fixtureEtbPolicy } from '../test/payment-policy-fixture.js';
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import { prisma } from '@socialplay/database';
 import {
   createCountry,
@@ -299,15 +300,21 @@ describeIf('Agent config — PaymentMethodDefinition', () => {
 describeIf('Agent config — ExchangeRateConfig', () => {
   let admin: { id: string };
   let country: { id: string };
+  let countryIndex = 0;
 
   beforeAll(async () => {
     await cleanConfigFixtures();
     admin = await createAdmin('rateadmin');
+  });
+  beforeEach(async () => {
     country = await createCountry(admin.id, {
-      code: uniqueCode('ratecountry'),
-      name: 'Config Test Country ratecountry',
-      currencyCode: 'USD',
+      code: uniqueCode(`ratecountry${countryIndex++}`), name: 'Config Test Country ratecountry', currencyCode: 'ETB',
     });
+  });
+
+  const fixtureRate = (effectiveAt = new Date()) => prisma.exchangeRateConfig.create({
+    data: { countryId: country.id, fiatCurrency: 'ETB', coinsPerUnit: 1,
+      effectiveAt, setBy: admin.id, pricingPolicy: fixtureEtbPolicy() },
   });
 
   it('legacy exchange-rate creation is disabled', async () => {
@@ -315,60 +322,52 @@ describeIf('Agent config — ExchangeRateConfig', () => {
     expect(await prisma.exchangeRateConfig.count({ where: { countryId: country.id } })).toBe(0);
   });
 
-  // Historical records remain readable/deactivatable; new API creation is closed.
-  const historicalRate = (actorId: string, args: { countryId: string; fiatCurrency: string; coinsPerUnit: number; effectiveAt?: Date }) =>
-    prisma.exchangeRateConfig.create({ data: { ...args, setBy: actorId } });
+  it('database rejects new legacy rate rows without ETB terms', async () => {
+    await expect(prisma.exchangeRateConfig.create({ data: {
+      countryId: country.id, fiatCurrency: 'USD', coinsPerUnit: 10, setBy: admin.id,
+    } })).rejects.toThrow(/Native ETB wallet requires ETB pricing terms/);
+    expect(await prisma.exchangeRateConfig.count({ where: { countryId: country.id } })).toBe(0);
+  });
 
   it('a newer rate is selected over an older one — matches the exact documented selection query', async () => {
-    await historicalRate(admin.id, {
-      countryId: country.id,
-      fiatCurrency: 'EUR',
-      coinsPerUnit: 5,
-      effectiveAt: new Date(Date.now() - 60_000),
-    });
-    await historicalRate(admin.id, { countryId: country.id, fiatCurrency: 'EUR', coinsPerUnit: 8 });
-
-    const active = await getActiveExchangeRate(country.id, 'EUR');
-    expect(Number(active!.coinsPerUnit)).toBe(8);
+    const older = await fixtureRate(new Date(Date.now() - 60_000));
+    const newer = await fixtureRate(new Date(Date.now() - 1000));
+    const active = await getActiveExchangeRate(country.id, 'ETB');
+    expect(active!.id).toBe(newer.id);
+    expect(active!.effectiveAt).toEqual(newer.effectiveAt);
+    expect(active!.id).not.toBe(older.id);
+    expect(Number(active!.coinsPerUnit)).toBe(1);
   });
 
   it('a future-dated rate is not yet selected', async () => {
-    await historicalRate(admin.id, {
-      countryId: country.id,
-      fiatCurrency: 'GBP',
-      coinsPerUnit: 20,
-      effectiveAt: new Date(Date.now() + 3_600_000),
-    });
-    const active = await getActiveExchangeRate(country.id, 'GBP');
-    expect(active).toBeNull();
+    await fixtureRate(new Date(Date.now() + 3_600_000));
+    expect(await getActiveExchangeRate(country.id, 'ETB')).toBeNull();
   });
 
   it('deactivating a rate removes it from selection; creating never edits an existing row', async () => {
-    const rate = await historicalRate(admin.id, { countryId: country.id, fiatCurrency: 'JPY', coinsPerUnit: 3 });
+    const rate = await fixtureRate();
     await deactivateExchangeRate(admin.id, rate.id);
-
-    const active = await getActiveExchangeRate(country.id, 'JPY');
-    expect(active).toBeNull();
-
+    expect(await getActiveExchangeRate(country.id, 'ETB')).toBeNull();
     const history = await listExchangeRates(country.id);
     const stillThere = history.find((r) => r.id === rate.id);
-    expect(stillThere).toBeTruthy(); // historical row preserved, never deleted or rewritten
+    expect(stillThere).toBeTruthy();
     expect(stillThere!.isActive).toBe(false);
+    expect(stillThere!.pricingPolicy).toEqual(rate.pricingPolicy);
+    expect(stillThere!.effectiveAt).toEqual(rate.effectiveAt);
   });
 
   it('deactivating an already-inactive rate is rejected', async () => {
-    const rate = await historicalRate(admin.id, { countryId: country.id, fiatCurrency: 'CAD', coinsPerUnit: 4 });
+    const rate = await fixtureRate();
     await deactivateExchangeRate(admin.id, rate.id);
     await expect(deactivateExchangeRate(admin.id, rate.id)).rejects.toThrow(/already inactive/i);
   });
 
   it('ordinary user cannot create or deactivate exchange rates', async () => {
     const plainUser = await createUser('plain3');
-    await expect(
-      createExchangeRate(plainUser.id, { countryId: country.id, fiatCurrency: 'USD', coinsPerUnit: 1 })
-    ).rejects.toThrow(/admin privileges required/i);
-
-    const rate = await historicalRate(admin.id, { countryId: country.id, fiatCurrency: 'AUD', coinsPerUnit: 6 });
+    await expect(createExchangeRate(plainUser.id, { countryId: country.id, fiatCurrency: 'USD', coinsPerUnit: 1 }))
+      .rejects.toThrow(/admin privileges required/i);
+    const rate = await fixtureRate();
     await expect(deactivateExchangeRate(plainUser.id, rate.id)).rejects.toThrow(/admin privileges required/i);
+    expect((await prisma.exchangeRateConfig.findUniqueOrThrow({ where: { id: rate.id } })).isActive).toBe(true);
   });
 });

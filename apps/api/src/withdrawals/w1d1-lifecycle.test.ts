@@ -1,4 +1,4 @@
-import { fixtureUsdPolicy } from '../test/payment-policy-fixture.js';
+import { fixtureEtbPolicy } from '../test/payment-policy-fixture.js';
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { prisma } from '@socialplay/database';
 import { submitAgentApplication, approveAgentApplication } from '../agents/agent-service.js';
@@ -104,7 +104,7 @@ async function createExchangeRate(countryId: string, fiatCurrency: string, coins
       isActive: true,
       setBy: adminId,
       effectiveAt: new Date(Date.now() - 1_000),
-      pricingPolicy: fixtureUsdPolicy(coinsPerUnit)} });
+      pricingPolicy: fixtureEtbPolicy()} });
 }
 
 async function createFundedAgent(
@@ -142,7 +142,7 @@ async function createHeldWithdrawal(tag: string, opts: { coins?: number; coinAmo
   const country = await createCountry(tag);
   const method = await createPaymentMethod(country.id, tag);
   await activateTestWithdrawalPolicy(country.id, admin.id);
-  await createExchangeRate(country.id, 'ETB', 2, admin.id);
+  await createExchangeRate(country.id, 'ETB', 1, admin.id);
   const { agentUser, agent } = await createFundedAgent(tag, country.id, admin, superAdmin, opts.liquidityUsd ?? 500_000n);
   const user = await createFundedUser(tag, opts.coins ?? 50_000);
   const payoutAccount = await createUserPayoutAccount(user.id, {
@@ -561,7 +561,7 @@ describeIf('W-1D1: cancelHeldWithdrawal (HELD → CANCELLED)', () => {
 
   it('cancel uses hold.coinAmount', async () => {
     const tag = `cancel-hold-${Date.now()}`;
-    // withdrawal.coinAmount is determined by quote (10000 coins at default exchange rate 2 = 5000 fiat)
+    // withdrawal.coinAmount is determined by quote (10000 wallet minor units = 10000 ETB minor units)
     // But hold.coinAmount is set from quote.coinAmount at creation time
     const { user, withdrawal } = await createHeldWithdrawal(tag, { coinAmount: 8000 });
 
@@ -782,7 +782,7 @@ describeIf('W-1D1: cancelHeldWithdrawal (HELD → CANCELLED)', () => {
     const country = await createCountry(tag);
     const method = await createPaymentMethod(country.id, tag);
     await activateTestWithdrawalPolicy(country.id, admin.id);
-    await createExchangeRate(country.id, 'ETB', 2, admin.id);
+    await createExchangeRate(country.id, 'ETB', 1, admin.id);
     const { agent } = await createFundedAgent(tag, country.id, admin, superAdmin, 1_000_000n);
 
     const userA = await createFundedUser(`${tag}-a`, 50_000);
