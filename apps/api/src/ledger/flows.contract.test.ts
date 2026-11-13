@@ -1,4 +1,4 @@
-import { fixtureUsdPolicy } from '../test/payment-policy-fixture.js';
+import { fixtureEtbPolicy } from '../test/payment-policy-fixture.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
@@ -54,7 +54,7 @@ async function purchasedFixture(amount: number) {
       fieldSchema: { requiredFields: ['bankName', 'accountNumber'] }, isActive: true,
     },
   });
-  await prisma.exchangeRateConfig.create({ data: { countryId: country.id, fiatCurrency: 'ETB', coinsPerUnit: 2, isActive: true, setBy: admin.id, effectiveAt: new Date(Date.now() - 1000) , pricingPolicy: fixtureUsdPolicy(2)} });
+  await prisma.exchangeRateConfig.create({ data: { countryId: country.id, fiatCurrency: 'ETB', coinsPerUnit: 1, isActive: true, setBy: admin.id, effectiveAt: new Date(Date.now() - 1000) , pricingPolicy: fixtureEtbPolicy()} });
   const policy = await prisma.countryCasinoPolicy.create({
     data: {
       countryCode, version: 1, status: 'ENABLED', enabledAt: new Date(),
@@ -86,7 +86,7 @@ async function purchasedFixture(amount: number) {
   });
   const created = await createAgentOrder(buyer.id, {
     agentId: agent.id, countryId: country.id, paymentAccountId: agentAccount.id,
-    fiatAmount: amount / 2, idempotencyKey: uid('order'),
+    fiatAmount: amount, idempotencyKey: uid('order'),
   });
   await submitOrderPayment(buyer.id, created.order.id);
   await settleAgentOrder(agentUser.id, created.order.id);
@@ -459,7 +459,7 @@ describe('Opus deterministic lock schedules', () => {
     } });
     const secondOrder = await createAgentOrder(fixture.recipient.id, {
       agentId: fixture.agent.id, countryId: fixture.country.id, paymentAccountId: fixture.agentAccount.id,
-      fiatAmount: 500, idempotencyKey: uid('second-order'),
+      fiatAmount: 1000, idempotencyKey: uid('second-order'),
     });
     await submitOrderPayment(fixture.recipient.id, secondOrder.order.id);
     await settleAgentOrder(fixture.agentUser.id, secondOrder.order.id);
