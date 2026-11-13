@@ -17,21 +17,20 @@ import { guestBrowseLocation } from '@/lib/guest-browse-location';
 import { GuestAuthProvider } from '@/components/auth/guest-auth-prompt';
 import { GuestBrowsePage } from '@/pages/guest-browse';
 import '@/pages/guest-browse.css';
+import '@/styles/salem-polish.css';
+import { LoadingState } from '@/components/ui/loading-state';
 
 export function Layout() {
   const { isAuthenticated, isLoading } = useAuth();
-  const { t } = useLanguage();
   const location = useLocation();
+  // Apply the member palette before the session probe settles, so the
+  // probe's loading screen never flashes the light staff theme.
+  useMemberTheme();
   const safeGuestLocation = !isAuthenticated ? guestBrowseLocation(location) : null;
   // An unresolved session is not an anonymous session. Preserve member deep
   // links (including the sportsbook's explicit new-tab launch) until the probe
   // decides. Do not mount private effects or expose a guest action at that URL.
-  if (isLoading && safeGuestLocation)
-    return (
-      <div className="min-h-screen flex items-center justify-center" role="status">
-        <span>{t('Loading…')}</span>
-      </div>
-    );
+  if (isLoading && safeGuestLocation) return <LoadingState size="fullscreen" />;
   if (safeGuestLocation) return <Navigate to={safeGuestLocation} replace />;
   return (
     <GuestAuthProvider signedIn={isAuthenticated}>
@@ -43,7 +42,6 @@ export function Layout() {
 function LayoutContent() {
   const { t: translateUi } = useInterfaceLanguage();
 
-  useMemberTheme();
   const { user, isAuthenticated } = useAuth();
   useAutomaticRewards(user?.id);
   const { t } = useLanguage();

@@ -1,5 +1,6 @@
 import { Component, type ReactNode } from 'react';
 import { LocalizedText } from '@/lib/i18n/text';
+import '@/styles/salem-polish.css';
 export class AppErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   state = { failed: false };
   static getDerivedStateFromError() {
@@ -8,14 +9,14 @@ export class AppErrorBoundary extends Component<{ children: ReactNode }, { faile
   render() {
     if (this.state.failed)
       return (
-        <main className="payments-page" role="alert">
+        <main className="salem-app-error" role="alert">
           <h1>
             <LocalizedText message="This page couldn’t load" />
           </h1>
           <p>
             <LocalizedText message="Reload to reconnect. Previously confirmed requests remain saved on the server; check their status before submitting another." />
           </p>
-          <button onClick={() => window.location.reload()}>
+          <button type="button" onClick={() => window.location.reload()}>
             <LocalizedText message="Reload page" />
           </button>
           <a href="/">

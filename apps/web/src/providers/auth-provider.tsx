@@ -298,9 +298,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }}
     >
       {sessionError && isLoading && (
-        <div role="alert" className="p-6 text-center">
+        <div role="alert" className="salem-session-alert">
           <p>{translateUi('We couldn’t check your session. Reconnecting…')}</p>
           <button
+            type="button"
             onClick={() => {
               setSessionError(false);
               setProbeRevision((v) => v + 1);
