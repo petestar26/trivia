@@ -27,6 +27,7 @@ refuse() { echo "REFUSED: $*" >&2; exit 2; }
 [[ "${STAFF_REHEARSAL_ACK:-}" == disposable ]] || refuse 'set STAFF_REHEARSAL_ACK=disposable'
 [[ -z "${RAILWAY_ENVIRONMENT:-}${RAILWAY_ENVIRONMENT_ID:-}${RAILWAY_PROJECT_ID:-}" ]] || refuse 'deployment environment detected'
 ADMIN_URL="${REHEARSAL_ADMIN_URL:-}"
+# shellcheck disable=SC2016  # ${...} below is a JavaScript template literal
 HOSTPORT="$(node -e '
   const u = new URL(process.argv[1]);
   if (!["postgres:", "postgresql:"].includes(u.protocol) || !["127.0.0.1", "localhost"].includes(u.hostname)
@@ -92,8 +93,10 @@ printf "SELECT public.ledger_install_approval_key('%s', decode('%s', 'hex'));\n"
 pass 'runtime grants and ledger approval key installed by the owner'
 
 preflight() {  # the API's preDeployCommand checks, as the runtime login
-  (cd "$ROOT" && export DATABASE_URL="$(url runtime)" LEDGER_RUNTIME_ROLE=sir_runtime \
-     JWT_ACCESS_SECRET="$(rand 32)" JWT_REFRESH_SECRET="$(rand 32)" \
+  local runtime_url access refresh
+  runtime_url="$(url runtime)"; access="$(rand 32)"; refresh="$(rand 32)"
+  (cd "$ROOT" && export DATABASE_URL="$runtime_url" LEDGER_RUNTIME_ROLE=sir_runtime \
+     JWT_ACCESS_SECRET="$access" JWT_REFRESH_SECRET="$refresh" \
      LEDGER_APPROVAL_SIGNING_KEY="$LEDGER_KEY" LEDGER_APPROVAL_KEY_ID="$LEDGER_KEY_ID" NODE_ENV=production LOG_PRETTY=false &&
    node apps/api/dist/scripts/ledger-runtime-identity-check.js &&
    pnpm --filter @socialplay/database exec prisma migrate status &&
