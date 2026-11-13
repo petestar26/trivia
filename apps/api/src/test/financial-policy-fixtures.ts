@@ -81,7 +81,8 @@ export async function mintTestPurchasedCoins(userId: string, amount: number, sco
       status: 'ACTIVE',
     } });
     const method = await tx.paymentMethodDefinition.create({ data: {
-      id: `method-${tag}`, countryId: country.id, name: 'Synthetic receiving method',
+      // Unique per call: (countryId, type, name) is unique and every call shares ZLP.
+      id: `method-${tag}`, countryId: country.id, name: `Synthetic receiving method ${tag}`,
       type: 'BANK_TRANSFER', fieldSchema: { requiredFields: [] },
     } });
     const account = await tx.agentPaymentAccount.create({ data: {
