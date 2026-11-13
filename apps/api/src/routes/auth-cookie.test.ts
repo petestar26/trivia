@@ -7,7 +7,7 @@ import { ApiError } from '../middleware/api-error.js';
 
 const db = vi.hoisted(() => ({ session: {
   findUnique: vi.fn(), delete: vi.fn(), create: vi.fn(), deleteMany: vi.fn(),
-}, $transaction: vi.fn() }));
+}, $transaction: vi.fn(), $queryRaw: vi.fn(), $executeRaw: vi.fn() }));
 vi.mock('@socialplay/database', () => ({ prisma: db }));
 vi.mock('@socialplay/config', () => ({ config: {
   FRONTEND_URL: 'https://app.example.test', CORS_ORIGIN: 'https://app.example.test,https://other.example.test',
@@ -45,6 +45,9 @@ beforeEach(async () => {
   db.session.findUnique.mockResolvedValue({ id: 'session', userId: 'alice', expiresAt: new Date(Date.now() + 60000),
     user: { id: 'alice', email: 'fixture@example.test', username: 'fixture', role: 'USER', status: 'ACTIVE', tokenVersion: 0 } });
   db.$transaction.mockImplementation((action: any) => action(db));
+  // Refresh re-checks the locked account; logout advances tokenVersion.
+  db.$queryRaw.mockResolvedValue([{ tokenVersion: 0, status: 'ACTIVE' }]);
+  db.$executeRaw.mockResolvedValue(1);
 });
 afterEach(async () => { await server.close(); });
 const headers = () => ({ origin: 'https://app.example.test', cookie: `sp_refresh_token=${token}` });
@@ -136,15 +139,26 @@ describe('browser cookie renewal and logout', () => {
     const r = await server.inject({ method: 'POST', url: '/auth/refresh', headers: headers(), payload: {} });
     expect(r.statusCode).toBe(401); expect(r.headers['set-cookie']).toBeUndefined();
   });
+  it('refuses a rotation when the locked account was revoked after the session was read', async () => {
+    db.$queryRaw.mockResolvedValue([{ tokenVersion: 1, status: 'ACTIVE' }]);
+    const r = await server.inject({ method: 'POST', url: '/auth/refresh', headers: headers(), payload: {} });
+    expect(r.statusCode).toBe(401);
+    expect(r.headers['set-cookie']).toBeUndefined();
+    expect(db.session.delete).not.toHaveBeenCalled();
+    expect(db.session.create).not.toHaveBeenCalled();
+  });
   it('revokes and clears cookies after access expiry using the stored refresh session', async () => {
     const r = await server.inject({ method: 'POST', url: '/auth/logout', headers: headers() });
     expect(r.statusCode).toBe(200);
     expect(db.session.deleteMany).toHaveBeenCalledWith({ where: { userId: 'alice' } });
+    // Access tokens are revoked in the same transaction as the sessions.
+    expect(db.$transaction).toHaveBeenCalledTimes(1);
+    expect(db.$executeRaw).toHaveBeenCalledTimes(1);
     expect(r.cookies).toHaveLength(2); expect(r.cookies.every(c => c.value === '')).toBe(true);
   });
   it('rejects cross-origin logout without revocation or cookie changes', async () => {
     const r = await server.inject({ method: 'POST', url: '/auth/logout', headers: { ...headers(), origin: 'https://evil.test' } });
-    expect(r.statusCode).toBe(403); expect(db.session.deleteMany).not.toHaveBeenCalled(); expect(r.cookies).toHaveLength(0);
+    expect(r.statusCode).toBe(403); expect(db.session.deleteMany).not.toHaveBeenCalled(); expect(db.$executeRaw).not.toHaveBeenCalled(); expect(r.cookies).toHaveLength(0);
   });
 });
 

@@ -86,6 +86,7 @@ function memberClient(passwordHash: string) {
     createdAt: new Date(0),
   };
   const sessions = new Map<string, { id: string; userId: string; expiresAt: Date }>();
+  const deleteMany = vi.fn(async () => ({ count: sessions.size }));
   // Transaction client is a distinct object: work done inside a transaction
   // must be visible here and not on the outer client.
   const tx = {
@@ -104,7 +105,11 @@ function memberClient(passwordHash: string) {
         return data;
       }),
       delete: vi.fn(async ({ where }: any) => sessions.delete(where.id)),
+      deleteMany,
     },
+    // Refresh re-checks the locked account; logout advances tokenVersion.
+    $queryRaw: vi.fn(async () => [{ tokenVersion: user.tokenVersion, status: user.status }]),
+    $executeRaw: vi.fn(async () => 1),
   };
   const db = {
     $transaction: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
@@ -122,7 +127,7 @@ function memberClient(passwordHash: string) {
         const s = sessions.get(where.refreshToken);
         return s ? { ...s, user } : null;
       }),
-      deleteMany: vi.fn(async () => ({ count: sessions.size })),
+      deleteMany,
     },
   };
   return { db, tx, user };

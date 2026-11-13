@@ -47,7 +47,8 @@ beforeAll(async () => {
   for (const sql of [
     `GRANT USAGE ON SCHEMA public TO "${role}"`,
     `GRANT SELECT (id, email, username, role, status, "tokenVersion", "passwordHash", "displayName", "createdAt", "isVerified", bio, "avatarUrl", "lastLoginAt") ON public.users TO "${role}"`,
-    `GRANT UPDATE ("lastLoginAt", "updatedAt") ON public.users TO "${role}"`,
+    // Logout advances tokenVersion to revoke access tokens.
+    `GRANT UPDATE ("lastLoginAt", "updatedAt", "tokenVersion") ON public.users TO "${role}"`,
     `GRANT SELECT (id, "userId", provider, "providerSubject") ON public.user_auth_identities TO "${role}"`,
     `GRANT SELECT (id, "userId", "refreshToken", "expiresAt") ON public.sessions TO "${role}"`,
     `GRANT INSERT, DELETE ON public.sessions TO "${role}"`,

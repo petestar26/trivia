@@ -10,6 +10,7 @@ import { ApiError, createAuthenticate } from '../middleware/index.js';
 import { ErrorCode } from '@socialplay/shared';
 import { generateTokens, hashPassword, verifyPassword } from '../utils/auth.js';
 import { safeRecordActivity } from '../rewards/activity-service.js';
+import { getSocketServer } from '../realtime/broadcast.js';
 import { completePasswordReset } from '../auth/password-reset.js';
 import { changeOwnPassword, type CredentialDatabase } from '../auth/change-password.js';
 import type { TransactionalDatabase } from '../database/identity.js';
@@ -438,6 +439,14 @@ export async function authRoutes(server: FastifyInstance, options: AuthRouteOpti
 
       try {
         await db.$transaction(async (tx) => {
+          // Re-check revocation under a lock on the account. Logout advances
+          // tokenVersion while holding this row, so a logout that committed
+          // after the session was read above cannot be outrun: the rotation
+          // fails instead of minting a replacement for a revoked version.
+          const [current] = await tx.$queryRaw<{ tokenVersion: number; status: string }[]>`
+            SELECT "tokenVersion", status::text AS status FROM users WHERE id = ${session.user.id} FOR SHARE`;
+          if (!current || current.status !== 'ACTIVE' || current.tokenVersion !== session.user.tokenVersion)
+            throw ApiError.unauthorized('Token revoked', { code: ErrorCode.TOKEN_EXPIRED });
           // Conditional delete: only succeeds if the session still matches
           // (a concurrent refresh may have already rotated it).
           await tx.session.delete({ where: { id: session.id }, select: { id: true } });
@@ -498,10 +507,29 @@ export async function authRoutes(server: FastifyInstance, options: AuthRouteOpti
           if (!(err instanceof ApiError) || err.statusCode !== 401) throw err;
         }
       }
-      // Delete all sessions for this user and clear auth cookies.
-      // (Single-session logout would require the refresh-token cookie/body;
-      //  see audit note D12. This preserves existing all-device behavior.)
-      if (userId) await db.session.deleteMany({ where: { userId } });
+      // All-device logout. In one transaction: advance tokenVersion, which
+      // every access-token consumer re-checks (HTTP authenticate/optionalAuth,
+      // socket handshake, every inbound socket packet and every private
+      // delivery), and delete every refresh session. Both commit or neither
+      // does; on failure cookies are left untouched. tokenVersion is bumped
+      // with raw SQL so users.updatedAt (staff optimistic concurrency) is not
+      // disturbed by a sign-out.
+      if (userId) {
+        const revokedUser = userId;
+        await db.$transaction(async (tx) => {
+          const bumped = await tx.$executeRaw`
+            UPDATE users SET "tokenVersion" = "tokenVersion" + 1 WHERE id = ${revokedUser}`;
+          if (bumped !== 1) throw ApiError.internal('Sign-out could not be completed');
+          await tx.session.deleteMany({ where: { userId: revokedUser } });
+        });
+        // Prompt local disconnect. Sockets on other instances are refused at
+        // their next packet or delivery by the tokenVersion re-check.
+        try {
+          getSocketServer()?.in(`user:${revokedUser}`).disconnectSockets(true);
+        } catch {
+          /* tokenVersion already guards every socket path */
+        }
+      }
 
       clearAuthCookies(reply);
 

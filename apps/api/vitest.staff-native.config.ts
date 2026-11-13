@@ -14,6 +14,7 @@ export default defineConfig({
       'src/database/staff-identity.native.ts',
       'src/database/member-status-boundary.native.ts',
       'src/database/auth-restricted-identity.native.ts',
+      'src/database/logout-revocation.native.ts',
     ],
     fileParallelism: false,
     pool: 'forks',
