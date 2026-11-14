@@ -20,6 +20,8 @@ import { startEtbRateRefresh } from './agents/etb-rate-service.js';
 import { providerTestCallbackRoutes } from './providers/softaggregator/callback-routes.js';
 import { startRewardDelivery } from './member-rewards/service.js';
 import { assertUploadPersistence } from './storage/readiness.js';
+import { registerMonitorSignals } from './monitoring/signals.js';
+import { startOperationsMonitor } from './monitoring/runtime.js';
 
 /**
  * Test seams. Production always calls `buildServer()` with no arguments and
@@ -87,6 +89,7 @@ async function buildServer(options: BuildServerOptions = {}): Promise<FastifyIns
 
   server.setErrorHandler(errorHandler);
   server.addHook('onRequest', requestLogger);
+  registerMonitorSignals(server, process.env.SALEM_MONITOR_ENABLED === 'true');
 
   // Routine `Router not found` 404s carry the full request URL inside
   // Fastify's log message. With malformed or mismatched invite paths, that
@@ -181,6 +184,10 @@ async function start(): Promise<void> {
     server.addHook('onClose', async () => {
       stopRates();
     });
+    if (process.env.SALEM_MONITOR_ENABLED === 'true') {
+      const stopMonitor = startOperationsMonitor(prisma, server);
+      server.addHook('onClose', stopMonitor);
+    }
     await server.listen({ port: config.PORT, host: config.HOST });
     server.log.info(`🚀 Server running at http://${config.HOST}:${config.PORT}`);
     server.log.info(
