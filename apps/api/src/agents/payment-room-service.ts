@@ -105,6 +105,14 @@ export async function getPaymentRoom(
   return prisma.$transaction(
     async (db) => {
       const { payment, agent, role } = await paymentRoomAccess(db, actorId, kind, id);
+      const receivingAccount = kind === 'deposit' && 'paymentAccountId' in payment
+        ? await db.agentPaymentAccount.findUnique({
+            where: { id: payment.paymentAccountId }, select: { safetyHold: true, status: true },
+          }) : null;
+      const safetyHold = kind === 'deposit' && (
+        ('safetyHold' in payment && payment.safetyHold === true) ||
+        !receivingAccount || receivingAccount.safetyHold || receivingAccount.status === 'DISABLED'
+      );
       const where = kind === 'deposit' ? { orderId: id } : { withdrawalId: id };
       const disputes =
         kind === 'deposit'
@@ -203,6 +211,7 @@ export async function getPaymentRoom(
         kind,
         role,
         status: payment.status,
+        safetyHold,
         number: 'orderNumber' in payment ? payment.orderNumber : payment.withdrawalNumber,
         coinAmount: payment.coinAmount,
         fiatAmount: normalized.fiatAmount,
@@ -248,16 +257,18 @@ export async function getPaymentRoom(
         nextCursor,
         actions: {
           markPaid:
+            !safetyHold &&
             kind === 'deposit' &&
             role === 'member' &&
             payment.status === 'CREATED' &&
             deadline! > now,
           release:
+            !safetyHold &&
             kind === 'deposit' &&
             role === 'agent' &&
             agent?.status === 'ACTIVE' &&
             payment.status === 'PAYMENT_SUBMITTED',
-          cancel: role === 'member' && payment.status === (kind === 'deposit' ? 'CREATED' : 'HELD'),
+          cancel: !safetyHold && role === 'member' && payment.status === (kind === 'deposit' ? 'CREATED' : 'HELD'),
           claim:
             kind === 'withdrawal' &&
             role === 'agent' &&

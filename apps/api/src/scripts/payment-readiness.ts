@@ -47,7 +47,7 @@ try {
            JOIN agents a ON a.id=p."agentId" JOIN users u ON u.id=a."userId"
            JOIN payment_method_definitions m ON m.id=p."methodDefId"
            WHERE p."countryId"=${country.id} AND a."countryId"=p."countryId"
-             AND m."countryId"=p."countryId" AND m."isActive" AND p.status='APPROVED'
+             AND m."countryId"=p."countryId" AND m."isActive" AND p.status='APPROVED' AND NOT p."safetyHold"
              AND a.status='ACTIVE' AND u.status='ACTIVE') AS "approvedReceivingAccounts",
           (SELECT count(*)::int FROM agent_inventories i JOIN agents a ON a.id=i."agentId"
            WHERE a."countryId"=${country.id} AND a.status='ACTIVE'

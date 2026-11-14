@@ -16,6 +16,7 @@ import {
   type MemberGame,
 } from '@/lib/member-game-catalog';
 import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
+import { LoadingState } from '@/components/ui/loading-state';
 
 export function GameCollection({ mode }: { mode?: 'WAGER' | 'BONUS' }) {
   const { t: translateUi } = useInterfaceLanguage();
@@ -67,7 +68,7 @@ export function GameCollection({ mode }: { mode?: 'WAGER' | 'BONUS' }) {
         </label>
       </div>
       {catalog.isPending ? (
-        <p role="status">{t('Loading…')}</p>
+        <LoadingState size="inline" />
       ) : catalog.isError ? (
         <div role="alert" className="salem-empty">
           {requestStatus(catalog.error) === 401 ? (

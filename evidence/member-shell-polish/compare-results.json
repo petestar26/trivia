@@ -1,0 +1,282 @@
+[
+  {
+    "name": "shot guest-en-390-dashboard",
+    "build": "before",
+    "ok": true,
+    "over": false
+  },
+  {
+    "name": "shot guest-en-390-casino",
+    "build": "before",
+    "ok": true,
+    "over": false
+  },
+  {
+    "name": "shot guest-en-320-play-together-controls",
+    "build": "before",
+    "ok": true,
+    "over": false
+  },
+  {
+    "name": "shot guest-en-1440-dashboard",
+    "build": "before",
+    "ok": true,
+    "over": false
+  },
+  {
+    "name": "shot member-en-390-dashboard",
+    "build": "before",
+    "ok": true,
+    "over": false
+  },
+  {
+    "name": "shot member-en-390-wallet",
+    "build": "before",
+    "ok": true,
+    "over": false
+  },
+  {
+    "name": "shot member-en-320-dashboard-controls",
+    "build": "before",
+    "ok": true,
+    "over": false
+  },
+  {
+    "name": "shot member-ar-390-play-together",
+    "build": "before",
+    "ok": true,
+    "over": false
+  },
+  {
+    "name": "shot member-ar-390-casino",
+    "build": "before",
+    "ok": true,
+    "over": false
+  },
+  {
+    "name": "shot guest-ar-320-dashboard",
+    "build": "before",
+    "ok": true,
+    "over": false
+  },
+  {
+    "name": "shot zoom200-member-wallet",
+    "build": "before",
+    "ok": true,
+    "over": false
+  },
+  {
+    "name": "shot zoom200-guest-dashboard",
+    "build": "before",
+    "ok": true,
+    "over": false
+  },
+  {
+    "name": "shot zoom200-member-ar-dashboard",
+    "build": "before",
+    "ok": true,
+    "over": false
+  },
+  {
+    "name": "wallet loading state",
+    "build": "before",
+    "ok": true,
+    "statusRegions": 0,
+    "announces": false
+  },
+  {
+    "name": "probe loading screen",
+    "build": "before",
+    "ok": true,
+    "bodyBackground": "rgb(249, 248, 246)",
+    "status": ["Loading…"]
+  },
+  {
+    "name": "session check failure alert",
+    "build": "before",
+    "ok": true,
+    "label": "Retry connection",
+    "probesBefore": 1,
+    "probesAfter": 3
+  },
+  {
+    "name": "catalogue error state",
+    "build": "before",
+    "ok": true
+  },
+  {
+    "name": "bottom-nav focus ring visible",
+    "build": "before",
+    "ok": true,
+    "focused": true,
+    "matches": true,
+    "outline": "solid 3px rgb(184, 203, 189)",
+    "ringBottom": 840,
+    "viewport": 844
+  },
+  {
+    "name": "back/forward with bottom nav",
+    "build": "before",
+    "ok": true,
+    "trail": ["/sports", "/casino", "/sports", "/casino", "/dashboard"]
+  },
+  {
+    "name": "reduced motion respected",
+    "build": "before",
+    "ok": true,
+    "reduce": {
+      "loadingMark": null,
+      "pageEntrance": "none"
+    },
+    "motion": {
+      "loadingMark": null,
+      "pageEntrance": "none"
+    }
+  },
+  {
+    "name": "guest prompt → sign in → return → Back",
+    "build": "before",
+    "ok": true,
+    "afterBack": "/wallet"
+  },
+  {
+    "name": "shot guest-en-390-dashboard",
+    "build": "after",
+    "ok": true,
+    "over": false
+  },
+  {
+    "name": "shot guest-en-390-casino",
+    "build": "after",
+    "ok": true,
+    "over": false
+  },
+  {
+    "name": "shot guest-en-320-play-together-controls",
+    "build": "after",
+    "ok": true,
+    "over": false
+  },
+  {
+    "name": "shot guest-en-1440-dashboard",
+    "build": "after",
+    "ok": true,
+    "over": false
+  },
+  {
+    "name": "shot member-en-390-dashboard",
+    "build": "after",
+    "ok": true,
+    "over": false
+  },
+  {
+    "name": "shot member-en-390-wallet",
+    "build": "after",
+    "ok": true,
+    "over": false
+  },
+  {
+    "name": "shot member-en-320-dashboard-controls",
+    "build": "after",
+    "ok": true,
+    "over": false
+  },
+  {
+    "name": "shot member-ar-390-play-together",
+    "build": "after",
+    "ok": true,
+    "over": false
+  },
+  {
+    "name": "shot member-ar-390-casino",
+    "build": "after",
+    "ok": true,
+    "over": false
+  },
+  {
+    "name": "shot guest-ar-320-dashboard",
+    "build": "after",
+    "ok": true,
+    "over": false
+  },
+  {
+    "name": "shot zoom200-member-wallet",
+    "build": "after",
+    "ok": true,
+    "over": false
+  },
+  {
+    "name": "shot zoom200-guest-dashboard",
+    "build": "after",
+    "ok": true,
+    "over": false
+  },
+  {
+    "name": "shot zoom200-member-ar-dashboard",
+    "build": "after",
+    "ok": true,
+    "over": false
+  },
+  {
+    "name": "wallet loading state",
+    "build": "after",
+    "ok": true,
+    "statusRegions": 1,
+    "announces": true
+  },
+  {
+    "name": "probe loading screen",
+    "build": "after",
+    "ok": true,
+    "bodyBackground": "rgb(5, 11, 9)",
+    "status": ["Loading…"]
+  },
+  {
+    "name": "session check failure alert",
+    "build": "after",
+    "ok": true,
+    "label": "Retry connection",
+    "probesBefore": 1,
+    "probesAfter": 3
+  },
+  {
+    "name": "catalogue error state",
+    "build": "after",
+    "ok": true
+  },
+  {
+    "name": "bottom-nav focus ring visible",
+    "build": "after",
+    "ok": true,
+    "focused": true,
+    "matches": true,
+    "outline": "solid 2px rgb(52, 211, 153)",
+    "ringBottom": 836,
+    "viewport": 844
+  },
+  {
+    "name": "back/forward with bottom nav",
+    "build": "after",
+    "ok": true,
+    "trail": ["/sports", "/casino", "/sports", "/casino", "/dashboard"]
+  },
+  {
+    "name": "reduced motion respected",
+    "build": "after",
+    "ok": true,
+    "reduce": {
+      "loadingMark": "none",
+      "pageEntrance": "none"
+    },
+    "motion": {
+      "loadingMark": "salem-loading-turn",
+      "pageEntrance": "salem-fade-in"
+    }
+  },
+  {
+    "name": "guest prompt → sign in → return → Back",
+    "build": "after",
+    "ok": true,
+    "afterBack": "/wallet"
+  }
+]

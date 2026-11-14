@@ -85,6 +85,7 @@ const NOVEMBER_RELEASES = [
   '20261106030000_together_live_timeline',
   '20261106031000_together_practice_worker',
   '20261107040000_payment_order_rooms',
+  '20261113060000_deposit_destination_revisions',
 ];
 const AGENT_ACTIVATION_UTC = '20261007040000_agent_activation_utc';
 const RECOVERY_RUNTIME_HARDENING = '20261007032000_recovery_runtime_hardening';

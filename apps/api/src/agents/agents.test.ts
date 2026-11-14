@@ -637,8 +637,8 @@ describeIf('Agent payment account lifecycle', () => {
       accountDetails: validDetails,
     });
     await approveAgentPaymentAccount(admin.id, account.id, await displayedPaymentAccountVersion(account.id));
-    const disabled = await disableOwnPaymentAccount(user.id, account.id);
-    expect(disabled.status).toBe('DISABLED');
+    const disabled = await disableOwnPaymentAccount(user.id, account.id, await displayedPaymentAccountVersion(account.id));
+    expect(disabled).toMatchObject({ status: 'APPROVED', safetyHold: true });
 
     const stillThere = await prisma.agentPaymentAccount.findUnique({ where: { id: account.id } });
     expect(stillThere).not.toBeNull();
@@ -652,8 +652,8 @@ describeIf('Agent payment account lifecycle', () => {
       methodDefId: method.id,
       accountDetails: validDetails,
     });
-    const result = await adminDisablePaymentAccount(admin.id, account.id);
-    expect(result.status).toBe('DISABLED');
+    const result = await adminDisablePaymentAccount(admin.id, account.id, account.updatedAt.toISOString());
+    expect(result).toMatchObject({ status: 'PENDING_APPROVAL', safetyHold: true });
   });
 
   it('28. CONCURRENCY: concurrent approve/reject on the same account — exactly one winner', async () => {

@@ -139,6 +139,21 @@ async function purgeFixtureExchangeRates(where: unknown): Promise<{ count: numbe
 }
 
 prisma.$use(async (params, next) => {
+  if (params.model === 'AgentPaymentAccount' && params.action === 'deleteMany') {
+    const agentIds = idsFromUserFilter(params.args?.where?.agentId);
+    if (!agentIds.length) throw new Error('Unscoped receiving account fixture purge refused');
+    await assertThrowawayDatabase();
+    const ids = Prisma.join(agentIds);
+    return prisma.$transaction(async tx => {
+      // Fixture-only cleanup, after orders have been removed. Never used by app services.
+      const [cited] = await tx.$queryRaw<{ n: bigint }[]>`
+        SELECT count(*) AS n FROM agent_orders WHERE "agentId" IN (${ids})`;
+      if (cited.n > 0n) throw new Error('Receiving account fixture still has orders');
+      await tx.$executeRawUnsafe('SET LOCAL session_replication_role = replica');
+      await tx.$executeRaw`DELETE FROM agent_payment_account_revisions WHERE "agentId" IN (${ids})`;
+      return { count: await tx.$executeRaw`DELETE FROM agent_payment_accounts WHERE "agentId" IN (${ids})` };
+    });
+  }
   if (params.model === 'ExchangeRateConfig' && params.action === 'deleteMany') {
     return purgeFixtureExchangeRates(params.args?.where);
   }

@@ -20,6 +20,10 @@ afterAll(() => prisma.$disconnect());
 it('seeds an inert synthetic recovery fixture once, preserves its baseline and detects drift', async () => {
   const first = await prisma.$transaction(tx => recoveryFixture(tx, true));
   const retry = await prisma.$transaction(tx => recoveryFixture(tx, true));
+  const receiving = await prisma.agentPaymentAccount.findUniqueOrThrow({ where: { id: fixtureIds.receivingAccount } });
+  const pinned = await prisma.agentOrder.findUniqueOrThrow({ where: { id: fixtureIds.order } });
+  expect(receiving).toMatchObject({ status: 'APPROVED', approvedRevision: 1, safetyHold: false });
+  expect(pinned).toMatchObject({ paymentAccountId: receiving.id, paymentAccountRevision: 1, paymentSnapshot: receiving.accountDetails });
   expect(retry).toEqual(first);
   expect(first).toMatchObject({status:'OPEN', synthetic:true, baselineUnchanged:true, walletCount:0, inventoryCount:0, settlementCount:0, walletEntryCount:0, providerSettlementVerified:false});
   const reviewer = await prisma.user.create({data:{username:`fixture_reviewer_${randomUUID()}`,role:'ADMIN'}});
@@ -438,3 +442,288 @@ it('canonical runtime grants allow audit append/read but deny every mutation pat
     await prisma.$executeRawUnsafe(`DROP ROLE "${role}"`);
   }
 });
+
+// Deposit candidate acceptance gaps: real HTTP auth, competing service calls,
+// and the existing disposable database runtime-role grant boundary.
+async function depositState(f: Awaited<ReturnType<typeof fundedFixture>>) {
+  return {
+    account: await prisma.agentPaymentAccount.findUniqueOrThrow({ where: { id: f.account.id } }),
+    orders: await prisma.agentOrder.findMany({ where: { agentId: f.agent.id }, orderBy: { id: 'asc' } }),
+    reservations: await prisma.agentReservation.findMany({ where: { agentId: f.agent.id }, orderBy: { id: 'asc' } }),
+    inventory: await prisma.agentInventory.findUniqueOrThrow({ where: { agentId: f.agent.id } }),
+    audits: await prisma.auditLog.count({ where: { entityId: f.account.id } }),
+    disputes: await prisma.dispute.findMany({ where: { order: { agentId: f.agent.id } }, orderBy: { id: 'asc' } }),
+    inventoryLedger: await prisma.agentInventoryLedger.count({ where: { agentId: f.agent.id } }),
+    settlements: await prisma.agentOrderSettlement.count({ where: { order: { agentId: f.agent.id } } }),
+    walletEntries: await prisma.walletTransaction.count({ where: { wallet: { userId: f.buyer.id } } }),
+  };
+}
+
+it('authenticates receiving review and disable routes and rolls back denied requests without touching pinned funds', async () => {
+  const { config } = await import('@socialplay/config');
+  const trustedHeaders = { origin: new URL(config.FRONTEND_URL).origin };
+  const { buildServer } = await import('../server.js');
+  const { openDispute } = await import('./dispute-service.js');
+  const server = await buildServer();
+  try {
+    const f = await fundedFixture();
+    const other = await fixture();
+    const { order } = await createAgentOrder(f.buyer.id, f.args);
+    const cookies = (id: string) => ({ sp_access_token: server.jwt.sign({ sub: id, roles: ['USER'] }) });
+    const own = `/api/v1/agents/me/payment-accounts/${f.account.id}`;
+    const review = `/api/v1/agents/payment-accounts/${f.account.id}`;
+    const version = f.account.updatedAt.toISOString();
+    const before = await depositState(f);
+    // Deliberately separate CSRF/origin rejection from route authorization.
+    for (const headers of [{}, { origin: 'https://untrusted-deposit.example.invalid' }]) {
+      const denied = await server.inject({ method: 'POST', url: `${own}/disable`,
+        headers, cookies: cookies(f.agentUser.id), payload: { expectedUpdatedAt: version } });
+      expect(denied.statusCode).toBe(403);
+      expect(denied.body).toContain('Untrusted session origin');
+      expect(await depositState(f)).toEqual(before);
+    }
+    for (const suffix of ['approve', 'reject', 'admin-disable']) {
+      const payload = { expectedUpdatedAt: version, ...(suffix === 'reject' ? { reviewNote: 'Synthetic rejection' } : {}) };
+      expect((await server.inject({ headers: trustedHeaders, method: 'POST', url: `${review}/${suffix}`, payload })).statusCode).toBe(401);
+      const wrongRole = await server.inject({ headers: trustedHeaders, method: 'POST', url: `${review}/${suffix}`, payload, cookies: cookies(f.buyer.id) });
+      expect(wrongRole.statusCode).toBe(403);
+      expect(wrongRole.body).toContain('Permission required: agent:review');
+      expect(await depositState(f)).toEqual(before);
+    }
+    expect((await server.inject({ headers: trustedHeaders, method: 'POST', url: `${own}/disable`, payload: { expectedUpdatedAt: version } })).statusCode).toBe(401);
+    const crossAgent = await server.inject({ headers: trustedHeaders, method: 'POST', url: `${own}/disable`, payload: { expectedUpdatedAt: version }, cookies: cookies(other.agentUser.id) });
+    expect(crossAgent.statusCode).toBe(403);
+    expect(crossAgent.body).toContain('Not your payment account');
+    expect(await depositState(f)).toEqual(before);
+    const malformed = await server.inject({ headers: trustedHeaders, method: 'POST', url: `${own}/disable`, payload: { expectedUpdatedAt: 'malformed' }, cookies: cookies(f.agentUser.id) });
+    expect(malformed.statusCode).toBe(400);
+    expect(malformed.body).toContain('displayed expectedUpdatedAt ISO timestamp is required');
+    expect(await depositState(f)).toEqual(before);
+    const edit = await server.inject({ headers: trustedHeaders, method: 'PATCH', url: own, cookies: cookies(f.agentUser.id), payload: {
+      expectedUpdatedAt: version, countryId: f.country.id, methodDefId: f.method.id, accountDetails: { accountNumber: 'replacement-only' },
+    } });
+    expect(edit.statusCode, edit.body).toBe(200);
+    let current = await prisma.agentPaymentAccount.findUniqueOrThrow({ where: { id: f.account.id } });
+    const edited = await depositState(f);
+    expect((await server.inject({ headers: trustedHeaders, method: 'POST', url: `${review}/approve`, cookies: cookies(f.admin.id), payload: { expectedUpdatedAt: version } })).statusCode).toBe(409);
+    expect(await depositState(f)).toEqual(edited);
+    const approved = await server.inject({ headers: trustedHeaders, method: 'POST', url: `${review}/approve`, cookies: cookies(f.admin.id), payload: { expectedUpdatedAt: current.updatedAt.toISOString() } });
+    expect(approved.statusCode, approved.body).toBe(200);
+    current = await prisma.agentPaymentAccount.findUniqueOrThrow({ where: { id: f.account.id } });
+    expect(current.approvedRevision).toBe(2);
+    await openDispute(f.buyer.id, { orderId: order.id, reason: 'OTHER', description: 'Synthetic safety investigation', idempotencyKey: randomUUID() });
+    const disputed = await depositState(f);
+    const held = await server.inject({ headers: trustedHeaders, method: 'POST', url: `${review}/admin-disable`, cookies: cookies(f.admin.id), payload: { expectedUpdatedAt: current.updatedAt.toISOString() } });
+    expect(held.statusCode, held.body).toBe(200);
+    const after = await depositState(f);
+    expect(after.orders[0]).toMatchObject({ status: 'DISPUTE', safetyHold: true, paymentAccountRevision: 1, paymentSnapshot: f.account.accountDetails });
+    expect(after.disputes).toEqual(disputed.disputes);
+    expect(after.inventoryLedger).toBe(before.inventoryLedger);
+    expect(after.reservations).toEqual(before.reservations);
+    expect(after.inventory).toEqual(before.inventory);
+    expect(after.settlements).toBe(0);
+    expect(after.walletEntries).toBe(before.walletEntries);
+    await expect(cancelAgentOrder(f.buyer.id, order.id)).rejects.toMatchObject({ statusCode: 409 });
+    await expect(settleAgentOrder(f.agentUser.id, order.id)).rejects.toMatchObject({ statusCode: 409 });
+    expect(await depositState(f)).toEqual(after);
+    for (const endpoint of [`${own}/disable`, `${review}/admin-disable`]) {
+      const stale = await server.inject({ headers: trustedHeaders, method: 'POST', url: endpoint, cookies: cookies(endpoint === `${own}/disable` ? f.agentUser.id : f.admin.id), payload: { expectedUpdatedAt: version } });
+      expect(stale.statusCode).toBe(409);
+      expect(await depositState(f)).toEqual(after);
+    }
+    // Successful reject and owner-disable also use the actual cookie routes.
+    const pending = await prisma.agentPaymentAccount.create({ data: { agentId: f.agent.id, countryId: f.country.id, methodDefId: f.method.id, accountDetails: { accountNumber: 'pending-only' } } });
+    const rejected = await server.inject({ headers: trustedHeaders, method: 'POST', url: `/api/v1/agents/payment-accounts/${pending.id}/reject`, cookies: cookies(f.admin.id), payload: { expectedUpdatedAt: pending.updatedAt.toISOString(), reviewNote: 'Synthetic rejection' } });
+    expect(rejected.statusCode, rejected.body).toBe(200);
+    const rejectedRow = await prisma.agentPaymentAccount.findUniqueOrThrow({ where: { id: pending.id } });
+    const disabled = await server.inject({ headers: trustedHeaders, method: 'POST', url: `/api/v1/agents/me/payment-accounts/${pending.id}/disable`, cookies: cookies(f.agentUser.id), payload: { expectedUpdatedAt: rejectedRow.updatedAt.toISOString() } });
+    expect(disabled.statusCode, disabled.body).toBe(200);
+    expect(await prisma.agentPaymentAccount.findUniqueOrThrow({ where: { id: pending.id } })).toMatchObject({ status: 'REJECTED', safetyHold: true });
+  } finally { await server.close(); }
+});
+
+it('serializes same-millisecond edit/review/disable decisions with exactly one audit and no losing side effects', async () => {
+  const { updateAgentPaymentAccount, approveAgentPaymentAccount, disableOwnPaymentAccount } = await import('./payment-account-service.js');
+  const f = await fundedFixture();
+  await createAgentOrder(f.buyer.id, f.args);
+  // A future fixed millisecond forces the monotonic +1ms branch in both JS and SQL.
+  const pending = await prisma.agentPaymentAccount.update({ where: { id: f.account.id }, data: { accountDetails: { accountNumber: 'pending' }, updatedAt: new Date('2099-01-01T00:00:00.000Z') } });
+  const before = await depositState(f);
+  const expectedUpdatedAt = pending.updatedAt.toISOString();
+  const results = await Promise.allSettled([
+    updateAgentPaymentAccount(f.agentUser.id, f.account.id, { expectedUpdatedAt, countryId: f.country.id, methodDefId: f.method.id, accountDetails: { accountNumber: 'competing-edit' } }),
+    approveAgentPaymentAccount(f.admin.id, f.account.id, expectedUpdatedAt),
+    disableOwnPaymentAccount(f.agentUser.id, f.account.id, expectedUpdatedAt),
+  ]);
+  expect(results.filter(r => r.status === 'fulfilled')).toHaveLength(1);
+  for (const r of results) if (r.status === 'rejected') expect(r.reason).toMatchObject({ statusCode: 409 });
+  const after = await depositState(f);
+  expect(after.account.updatedAt.getTime()).toBe(pending.updatedAt.getTime() + 1);
+  expect(after.audits).toBe(before.audits + 1);
+  expect(after.inventoryLedger).toBe(before.inventoryLedger);
+  expect(after.disputes).toEqual(before.disputes);
+  expect(after.inventory).toEqual(before.inventory);
+  expect(after.reservations).toEqual(before.reservations);
+  expect(after.orders[0]).toMatchObject({ paymentSnapshot: before.orders[0].paymentSnapshot, paymentAccountRevision: 1, status: 'CREATED', safetyHold: after.account.safetyHold });
+  expect(after.settlements).toBe(0);
+  expect(after.walletEntries).toBe(before.walletEntries);
+  await expect(disableOwnPaymentAccount(f.agentUser.id, f.account.id, expectedUpdatedAt)).rejects.toMatchObject({ statusCode: 409 });
+  expect(await depositState(f)).toEqual(after);
+});
+
+it('serializes service order admission and safety disable without an unheld surviving order', async () => {
+  const { disableOwnPaymentAccount } = await import('./payment-account-service.js');
+  const f = await fundedFixture();
+  const before = await depositState(f);
+  const results = await Promise.allSettled([
+    createAgentOrder(f.buyer.id, f.args),
+    disableOwnPaymentAccount(f.agentUser.id, f.account.id, f.account.updatedAt.toISOString()),
+  ]);
+  expect(results[1].status).toBe('fulfilled');
+  const after = await depositState(f);
+  expect(after.account.safetyHold).toBe(true);
+  if (results[0].status === 'fulfilled') {
+    expect(after.orders).toHaveLength(1);
+    expect(after.orders[0]).toMatchObject({ safetyHold: true, status: 'CREATED', paymentAccountRevision: 1, paymentSnapshot: f.account.accountDetails });
+    expect(after.reservations[0].status).toBe('ACTIVE');
+    expect(after.inventory.reservedBalance).toBe(after.orders[0].coinAmount);
+  } else {
+    expect(after.orders).toHaveLength(0);
+    expect(after.reservations).toHaveLength(0);
+    expect(after.inventory).toEqual(before.inventory);
+  }
+  expect(after.settlements).toBe(0);
+  expect(after.walletEntries).toBe(before.walletEntries);
+});
+
+it('serializes expiry versus safety disable: either one release precedes the hold or the reservation remains frozen', async () => {
+  const { disableOwnPaymentAccount } = await import('./payment-account-service.js');
+  const f = await fundedFixture();
+  const { order } = await createAgentOrder(f.buyer.id, f.args);
+  await prisma.agentOrder.update({ where: { id: order.id }, data: { createdAt: new Date(Date.now() - 3600000) } });
+  const before = await depositState(f);
+  const results = await Promise.allSettled([
+    cancelAgentOrder(f.buyer.id, order.id, undefined, 'expiry'),
+    disableOwnPaymentAccount(f.agentUser.id, f.account.id, f.account.updatedAt.toISOString()),
+  ]);
+  expect(results[1].status).toBe('fulfilled');
+  const after = await depositState(f);
+  expect(after.account.safetyHold).toBe(true);
+  expect(after.orders[0]).toMatchObject({ paymentSnapshot: before.orders[0].paymentSnapshot, paymentAccountRevision: 1 });
+  if (results[0].status === 'fulfilled') {
+    expect(after.orders[0].status).toBe('EXPIRED');
+    expect(after.reservations[0].status).toBe('RELEASED');
+    expect(after.inventory.reservedBalance).toBe(0);
+  } else {
+    expect(results[0].reason).toMatchObject({ statusCode: 409 });
+    expect(after.orders[0]).toMatchObject({ status: 'CREATED', safetyHold: true });
+    expect(after.reservations).toEqual(before.reservations);
+    expect(after.inventory).toEqual(before.inventory);
+  }
+  expect(after.settlements).toBe(0);
+  expect(after.walletEntries).toBe(before.walletEntries);
+});
+
+it('keeps restricted runtime and owner maintenance behind immutable destination and hold guards', async () => {
+  const { disableOwnPaymentAccount } = await import('./payment-account-service.js');
+  const { runLedgerInvariantCheckInTransaction } = await import('../economy/ledger-invariant-checker.js');
+  const f = await fundedFixture();
+  const { order } = await createAgentOrder(f.buyer.id, f.args);
+  await disableOwnPaymentAccount(f.agentUser.id, f.account.id, f.account.updatedAt.toISOString());
+  const before = await depositState(f);
+  const role = `deposit_runtime_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+  await prisma.$executeRawUnsafe(`CREATE ROLE "${role}" NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS`);
+  try {
+    // Existing supported grant function; no hand-picked grant substitutes.
+    await prisma.$executeRawUnsafe(`SELECT public.ledger_apply_runtime_grants('${role}')`);
+    const runtimeRead = await prisma.$transaction(async tx => {
+      await tx.$executeRawUnsafe(`SET LOCAL ROLE "${role}"`);
+      return tx.$queryRawUnsafe<Array<{ actor: string; id: string }>>(`SELECT current_user::text AS actor,id FROM public.agent_payment_accounts WHERE id='${f.account.id}'`);
+    });
+    expect(runtimeRead).toEqual([{ actor: role, id: f.account.id }]);
+    const statements = [
+      `UPDATE public.agent_orders SET "paymentSnapshot"='{}' WHERE id='${order.id}'`,
+      `UPDATE public.agent_payment_account_revisions SET "accountDetails"='{}' WHERE "accountId"='${f.account.id}'`,
+      `UPDATE public.agent_orders SET "safetyHold"=false WHERE id='${order.id}'`,
+      `UPDATE public.agent_payment_accounts SET "safetyHold"=false WHERE id='${f.account.id}'`,
+      `UPDATE public.agent_reservations SET status='RELEASED' WHERE "orderId"='${order.id}'`,
+    ];
+    for (const statement of statements) {
+      await expect(prisma.$transaction(async tx => {
+        await tx.$executeRawUnsafe(`SET LOCAL ROLE "${role}"`);
+        await tx.$executeRawUnsafe(statement);
+        await tx.$executeRawUnsafe('SET CONSTRAINTS ALL IMMEDIATE');
+      })).rejects.toThrow();
+      expect(await depositState(f)).toEqual(before);
+    }
+    await expect(prisma.$transaction(async tx => {
+      await tx.$executeRawUnsafe(`SET LOCAL ROLE "${role}"`);
+      await tx.$executeRawUnsafe('ALTER TABLE public.agent_orders DISABLE TRIGGER deposit_order_destination');
+    })).rejects.toThrow();
+    // Owner data maintenance cannot silently bypass the same frozen record guards.
+    for (const statement of statements.slice(0, 4)) await expect(prisma.$executeRawUnsafe(statement)).rejects.toThrow();
+    expect(await depositState(f)).toEqual(before);
+    const scan = await prisma.$transaction(tx => runLedgerInvariantCheckInTransaction(tx, null, false), { timeout: 120000 });
+    expect(scan.violations.filter(v => v.invariant.startsWith('I3'))).toEqual([]);
+  } finally {
+    await prisma.$executeRawUnsafe(`DROP OWNED BY "${role}"`);
+    await prisma.$executeRawUnsafe(`DROP ROLE "${role}"`);
+  }
+});
+
+it('executes authenticated deposit review and competing disables on a separate non-owner Prisma pool', async () => {
+  const { spawnSync } = await import('node:child_process');
+  const { fileURLToPath } = await import('node:url');
+  const { join } = await import('node:path');
+  const f = await fundedFixture();
+  const other = await fixture();
+  const { order } = await createAgentOrder(f.buyer.id, f.args);
+  await prisma.agentPaymentAccount.update({ where: { id: f.account.id }, data: { accountDetails: { accountNumber: 'runtime-review-only' } } });
+  const role = `deposit_http_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+  const password = randomUUID();
+  await prisma.$executeRawUnsafe(`CREATE ROLE "${role}" LOGIN PASSWORD '${password}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS`);
+  try {
+    await prisma.$executeRawUnsafe(`GRANT CONNECT, TEMPORARY ON DATABASE playqube_scheduled_throwaway TO "${role}"`);
+    await prisma.$executeRawUnsafe(`SELECT public.ledger_apply_runtime_grants('${role}')`);
+    const runtimeUrl = new URL(process.env.DATABASE_URL!);
+    runtimeUrl.username = role; runtimeUrl.password = password;
+    runtimeUrl.search = '';
+    runtimeUrl.searchParams.set('connection_limit', '2');
+    runtimeUrl.searchParams.set('connect_timeout', '30');
+    // Whitelist child configuration: no owner URL, NODE_OPTIONS/preload, .env,
+    // alternate datasource, or inherited globals. Engine paths may refer only
+    // to already installed compatible engines; this never downloads one.
+    const env: NodeJS.ProcessEnv = {
+      PATH: process.env.PATH, NODE_ENV: 'test', LOG_PRETTY: 'false', LOG_LEVEL: 'fatal',
+      DATABASE_URL: runtimeUrl.toString(), SCHEDULED_NATIVE_DB_ACK: 'throwaway',
+      JWT_ACCESS_SECRET: 'isolated-deposit-runtime-access1', JWT_REFRESH_SECRET: 'isolated-deposit-runtime-refresh',
+      FRONTEND_URL: 'http://localhost:5173', CORS_ORIGIN: 'http://localhost:5173',
+    };
+    for (const key of ['PRISMA_QUERY_ENGINE_LIBRARY', 'PRISMA_QUERY_ENGINE_BINARY', 'LD_LIBRARY_PATH']) {
+      if (process.env[key]) env[key] = process.env[key];
+    }
+    const input = { role, adminId: f.admin.id, buyerId: f.buyer.id, agentUserId: f.agentUser.id,
+      otherAgentUserId: other.agentUser.id, accountId: f.account.id, agentId: f.agent.id, orderId: order.id };
+    const apiRoot = fileURLToPath(new URL('../../', import.meta.url));
+    // No owner pool remains open while the child loads or executes the API.
+    await prisma.$disconnect();
+    const child = spawnSync(join(apiRoot, 'node_modules/.bin/tsx'),
+      [join(apiRoot, 'src/test/deposit-runtime-http-harness.ts'), JSON.stringify(input)],
+      { cwd: apiRoot, env, encoding: 'utf8', timeout: 120000 });
+    expect(child.status, `${child.stdout}\n${child.stderr}`).toBe(0);
+    const line = child.stdout.split('\n').find(s => s.startsWith('{"depositRuntimeHttp":"passed"'));
+    expect(line, child.stdout).toBeTruthy();
+    const result = JSON.parse(line!);
+    expect(result.requests).toBe(6);
+    expect(result.identity).toEqual({ current: role, session: role, super: false, bypass: false, ownerMember: false, ownerReach: false });
+    expect(result.finalIdentity).toEqual(result.identity);
+    // Owner reconnects only after the child has exited, for independent observation/cleanup.
+    expect(await prisma.agentOrder.findUniqueOrThrow({ where: { id: order.id } })).toMatchObject({
+      safetyHold: true, status: 'CREATED', paymentAccountRevision: 1, paymentSnapshot: f.account.accountDetails,
+    });
+    expect(await prisma.agentReservation.findUniqueOrThrow({ where: { orderId: order.id } })).toMatchObject({ status: 'ACTIVE' });
+  } finally {
+    await prisma.$executeRawUnsafe(`DROP OWNED BY "${role}"`);
+    await prisma.$executeRawUnsafe(`DROP ROLE "${role}"`);
+  }
+}, 180000);

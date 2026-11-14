@@ -7,6 +7,7 @@ import { useLanguage } from '@/providers/language-provider';
 import { GameArtwork, type TestGame } from '@/pages/games/provider-test';
 import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 import { createLaunchIntent } from '@/lib/launch-intent';
+import { LoadingState } from '@/components/ui/loading-state';
 
 export function CasinoPreview() {
   const { t: translateUi } = useInterfaceLanguage();
@@ -83,7 +84,7 @@ export function CasinoPreview() {
           <p className="salem-footnote">{translateUi('Virtual ETB · No cash value')}</p>
         </>
       ) : user && (status.isPending || (allowed && games.isPending)) ? (
-        <p role="status">{t('Loading…')}</p>
+        <LoadingState size="inline" />
       ) : (
         <div className="salem-casino-intro">
           <Dice5 size={30} />
