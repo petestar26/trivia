@@ -1,0 +1,289 @@
+{
+  "repository": "petestar26/trivia",
+  "base_commit": "a54696ebc3805108f25a9e1a6555dbada8252c6f",
+  "candidate_version": "v7-derived-typefix-1-fixture-2",
+  "candidate_identity": "v7-derived-typefix-1-fixture-1 plus the deposit migration's explicit entry in the migration regression's forward-migration inventory (test-only revision)",
+  "parent": {
+    "candidate_version": "v7-derived-typefix-1-fixture-1",
+    "manifest_sha256": "98bdd18441f915ff2941e996a02e8d72169f2b471d54b12a1d4726469b4c58fe",
+    "revision_commit": "c8e5b4b073d736b598e0363e25aebfd8f6b1e62e",
+    "file_count": 39
+  },
+  "lineage": [
+    {
+      "candidate_version": "v7-derived-typefix-1",
+      "manifest_sha256": "d0b678842e279fd1796c120f672d61befe67e6f58e3c25252ec7ffdea3e6b1ef",
+      "archive_sha256": "de166e06c46400c82b5f14fbde2313b3b65863e55efffbc3950d2630633306fb",
+      "applied_commit": "b1f804981fc4a5c82795f9d8d457554c0e4094b4"
+    },
+    {
+      "candidate_version": "v7-derived-typefix-1-fixture-1",
+      "manifest_sha256": "98bdd18441f915ff2941e996a02e8d72169f2b471d54b12a1d4726469b4c58fe",
+      "revision_commit": "c8e5b4b073d736b598e0363e25aebfd8f6b1e62e"
+    }
+  ],
+  "revision_commit": "52b218118b16da5183fb85fd0b46e391c9ced891",
+  "revision_branch": "claude/hopeful-johnson-regyeh",
+  "pull_request": "petestar26/trivia#81",
+  "change": {
+    "reason": "CI on PostgreSQL 13/16/18: ledger-upgrade.migration.test.ts beforeAll requires the forward-migration inventory to equal the sorted migration directory; 20261113060000_deposit_destination_revisions was not inventoried",
+    "modified": [],
+    "added": [
+      {
+        "path": "apps/api/src/ledger/ledger-upgrade.migration.test.ts",
+        "sha256": "5d85a3410640dac726c5b2eb31dbccd9dbc5c37866491d6d0e543b76aead5fb7",
+        "status": "added",
+        "new_at_base": false,
+        "base_sha256": "b0cabc8398a0b63797512a496deb4f12d5fc774c98f0ef5d28679811aa22721b"
+      }
+    ],
+    "diff": "+  '20261113060000_deposit_destination_revisions', appended as the last entry of NOVEMBER_RELEASES",
+    "production_code_changed": false,
+    "migration_or_schema_changed": false,
+    "assertions_changed": false
+  },
+  "files": [
+    {
+      "path": "apps/api/src/agents/agents.test.ts",
+      "sha256": "3cd5413c06fd625612e64c7403d97a25043cdbf8f7804bc72b1f49854ea14f86",
+      "status": "unchanged",
+      "new_at_base": false
+    },
+    {
+      "path": "apps/api/src/agents/config-service.ts",
+      "sha256": "d43fe7a9f271816283b237b22e3f8adadc98cdda02d51d437c7d1621ec0153f3",
+      "status": "unchanged",
+      "new_at_base": false
+    },
+    {
+      "path": "apps/api/src/agents/deposit-p1-regression.test.ts",
+      "sha256": "101118f0f0d314ba142e9869d5b35670f119a711b1a27f297472531b0f6ebad0",
+      "status": "unchanged",
+      "new_at_base": true
+    },
+    {
+      "path": "apps/api/src/agents/deposit-revisions.test.ts",
+      "sha256": "82c98e23753b2f110b5fa50b80459f60b4a5a1b8ec48eefb87fadcf3114e4525",
+      "status": "unchanged",
+      "new_at_base": true
+    },
+    {
+      "path": "apps/api/src/agents/deposit-safety.unit.test.ts",
+      "sha256": "273eb672f9f8da8daf4def0b062e7de2bf141dcb079dac3570c9edd97e31077f",
+      "status": "unchanged",
+      "new_at_base": true
+    },
+    {
+      "path": "apps/api/src/agents/dispute-service.ts",
+      "sha256": "85cefdc1fbf2bc939915de18473e7ee655cbe1662b010860d0eaa59e2a1892a7",
+      "status": "unchanged",
+      "new_at_base": false
+    },
+    {
+      "path": "apps/api/src/agents/late-payment-service.ts",
+      "sha256": "a04dbed2f92c355a59c1fca6e708c1f9ad99292686b8f0007d8013b0bafaf277",
+      "status": "unchanged",
+      "new_at_base": false
+    },
+    {
+      "path": "apps/api/src/agents/order-lifecycle.test.ts",
+      "sha256": "7e27ccd823cb7632c77d234fb6e7161c0d0f432107757d28df1837d298fc546f",
+      "status": "unchanged",
+      "new_at_base": false
+    },
+    {
+      "path": "apps/api/src/agents/order-lifecycle.ts",
+      "sha256": "1c2860fd9240378f7c6c044aca007d9bf6fb2d8786c62644dcba07d2d3699112",
+      "status": "unchanged",
+      "new_at_base": false
+    },
+    {
+      "path": "apps/api/src/agents/order-service.ts",
+      "sha256": "153324d57a9944abd9d4e81aa40062c4dbfcc725e58683d104c7329afa2efba4",
+      "status": "unchanged",
+      "new_at_base": false
+    },
+    {
+      "path": "apps/api/src/agents/payment-account-service.ts",
+      "sha256": "6b6610218a6629caa10acad0dfcd9fef36a7b32003d88d967982e8b2eb328931",
+      "status": "unchanged",
+      "new_at_base": false
+    },
+    {
+      "path": "apps/api/src/agents/payment-account-setup.test.ts",
+      "sha256": "7a6becaca65265e45f1eba198b5c0782aac9a0a4e8556204b3bf7c1b3c6685d9",
+      "status": "unchanged",
+      "new_at_base": false
+    },
+    {
+      "path": "apps/api/src/agents/payment-readiness.native.ts",
+      "sha256": "9fce4644442f76773b0626a30f4977685dcdc382fe65a7ee6263ac1e772511af",
+      "status": "unchanged",
+      "new_at_base": false
+    },
+    {
+      "path": "apps/api/src/agents/payment-room-service.ts",
+      "sha256": "3d72f76d7e3856ce90bfd38438dc0de6c8eba0fcca8833d20388e6b8f4996831",
+      "status": "unchanged",
+      "new_at_base": false
+    },
+    {
+      "path": "apps/api/src/agents/payment-setup.ts",
+      "sha256": "87e082fa24b5fd0951afb08b8031606a1ec94d3fa78e327bdb499224f1047f1b",
+      "status": "unchanged",
+      "new_at_base": false
+    },
+    {
+      "path": "apps/api/src/agents/purchase-fixture-repeat.test.ts",
+      "sha256": "613a3b1f49fa28620fbde7823882a27fb1d0d10f73f5302564193882b672f03e",
+      "status": "unchanged",
+      "new_at_base": true
+    },
+    {
+      "path": "apps/api/src/agents/routes.ts",
+      "sha256": "cf1340670c9e216aad9bc472b424992256a7f4d2c40a0845a5b63002405677c8",
+      "status": "unchanged",
+      "new_at_base": false
+    },
+    {
+      "path": "apps/api/src/ledger/ledger-upgrade.migration.test.ts",
+      "sha256": "5d85a3410640dac726c5b2eb31dbccd9dbc5c37866491d6d0e543b76aead5fb7",
+      "status": "added",
+      "new_at_base": false,
+      "base_sha256": "b0cabc8398a0b63797512a496deb4f12d5fc774c98f0ef5d28679811aa22721b"
+    },
+    {
+      "path": "apps/api/src/routes/wallet-options.test.ts",
+      "sha256": "4cdddac834c2175bfc3cf2bdbeb8fd73f93f40e97b33165fe5ceeb1beadde7f6",
+      "status": "unchanged",
+      "new_at_base": false
+    },
+    {
+      "path": "apps/api/src/routes/wallet.ts",
+      "sha256": "218452adac2561dd8a2e55ad6c528239794a446c6e1de51a6c33c8739445aa42",
+      "status": "unchanged",
+      "new_at_base": false
+    },
+    {
+      "path": "apps/api/src/scripts/payment-readiness.ts",
+      "sha256": "c073a2cc0b6d1c854dbaf5948dc321095b750393771665a3996e4760b37fd9c9",
+      "status": "unchanged",
+      "new_at_base": false
+    },
+    {
+      "path": "apps/api/src/scripts/staging-recovery-fixture.ts",
+      "sha256": "2d8076c9381049b73d9328029780fae758d5bfc08d7aa5ffa272ba93de04f441",
+      "status": "unchanged",
+      "new_at_base": false
+    },
+    {
+      "path": "apps/api/src/test/deposit-runtime-http-harness.ts",
+      "sha256": "10acf53cc8351cef9e73239371c11336854c2363442802821436995a39a952c8",
+      "status": "unchanged",
+      "new_at_base": true
+    },
+    {
+      "path": "apps/api/src/test/financial-policy-fixtures.ts",
+      "sha256": "d907a77ba31e7e4f308f2621b3b2e4b76c5547af2e4ab6be052169e3a7268072",
+      "status": "unchanged",
+      "new_at_base": false
+    },
+    {
+      "path": "apps/api/src/test/fixture-ledger-cleanup.ts",
+      "sha256": "fc5f5ae777e73d723642fec214e3f502a4698b84435b3518dee242377fa892fa",
+      "status": "unchanged",
+      "new_at_base": false
+    },
+    {
+      "path": "apps/api/src/workspaces/service.ts",
+      "sha256": "8857dcf440f5ba91a55d60cc7ffda7e3ea8030ec3c4a47d3f9e973051943c013",
+      "status": "unchanged",
+      "new_at_base": false
+    },
+    {
+      "path": "apps/api/tsconfig.json",
+      "sha256": "b793bde7aa661ce8a2910b3175dfc83361c873b8f9b28bd18d89d6fbc8f34b15",
+      "status": "unchanged",
+      "new_at_base": false
+    },
+    {
+      "path": "apps/api/vitest.deposit-safety.config.ts",
+      "sha256": "cbc266588c953c5561493670242c45a5296183f9ece0babde186ca9f75777755",
+      "status": "unchanged",
+      "new_at_base": true
+    },
+    {
+      "path": "apps/api/vitest.review-unit.config.ts",
+      "sha256": "1dd46bcb12ead5ad7c12fb929b02ab7b8ab834447a450cc9d8d086ff0bc6c79c",
+      "status": "unchanged",
+      "new_at_base": false
+    },
+    {
+      "path": "apps/web/src/lib/i18n/catalogues/staff-phase2.ts",
+      "sha256": "8ed4d6d0b1c0588ac60630e7e835fe125324c34cc43ff7d47d324c040a34f9ba",
+      "status": "unchanged",
+      "new_at_base": false
+    },
+    {
+      "path": "apps/web/src/pages/wallet-agent-setup.test.tsx",
+      "sha256": "95dfd276b05fbb80f62cfe804044121a678f46519b4b64d5e619fb63ba55bb78",
+      "status": "unchanged",
+      "new_at_base": false
+    },
+    {
+      "path": "apps/web/src/pages/wallet-agent-setup.tsx",
+      "sha256": "97e268f7a0cd16047192216c20b62e51806c2fc994f481baf68376fa394dc6a4",
+      "status": "unchanged",
+      "new_at_base": false
+    },
+    {
+      "path": "apps/web/src/pages/wallet-order-room.test.tsx",
+      "sha256": "7571acca9ad19669493b2f03349b4f7c5e891d7c90c24e9c0db0a11506e0af77",
+      "status": "unchanged",
+      "new_at_base": false
+    },
+    {
+      "path": "apps/web/src/pages/wallet-order-room.tsx",
+      "sha256": "2c8d15b4e008881f8edaa14c4f6a615894b4351c017438ba9f93393883b9f920",
+      "status": "unchanged",
+      "new_at_base": false
+    },
+    {
+      "path": "apps/web/src/pages/wallet-setup-admin.test.tsx",
+      "sha256": "5308922958274c0eedad5463f0dd82387d152f835a27f19d2818c66cfcf45855",
+      "status": "unchanged",
+      "new_at_base": false
+    },
+    {
+      "path": "apps/web/src/pages/wallet-setup-admin.tsx",
+      "sha256": "52ab8396b7fc462fc13f41c18823b690573a494c7aa9ffc6b8dba8867821740f",
+      "status": "unchanged",
+      "new_at_base": false
+    },
+    {
+      "path": "docs/deposit-safety-local-review-20261113.md",
+      "sha256": "925a87af56e2420b19ad08c38da4ebd36bbd3d601ae6bf1454bce894f3acf251",
+      "status": "unchanged",
+      "new_at_base": true
+    },
+    {
+      "path": "packages/database/prisma/migrations/20261113060000_deposit_destination_revisions/migration.sql",
+      "sha256": "1c5e80ab91c05c8b9348e142e1b6015327977064afc257e896f0cc5c62e98c6d",
+      "status": "unchanged",
+      "new_at_base": true
+    },
+    {
+      "path": "packages/database/prisma/schema.prisma",
+      "sha256": "bb9fddd57d946222dc620bff33cd3eb147ffbf5cbd4d37a66c154700e7625998",
+      "status": "unchanged",
+      "new_at_base": false
+    },
+    {
+      "path": "scripts/deposit-safety-native.py",
+      "sha256": "e75555195bb0e6f7261b22a99233a6f8625bb7806183e3263d62bbded2f7dedd",
+      "status": "unchanged",
+      "new_at_base": true
+    }
+  ],
+  "identity_rule": "Exact base_commit plus these path/content hashes define the candidate. Other files in the revision commit's tree (shell polish, review evidence) are not part of the candidate."
+}

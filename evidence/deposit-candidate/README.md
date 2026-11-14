@@ -4,13 +4,15 @@
 | -------------------------------- | ----- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
 | `v7-derived-typefix-1` (parent)  | 38    | `d0b678842e279fd1796c120f672d61befe67e6f58e3c25252ec7ffdea3e6b1ef` | Applied byte-exact as `b1f8049`; archive SHA-256 `de166e06c46400c82b5f14fbde2313b3b65863e55efffbc3950d2630633306fb` |
 | `v7-derived-typefix-1-fixture-1` | 39    | `98bdd18441f915ff2941e996a02e8d72169f2b471d54b12a1d4726469b4c58fe` | Revision commit `c8e5b4b073d736b598e0363e25aebfd8f6b1e62e`                                                          |
+| `v7-derived-typefix-1-fixture-2` | 40    | `4c61e240e55c9423c862f0a7c4f6d10a5b437640625d577cfd1ae6271eef3f1e` | Revision commit `52b218118b16da5183fb85fd0b46e391c9ced891`                                                          |
 
-The parent is unchanged: its 38 files still match its manifest at `b1f8049`, and the local
-branch `candidate/v7-derived-typefix-1` was not modified. Its ongoing rehearsal applies to the
-parent identity only.
+Earlier identities are unchanged. `v7-derived-typefix-1` still matches 38/38 at `b1f8049`, and
+the local branch `candidate/v7-derived-typefix-1` was not modified; its ongoing rehearsal applies
+to that identity only. `v7-derived-typefix-1-fixture-1` still matches 39/39 at `c8e5b4b`, and its
+manifest and evidence below are kept as recorded.
 
 Identity rule (same as the parent handoff): the exact base `a54696ebc3805108f25a9e1a6555dbada8252c6f`
-plus the path/content hashes in `v7-derived-typefix-1-fixture-1.manifest.json`. Shell polish and
+plus the path/content hashes in that revision's `*.manifest.json` in this directory. Shell polish and
 review evidence in the same branch are not part of either candidate.
 
 ## What changed in `v7-derived-typefix-1-fixture-1`
@@ -87,3 +89,29 @@ the new test. The modified fixture file keeps the candidate's original formattin
 
 These local runs cover PostgreSQL 16 only. PostgreSQL 13 and 18 for steps 29-40 remain unverified
 until CI runs them.
+
+## What changed in `v7-derived-typefix-1-fixture-2`
+
+Test-only, on top of `v7-derived-typefix-1-fixture-1`. Commit `52b2181`, manifest
+`v7-derived-typefix-1-fixture-2.manifest.json` with 40 files: 39 unchanged from fixture-1, plus
+`apps/api/src/ledger/ledger-upgrade.migration.test.ts`, which existed at base and is now part of
+the candidate set.
+
+- One line: `'20261113060000_deposit_destination_revisions'` appended as the last entry of
+  `NOVEMBER_RELEASES`. The suite requires that inventory to equal the sorted migration
+  directory exactly, and the timestamp makes this the only valid position. Earlier migrations
+  were inventoried the same way (`c6eeeaf`).
+- No assertion, ordering or equality rule, historical checksum, funded-data refusal, migration
+  file, schema or production code changed. The file's existing formatting is kept.
+
+Local PostgreSQL 16, fresh database: `ledger-upgrade.migration.test.ts` passes **58/58**. That
+includes:
+
+- "native ETB initialization refuses a funded master-era database and changes nothing"
+- "replaying the migrations, and their hash verifications, preserves the same hashes"
+- "the same funded data, unchanged, upgrades through the pre-ETB boundary"
+- fresh install and replay
+- populated master-era upgrade
+
+API `tsc --noEmit`, ESLint and `git diff --check` also pass. CI results for this revision are
+on PR #81.

@@ -87,8 +87,8 @@ for the change and the local before/after results.
 
 ## Remaining before release
 
-1. Confirm the CI rerun of the revision on PostgreSQL 13, 16 and 18, including the steps
-   that were skipped after the earlier failures.
+1. Confirm CI for revision `v7-derived-typefix-1-fixture-2` (migration inventory entry) on
+   PostgreSQL 13, 16 and 18, including steps 29-40 that were previously skipped.
 2. Run the outstanding rehearsal gates on a fresh disposable PostgreSQL for whichever
    candidate identity is chosen: migration rehearsal, recovery rehearsal and
    `scripts/deposit-safety-native.py`.

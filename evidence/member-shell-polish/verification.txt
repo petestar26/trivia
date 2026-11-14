@@ -59,6 +59,12 @@ FIXED IN CANDIDATE REVISION v7-derived-typefix-1-fixture-1 (c8e5b4b; manifest
       (not fixed; needs a decision); steps 30-40 skipped. Local PostgreSQL 16: migration regression 58/58 with the entry
       added temporarily; steps 30-40 all pass. See evidence/deposit-candidate/README.md.
 
+CANDIDATE REVISION v7-derived-typefix-1-fixture-2 (52b2181; manifest
+      evidence/deposit-candidate/v7-derived-typefix-1-fixture-2.manifest.json, 40 files): test-only, appends
+      20261113060000_deposit_destination_revisions to the migration regression's NOVEMBER_RELEASES inventory. Local
+      PostgreSQL 16: ledger-upgrade.migration.test.ts 58/58 (funded-data refusal, hash-preserving replay, populated
+      upgrade included); API typecheck and ESLint pass. CI results for this revision: see PR #81.
+
 NOT RUN:
 - Migration and recovery rehearsal for the chosen candidate identity (needs a fresh disposable PostgreSQL and
   separate authorization).
