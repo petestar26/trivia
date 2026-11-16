@@ -226,13 +226,19 @@ export function GroupsPage() {
           )}
 
           <div className="flex gap-2">
-            <Button type="submit" size="sm" disabled={createMutation.isPending}>
+            <Button
+              type="submit"
+              size="sm"
+              className="max-md:min-h-[44px]"
+              disabled={createMutation.isPending}
+            >
               {createMutation.isPending ? translateUi('Creating…') : translateUi('Create group')}
             </Button>
             <Button
               type="button"
               variant="outline"
               size="sm"
+              className="max-md:min-h-[44px]"
               onClick={resetCreateForm}
               disabled={createMutation.isPending}
             >
@@ -302,7 +308,7 @@ export function GroupsPage() {
         <Button
           ref={toggleRef}
           hidden={showCreateForm}
-          className={showCreateForm ? 'hidden' : undefined}
+          className={showCreateForm ? 'hidden' : 'max-md:min-h-[44px]'}
           size="sm"
           aria-expanded={showCreateForm}
           aria-controls="create-group-form"
@@ -318,7 +324,11 @@ export function GroupsPage() {
         <div className="py-16 text-center text-gray-500 dark:text-gray-400 space-y-3">
           <p>{translateUi('No groups found.')}</p>
           {!showCreateForm && (
-            <Button size="sm" onClick={() => setShowCreateForm(true)}>
+            <Button
+              size="sm"
+              className="max-md:min-h-[44px]"
+              onClick={() => setShowCreateForm(true)}
+            >
               {translateUi('Create your first group')}
             </Button>
           )}
@@ -341,11 +351,16 @@ export function GroupsPage() {
                 <div className="flex gap-2">
                   {group.isMember ? (
                     <>
-                      <Button size="sm" onClick={() => navigate(`/messages/${group.id}`)}>
+                      <Button
+                        size="sm"
+                        className="max-md:min-h-[44px]"
+                        onClick={() => navigate(`/messages/${group.id}`)}
+                      >
                         {translateUi('Messages')}
                       </Button>
                       <Button
                         size="sm"
+                        className="max-md:min-h-[44px]"
                         variant="outline"
                         onClick={() => navigate(`/groups/${group.id}/games`)}
                       >
@@ -353,6 +368,7 @@ export function GroupsPage() {
                       </Button>
                       <Button
                         size="sm"
+                        className="max-md:min-h-[44px]"
                         variant="outline"
                         onClick={() => navigate(`/groups/${group.id}`)}
                       >
@@ -362,6 +378,7 @@ export function GroupsPage() {
                   ) : group.isPrivate ? (
                     <Button
                       size="sm"
+                      className="max-md:min-h-[44px]"
                       variant="outline"
                       onClick={() => navigate(`/groups/${group.id}`)}
                     >
@@ -370,6 +387,7 @@ export function GroupsPage() {
                   ) : (
                     <Button
                       size="sm"
+                      className="max-md:min-h-[44px]"
                       onClick={() => joinMutation.mutate(group.id)}
                       disabled={joinMutation.isPending}
                     >

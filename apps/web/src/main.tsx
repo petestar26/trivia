@@ -11,6 +11,7 @@ import { SocketProvider } from '@/providers/socket-provider';
 import { AppUpdateNotice } from '@/components/app-update-notice';
 import { AppInstallProvider } from '@/components/app-install';
 import './styles/index.css';
+import './styles/touch-targets.css';
 
 const queryClient = new QueryClient({
   defaultOptions: {

@@ -37,3 +37,50 @@ NOT RUN: API tests, PostgreSQL migration/contract suites, production web build, 
 NOTE: results.before.json was recorded before the harness learned to wait for failed queries to finish
       retrying, so its two load-failure states were measured mid-retry; the before screenshots of those
       states were re-taken afterwards with the wait in place.
+
+ROUND 2 (follow-up to 3398f550127bc7b40aa86c539c62459db0836041; same base faed9b7)
+Scope: apps/web presentation only (styles/touch-targets.css new and imported in main.tsx; class names in
+       pages/wallet.tsx, pages/groups.tsx, components/groups/chat-inbox.tsx,
+       components/security/authenticator-setup.tsx; one rule in pages/member-account.css), .gitattributes,
+       and this evidence folder. No API, migration, wallet, payment, provider, role or credential file.
+
+FAILING TEST (3,058/3,059): components/football/engine/authored-motion.test.ts hashes
+      authored-motion-source.json. Reproduced: working-tree SHA-256 4f1af688... vs committed blob and expected
+      e0cb2855...; `git ls-files --eol` showed i/lf w/crlf. Cause: nothing pinned the hashed file's line endings,
+      so a checkout with core.autocrlf=true rewrote it. Fix: .gitattributes `text eol=lf` for that one file.
+      The test is unchanged. Full run is now 208/208 files, 3,059/3,059 tests.
+
+AUDIT GATE: review.cjs now exits 1 when any required check fails (gate.cjs): render error, horizontal
+      overflow, unexpected write, page error, external origin, html lang/dir, phone touch target under 44x44,
+      unlabelled form control, missing focus indicator, missing role=alert / role=status where expected.
+      review.selftest.cjs (node --test): 20/20. It unit-tests each rule and, end to end, proves exit 0 on an
+      untouched page and exit 1 for an injected overflow, small target, page error and write.
+      The self-test exposed that the first overflow check was blind (the shell clips overflow, and under
+      mobile emulation innerWidth grows with over-wide content); the check now measures against the
+      configured viewport width and looks inside clipping containers.
+
+BROWSER (same synthetic-fixture method as above): 28 states, 165 renders.
+      English/Amharic/Arabic(RTL) at 390; English/Amharic at 1440; 320 for dashboard, wallet overview,
+      deposit, activity, order room; 200% zoom for dashboard, wallet overview, deposit, order room, casino.
+      before (3398f55): 67/165 pass; 390 touch-target failures and 10 page errors. The page errors were
+              gaps in the profile fixtures, not app defects. Recorded with an earlier harness version
+              (before the stronger overflow check), so before/after counts are not strictly like for like.
+      after:  165/165 pass, exit 0. No control under 44x44 on phone widths, no overflow, no page error,
+              no write, focus indicator present on every tabbed control (English and Arabic).
+      Previously reported: wallet overview currency select and Previous/Next 42-43 px, dashboard tabs 42,
+      favourites and install dismiss 40, language picker 24, section links 17-20, USDT "Exchange rate
+      details" and Play Together catalogue summaries 20-24. All are now at least 44x44.
+      Also fixed: profile header at phone width (name wrapped one letter per line beside the Edit button).
+
+CHECKS:
+PASS: web Vitest full run 208 files / 3,059 tests.
+PASS: web production build (tsc && vite build).
+PASS: gateway node --test server.test.mjs 11/11; PWA node --test pwa.test.mjs app-recovery.test.mjs 30/30.
+PASS: ESLint on changed .tsx files (0 errors; 1 existing no-explicit-any warning in wallet.tsx);
+      git diff --check.
+LIMITS: 200% zoom is emulated (640x400 CSS px at device scale 2, the layout a 1280x800 window gets at 200%);
+      the browser's own zoom control cannot be driven headlessly. Focus walk is not run for Amharic, 320 or
+      zoom cells. Shared ui/button sizes (36-40 px) are unchanged outside the Groups page, so game and admin
+      screens not in this audit may still have smaller buttons.
+NOT RUN: API tests, PostgreSQL migration/contract suites, shell-qa.cjs / compare.cjs, GitHub CI,
+      real devices, screen readers, real backend, any sportsbook launch.

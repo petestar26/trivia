@@ -46,7 +46,7 @@ export function ChatInbox({ selectedId }: { selectedId?: string }) {
           <Link
             to="/groups"
             aria-label={translateUi('Find or create a group')}
-            className="rounded-full bg-emerald-50 p-2 text-emerald-700 dark:bg-emerald-950"
+            className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full bg-emerald-50 p-2 text-emerald-700 dark:bg-emerald-950"
           >
             <Users size={20} />
           </Link>
@@ -77,7 +77,7 @@ export function ChatInbox({ selectedId }: { selectedId?: string }) {
                 setArchived(value);
                 setPage(1);
               }}
-              className={`inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-xs font-semibold ${archived === value ? 'bg-emerald-800 text-white' : 'bg-slate-100 text-slate-600 dark:bg-slate-900 dark:text-slate-300'}`}
+              className={`inline-flex min-h-[44px] items-center gap-1.5 rounded-full px-4 py-2 text-xs font-semibold ${archived === value ? 'bg-emerald-800 text-white' : 'bg-slate-100 text-slate-600 dark:bg-slate-900 dark:text-slate-300'}`}
             >
               {value ? <Archive size={13} /> : <MessageCircle size={13} />}{' '}
               {value ? translateUi('Archived') : translateUi('Active')}
@@ -106,7 +106,7 @@ export function ChatInbox({ selectedId }: { selectedId?: string }) {
             </p>
             <Link
               to="/groups"
-              className="mt-4 inline-flex items-center gap-1 font-semibold text-emerald-700"
+              className="mt-4 inline-flex min-h-[44px] items-center gap-1 font-semibold text-emerald-700"
             >
               {translateUi('Explore groups') + ' '}
               <ArrowRight size={14} />

@@ -153,7 +153,7 @@ export function WalletPage() {
       <label className="block text-sm font-medium">
         {translateUi('Transaction currency')}
         <select
-          className="ml-3 rounded-lg border p-2 dark:bg-gray-800"
+          className="ml-3 min-h-[44px] rounded-lg border p-2 dark:bg-gray-800"
           value={currency ?? ''}
           onChange={(e) => {
             setCurrency((e.target.value || undefined) as 'coins' | 'gamePoints' | undefined);
@@ -238,7 +238,7 @@ export function WalletPage() {
         <button
           disabled={page === 1}
           onClick={() => setPage((p) => p - 1)}
-          className="rounded-lg border px-4 py-2 disabled:opacity-40"
+          className="min-h-[44px] rounded-lg border px-4 py-2 disabled:opacity-40"
         >
           {translateUi('Previous')}
         </button>
@@ -246,7 +246,7 @@ export function WalletPage() {
         <button
           disabled={transactions.length < 20}
           onClick={() => setPage((p) => p + 1)}
-          className="rounded-lg border px-4 py-2 disabled:opacity-40"
+          className="min-h-[44px] rounded-lg border px-4 py-2 disabled:opacity-40"
         >
           {translateUi('Next')}
         </button>

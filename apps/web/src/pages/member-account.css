@@ -497,6 +497,10 @@
     height: 64px;
     font-size: 30px;
   }
+  /* Keep the name readable: let the edit button drop below instead of squeezing the text. */
+  .member-profile-hero > div:nth-child(2) {
+    flex: 1 1 12rem;
+  }
   .member-profile-hero h2 {
     font-size: 24px;
   }

@@ -116,14 +116,20 @@ export function AuthenticatorSetup() {
       ) : factors.isError ? (
         <p role="alert">
           {translateUi('Could not check security settings.')}{' '}
-          <button onClick={() => factors.refetch()}>{translateUi('Retry')}</button>
+          <button className="salem-button secondary" onClick={() => factors.refetch()}>
+            {translateUi('Retry')}
+          </button>
         </p>
       ) : enabled ? (
         <p role="status">{translateUi('Authenticator enabled')}</p>
       ) : (
         <>
           {!enrollment ? (
-            <button disabled={busy || factors.isFetching} onClick={() => run(false)}>
+            <button
+              className="salem-button secondary"
+              disabled={busy || factors.isFetching}
+              onClick={() => run(false)}
+            >
               {busy ? translateUi('Starting…') : translateUi('Set up authenticator')}
             </button>
           ) : (
@@ -159,10 +165,15 @@ export function AuthenticatorSetup() {
                   disabled={busy}
                 />
               </label>
-              <button disabled={busy || !/^\d{6}$/.test(code)} onClick={() => run(true)}>
+              <button
+                className="salem-button"
+                disabled={busy || !/^\d{6}$/.test(code)}
+                onClick={() => run(true)}
+              >
                 {translateUi('Confirm authenticator')}
               </button>{' '}
               <button
+                className="salem-button secondary"
                 disabled={busy}
                 onClick={() => {
                   setEnrollment(null);

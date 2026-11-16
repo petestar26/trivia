@@ -1,22 +1,30 @@
-// Member-facing mobile/desktop review of the wallet, deposit and agent-payment screens.
+// Member-facing mobile/desktop audit: shell, discovery pages, wallet, deposit and agent payments.
 //
-// Usage (repository root; a Vite server for apps/web must already listen on loopback):
+// Usage (repository root; a web server for apps/web must already listen on loopback):
 //   REVIEW_ORIGIN=http://127.0.0.1:5199 PLAYWRIGHT_MODULE=<path to playwright-core> \
 //     node evidence/member-mobile-ui-review/review.cjs <label> <output-dir>
 //
+// Exit code: 0 only when every required check in gate.cjs passes for every render; 1 otherwise.
+//   REVIEW_ONLY=<regex>     audit only scenarios whose name matches (results file is not written)
+//   REVIEW_CELL=<regex>     audit only matrix cells such as en.390 or ar.zoom200 (same)
+//   REVIEW_INJECT=<defect>  deliberately break each page before auditing it, to prove the gate fails:
+//                           overflow | small-target | page-error | write
+//
 // Every API response is a SYNTHETIC fixture. Every other origin and every WebSocket
 // is blocked and service workers are disabled. No real account, agent, order,
-// payment or database is involved, and any write other than the passive
+// payment, provider or database is involved, and any write other than the passive
 // reward-activity ping is rejected and recorded as a failure.
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const { mkdirSync, writeFileSync } = require('node:fs');
 const { resolve } = require('node:path');
+const { TOUCH_MIN, evaluate } = require('./gate.cjs');
 
 const [, , label = 'run', outArg = 'review-output'] = process.argv;
 const origin = process.env.REVIEW_ORIGIN;
 if (!origin || new URL(origin).hostname !== '127.0.0.1') {
   throw new Error('Set REVIEW_ORIGIN to a loopback (127.0.0.1) web server');
 }
+const inject = process.env.REVIEW_INJECT || '';
 const outDir = resolve(outArg);
 mkdirSync(outDir, { recursive: true });
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -164,9 +172,28 @@ const transactions = () =>
     description: 'Synthetic',
     createdAt: iso(-3600000 * (i + 1)),
   }));
+const GAME_NAMES = {
+  blackjack: 'Blackjack',
+  lucky_six: 'Lucky Six',
+  roulette_keno: 'Roulette Keno',
+  number_challenge: 'Number Challenge',
+  sky_crash: 'Sky Crash',
+  thunder_derby_3d: 'Thunder Derby',
+  neon_hounds_3d: 'Neon Hounds',
+  virtual_football_3d: 'Virtual Football',
+  crash_point: 'Crash Point',
+  dice: 'Dice',
+  spin_win: 'Spin & Win',
+  turbo_keno: 'Turbo Keno',
+};
+const TITLES = ['Wheel', 'Reels', 'Table', 'Crash', 'Cards', 'Dice'].map((name, i) => ({
+  id: `synthetic-${i + 1}`,
+  name: `Synthetic ${name}`,
+  provider: 'Synthetic Studio',
+  category: i % 2 ? 'slots' : 'table',
+}));
 
-function fixture(method, path, variant) {
-  if (method !== 'GET') return undefined;
+function fixture(path, variant) {
   if (path === '/workspaces/access') return [{ admin: false, agent: false }];
   if (path === '/wallet')
     return [
@@ -227,18 +254,133 @@ function fixture(method, path, variant) {
       },
     ];
   if (path === '/crypto-payments/me') return [{ deposits: [], withdrawals: [] }];
+  if (path === '/games')
+    return [
+      Object.keys(GAME_NAMES).map((k) => ({
+        id: k,
+        key: k,
+        name: GAME_NAMES[k],
+        practiceAvailable: true,
+        catalogStatus: 'ACTIVE',
+        isActive: true,
+        description: null,
+        type: k,
+        mode: 'WAGER',
+        family: 'INSTANT',
+        wagerCurrency: 'COINS',
+        rewardCurrency: 'COINS',
+        currentRulesVersion: null,
+        minBet: 0,
+        maxBet: 0,
+      })),
+    ];
+  if (path === '/provider-test/status')
+    return [
+      {
+        enabled: true,
+        launchReady: true,
+        unavailableReason: null,
+        mode: 'virtual-test',
+        currency: 'ETB',
+        country: 'ET',
+      },
+    ];
+  if (path === '/provider-test/games') return [TITLES];
+  if (path === '/provider-test/wallet')
+    return [{ balanceCents: 100000, created: true, movements: [] }];
+  if (path === '/sportsbook/status')
+    return [
+      {
+        balanceMinor: 12345,
+        rewardBalanceMinor: 0,
+        currency: 'ETB',
+        mode: 'real-wallet',
+        browseReady: true,
+        liveEnabled: false,
+        canBet: false,
+        reason: 'not-live',
+      },
+    ];
+  if (path === '/play-together/' || path === '/play-together')
+    return [
+      {
+        serverTime: Date.now(),
+        workerReady: true,
+        admissionsEnabled: true,
+        cashAvailable: false,
+        settings: {
+          version: 1,
+          feeBps: 700,
+          minEntry: 100,
+          maxEntry: 100000,
+          enabledGames: ['spin_win', 'dice'],
+          practiceEnabled: true,
+          cashEnabled: false,
+          publicRoomsEnabled: false,
+        },
+        group: null,
+        groups: [],
+        balances: { cashAvailable: 0, cashReserved: 0, pointsAvailable: 5000, pointsReserved: 0 },
+        legacyPending: false,
+        rounds: [],
+      },
+    ];
+  if (path === '/member-rewards')
+    return [
+      {
+        config: {
+          version: 1,
+          daily_enabled: true,
+          daily_amount: 100,
+          gift_enabled: false,
+          gift_amount: 0,
+          gift_daily_limit: 0,
+          referral_enabled: false,
+          referral_amount: 0,
+          gift_minimum: 0,
+          updated_at: '2026-01-01T00:00:00.000Z',
+        },
+        wallet: {},
+        eligibility: { canClaim: false, expiryHours: null },
+        referralCode: null,
+        referrals: 0,
+        qualifiedReferrals: 0,
+        pendingMinor: 0,
+        earnedMinor: 0,
+        today: null,
+        day: '2026-11-11',
+        nextCheckInAt: '2026-11-12T00:00:00.000Z',
+        history: [],
+      },
+    ];
+  if (path === '/security/factors') return [{ factors: [] }];
+  if (path === '/member-profile')
+    return [
+      {
+        ...USER,
+        bio: 'Synthetic profile used only for interface review.',
+        avatarUrl: null,
+        emailVerified: true,
+        lastLoginAt: iso(-3600000),
+        signInMethods: ['PASSWORD'],
+        payoutCountry: { name: 'Ethiopia', currencyCode: 'ETB' },
+        kycVerification: null,
+      },
+    ];
   if (path.includes('unread')) return [{ count: 0, unreadCount: 0 }];
   if (path.startsWith('/notifications'))
     return [[], { page: 1, limit: 20, total: 0, totalPages: 0, unreadCount: 0 }];
   return [[]];
 }
 
+const LANGUAGES = { en: 'ltr', am: 'ltr', ar: 'rtl' };
+
 async function session(browser, opts = {}) {
-  const { language = 'en', width = 390, height, variant, slow = {}, failing = {} } = opts;
+  const { language = 'en', width = 390, height, dsf, variant, slow = {}, failing = {} } = opts;
   const mobile = width < 600;
   const context = await browser.newContext({
     viewport: { width, height: height || (mobile ? 844 : 900) },
-    deviceScaleFactor: mobile ? 2 : 1,
+    deviceScaleFactor: dsf || (mobile ? 2 : 1),
     reducedMotion: 'reduce',
     serviceWorkers: 'block',
     ...(mobile ? { isMobile: true, hasTouch: true } : {}),
@@ -256,7 +398,13 @@ async function session(browser, opts = {}) {
       body: JSON.stringify(
         status < 400
           ? { success: true, data, ...(meta ? { meta } : {}) }
-          : { success: false, error: { code: 'SERVER_ERROR', message: 'Synthetic fixture' } }
+          : {
+              success: false,
+              error: {
+                code: status === 401 ? 'UNAUTHORIZED' : 'SERVER_ERROR',
+                message: 'Synthetic fixture',
+              },
+            }
       ),
     });
   await context.route('**/*', async (route) => {
@@ -271,7 +419,8 @@ async function session(browser, opts = {}) {
     const key = `${req.method()} ${path}`;
     state.requests.push(key);
     if (key === 'GET /auth/me' || key === 'POST /auth/refresh')
-      return reply(route, 200, { user: USER });
+      return opts.guest ? reply(route, 401) : reply(route, 200, { user: USER });
+    if (opts.guest) return reply(route, 401);
     if (key === 'POST /member-rewards/activity')
       return reply(route, 200, { earned: false, credited: 0 });
     if (req.method() !== 'GET') {
@@ -280,7 +429,7 @@ async function session(browser, opts = {}) {
     }
     if (slow[path]) await delay(slow[path]);
     if (failing[path]) return reply(route, 500);
-    const data = fixture(req.method(), path, variant);
+    const data = fixture(path, variant);
     return reply(route, 200, data[0], data[1]);
   });
   await context.routeWebSocket('**/*', (socket) => socket.close());
@@ -296,94 +445,182 @@ async function settle(page) {
   await delay(300);
 }
 
-// Layout facts gathered from the rendered page (content area only).
-const audit = (page) =>
-  page.evaluate(() => {
-    const root = document.querySelector('.payments-page, main') || document.body;
-    const visible = (el) => {
-      const r = el.getBoundingClientRect();
-      const cs = getComputedStyle(el);
-      return r.width > 0 && r.height > 0 && cs.visibility !== 'hidden' && cs.display !== 'none';
-    };
-    const name = (el) =>
-      `${el.tagName.toLowerCase()}${el.className && typeof el.className === 'string' ? '.' + el.className.split(/\s+/).filter(Boolean).slice(0, 2).join('.') : ''} "${(el.innerText || el.getAttribute('aria-label') || el.value || '').trim().slice(0, 40)}"`;
-    const interactive = [
-      ...root.querySelectorAll(
-        'a[href], button, select, input:not([type=hidden]), textarea, summary'
-      ),
-    ].filter(visible);
-    const smallTargets = interactive
-      .filter((el) => {
-        if (el.matches('input[type=checkbox], input[type=radio], input[type=file]')) return false;
-        const r = el.getBoundingClientRect();
-        // Inline text links inside a sentence are exempt (WCAG 2.5.8 inline exception).
-        if (el.tagName === 'A' && getComputedStyle(el).display === 'inline') return false;
-        return r.height < 43.5;
-      })
-      .map((el) => `${name(el)} ${Math.round(el.getBoundingClientRect().height)}px`);
-    const clipped = [...root.querySelectorAll('*')]
-      .filter(
-        (el) =>
-          visible(el) &&
-          el.children.length === 0 &&
-          el.scrollWidth > el.clientWidth + 1 &&
-          getComputedStyle(el).overflowX !== 'visible'
-      )
-      .map(name);
-    const offscreen = [...root.querySelectorAll('*')]
-      .filter(
-        (el) =>
-          visible(el) &&
-          (el.getBoundingClientRect().right > innerWidth + 1 ||
-            el.getBoundingClientRect().left < -1)
-      )
-      .map(name)
-      .slice(0, 10);
-    const unlabelled = [...root.querySelectorAll('input:not([type=hidden]), select, textarea')]
-      .filter(
-        (el) =>
-          visible(el) &&
-          !el.labels?.length &&
-          !el.getAttribute('aria-label') &&
-          !el.getAttribute('aria-labelledby')
-      )
-      .map(name);
-    return {
-      overflow: document.documentElement.scrollWidth > innerWidth + 1,
-      h1: document.querySelectorAll('h1').length,
-      lang: document.documentElement.lang,
-      smallTargets,
-      clipped,
-      offscreen,
-      unlabelled,
-    };
-  });
+// Deliberate defects for the negative test of the gate.
+async function injectDefect(page, kind) {
+  if (kind === 'overflow')
+    await page.evaluate(() => {
+      const el = document.createElement('div');
+      el.style.cssText = 'position:absolute;top:0;left:0;width:200vw;height:4px';
+      document.body.appendChild(el);
+    });
+  else if (kind === 'small-target')
+    await page.evaluate(() => {
+      const el = document.createElement('button');
+      el.textContent = 'x';
+      el.style.cssText = 'display:block;width:20px;height:20px;padding:0;min-height:0;min-width:0';
+      (document.querySelector('main') || document.body).appendChild(el);
+    });
+  else if (kind === 'page-error')
+    await page.evaluate(() =>
+      setTimeout(() => {
+        throw new Error('Injected page error');
+      }, 0)
+    );
+  else if (kind === 'write')
+    await page.evaluate(() =>
+      fetch('/api/v1/agent-orders', { method: 'POST', body: '{}' }).catch(() => undefined)
+    );
+  else throw new Error(`Unknown REVIEW_INJECT value: ${kind}`);
+  await delay(300);
+}
 
-// Tab through the content area and report controls with no visible focus indicator.
+// Layout facts gathered from the whole rendered document (page content and shell).
+const audit = (page, touchMin) =>
+  page.evaluate(
+    ({ min, vw }) => {
+      // Compare against the configured viewport: under mobile emulation the layout viewport
+      // (innerWidth) grows to fit over-wide content, which would hide the very defect we look for.
+      const root = document.body;
+      const visible = (el) => {
+        const r = el.getBoundingClientRect();
+        const cs = getComputedStyle(el);
+        if (r.width <= 1 || r.height <= 1 || cs.visibility === 'hidden' || cs.display === 'none')
+          return false;
+        if (parseFloat(cs.opacity) === 0 || cs.pointerEvents === 'none') return false;
+        // Closed drawers, sheets and menus are not targets until they open.
+        if (el.closest('[aria-hidden="true"], [inert], details:not([open]) > :not(summary)'))
+          return false;
+        const doc = document.documentElement;
+        const left = r.left + scrollX;
+        const top = r.top + scrollY;
+        return (
+          left < doc.scrollWidth &&
+          left + r.width > 0 &&
+          top + r.height > 0 &&
+          top < doc.scrollHeight
+        );
+      };
+      const name = (el) => {
+        const cls =
+          typeof el.className === 'string' && el.className
+            ? '.' + el.className.split(/\s+/).filter(Boolean).slice(0, 2).join('.')
+            : '';
+        const text = (el.innerText || el.getAttribute('aria-label') || el.value || '').trim();
+        const parent = el.parentElement;
+        const within =
+          parent && typeof parent.className === 'string' && parent.className
+            ? `${parent.tagName.toLowerCase()}.${parent.className.split(/\s+/).filter(Boolean)[0]} > `
+            : '';
+        return `${within}${el.tagName.toLowerCase()}${cls} "${text.replace(/\s+/g, ' ').slice(0, 40)}"`;
+      };
+      const interactive = [
+        ...root.querySelectorAll(
+          'a[href], button, select, input:not([type=hidden]), textarea, summary, [role=button], [role=tab]'
+        ),
+      ].filter(visible);
+      // The hit area is the control, or the label that wraps a checkbox, radio or file input.
+      const box = (el) => {
+        const host = el.matches('input[type=checkbox], input[type=radio], input[type=file]')
+          ? el.closest('label')
+          : null;
+        return (host || el).getBoundingClientRect();
+      };
+      const smallTargets = interactive
+        .filter((el) => {
+          if (el.disabled) return false;
+          // Links inside a sentence are exempt (WCAG 2.5.8 inline exception).
+          if (el.tagName === 'A' && getComputedStyle(el).display === 'inline') return false;
+          const r = box(el);
+          return r.height < min - 0.5 || r.width < min - 0.5;
+        })
+        .map((el) => {
+          const r = box(el);
+          return `${name(el)} ${Math.round(r.width)}x${Math.round(r.height)}`;
+        });
+      const clipped = [...root.querySelectorAll('*')]
+        .filter(
+          (el) =>
+            visible(el) &&
+            el.children.length === 0 &&
+            el.scrollWidth > el.clientWidth + 1 &&
+            getComputedStyle(el).overflowX !== 'visible'
+        )
+        .map(name);
+      const unlabelled = [...root.querySelectorAll('input:not([type=hidden]), select, textarea')]
+        .filter(
+          (el) =>
+            visible(el) &&
+            !el.labels?.length &&
+            !el.getAttribute('aria-label') &&
+            !el.getAttribute('aria-labelledby') &&
+            !el.getAttribute('title')
+        )
+        .map(name);
+      // Horizontal overflow. The app shell clips its own overflow, so the document's scroll
+      // width alone cannot see content that runs off the side of the screen.
+      const clips = (el) => getComputedStyle(el).overflowX !== 'visible';
+      const escapes = [...root.querySelectorAll('*')]
+        .filter((el) => {
+          if (!visible(el)) return false;
+          const r = el.getBoundingClientRect();
+          if (r.right <= vw + 1 && r.left >= -1) return false;
+          for (let p = el.parentElement; p && p !== document.body; p = p.parentElement)
+            if (clips(p)) return false;
+          return true;
+        })
+        .map(name);
+      const cutOff = [...root.querySelectorAll('*')]
+        .filter((el) => {
+          const x = getComputedStyle(el).overflowX;
+          return (
+            (x === 'hidden' || x === 'clip') &&
+            visible(el) &&
+            el.clientWidth >= vw * 0.9 &&
+            el.scrollWidth > el.clientWidth + 1
+          );
+        })
+        .map(name);
+      const overflowDetail = [
+        ...new Set([...escapes, ...cutOff.map((n) => `clipped inside ${n}`)]),
+      ];
+      return {
+        overflow: document.documentElement.scrollWidth > vw + 1 || overflowDetail.length > 0,
+        overflowDetail: overflowDetail.slice(0, 8),
+        h1: document.querySelectorAll('h1').length,
+        lang: document.documentElement.lang,
+        dir: document.documentElement.dir || getComputedStyle(document.documentElement).direction,
+        smallTargets: [...new Set(smallTargets)],
+        clipped: [...new Set(clipped)],
+        unlabelled: [...new Set(unlabelled)],
+      };
+    },
+    { min: touchMin, vw: page.viewportSize().width }
+  );
+
+// Tab through the document and report controls with no visible focus indicator.
 async function focusAudit(page) {
   const missing = [];
   const seen = new Set();
-  await page
-    .locator('.payments-page, main')
-    .first()
-    .evaluate((el) => {
-      el.setAttribute('tabindex', '-1');
-      el.focus();
-    });
-  for (let i = 0; i < 60; i += 1) {
+  await page.evaluate(() => {
+    scrollTo(0, 0);
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+  });
+  for (let i = 0; i < 140; i += 1) {
     await page.keyboard.press('Tab');
     const info = await page.evaluate(() => {
       const el = document.activeElement;
-      const root = document.querySelector('.payments-page, main');
-      if (!el || !root || !root.contains(el) || el === root) return null;
+      if (!el || el === document.body) return null;
       const cs = getComputedStyle(el);
-      const host = el.closest('label.p2p-file');
-      const hostOutline = host ? getComputedStyle(host).outlineStyle : 'none';
+      // A visually hidden input shows its ring on the label that hosts it.
+      const host = el.closest('label');
+      const hostCs = host ? getComputedStyle(host) : null;
+      const r = el.getBoundingClientRect();
+      const text = (el.innerText || el.getAttribute('aria-label') || '').trim();
       return {
-        id: `${el.tagName.toLowerCase()} "${(el.innerText || el.getAttribute('aria-label') || '').trim().slice(0, 40)}" @${Math.round(el.getBoundingClientRect().top + scrollY)}`,
+        id: `${el.tagName.toLowerCase()} "${text.replace(/\s+/g, ' ').slice(0, 40)}" @${Math.round(r.left + scrollX)},${Math.round(r.top + scrollY)}`,
         outline: cs.outlineStyle !== 'none' && parseFloat(cs.outlineWidth) >= 2,
         ring: cs.boxShadow !== 'none',
-        host: hostOutline !== 'none',
+        host: !!hostCs && (hostCs.outlineStyle !== 'none' || hostCs.boxShadow !== 'none'),
       };
     });
     if (!info) {
@@ -406,66 +643,108 @@ async function fillDeposit(page) {
   await delay(600);
 }
 
-// [name, path, session options, optional interaction, optional scroll target]
+const room404 = `/payment-orders/deposit/${ORDER}`;
+// name, path, options. `touch` marks pages whose controls must all meet the touch minimum.
 const SCENARIOS = [
-  ['dashboard', '/dashboard', {}],
-  ['wallet-overview', '/wallet', {}],
-  ['wallet-overview-empty', '/wallet', { variant: 'empty' }],
-  ['deposit-start', '/wallet/deposit', {}],
-  ['deposit-filled', '/wallet/deposit', {}, fillDeposit, '.payment-panel'],
-  [
-    'deposit-invalid-amount',
-    '/wallet/deposit',
-    {},
-    async (page) => {
+  { name: 'guest-dashboard', path: '/dashboard', opts: { guest: true }, touch: true },
+  { name: 'login', path: '/login', opts: { guest: true }, touch: true },
+  { name: 'register', path: '/register', opts: { guest: true }, touch: true },
+  { name: 'dashboard', path: '/dashboard', touch: true },
+  { name: 'casino', path: '/casino', touch: true },
+  { name: 'sports', path: '/sports', touch: true },
+  { name: 'play-together', path: '/play-together', touch: true },
+  { name: 'groups', path: '/groups', touch: true },
+  { name: 'messages', path: '/messages', touch: true },
+  { name: 'rewards', path: '/rewards', touch: true },
+  { name: 'support', path: '/support', touch: true },
+  { name: 'profile', path: '/profile', touch: true },
+  { name: 'wallet-overview', path: '/wallet', touch: true },
+  { name: 'wallet-overview-empty', path: '/wallet', opts: { variant: 'empty' }, touch: true },
+  { name: 'deposit-start', path: '/wallet/deposit', touch: true },
+  {
+    name: 'deposit-filled',
+    path: '/wallet/deposit',
+    interact: fillDeposit,
+    scrollTo: '.payment-panel',
+    touch: true,
+  },
+  {
+    name: 'deposit-invalid-amount',
+    path: '/wallet/deposit',
+    interact: async (page) => {
       await page.locator('.payment-panel select').nth(0).selectOption('c-et');
       await page.locator('.payment-panel input[inputmode="decimal"]').fill('12.345');
       await delay(300);
     },
-    '.payment-panel',
-  ],
-  [
-    'deposit-loading',
-    '/wallet/deposit',
-    {
+    scrollTo: '.payment-panel',
+    touch: true,
+    expectAlert: true,
+  },
+  {
+    name: 'deposit-loading',
+    path: '/wallet/deposit',
+    opts: {
       slow: { '/wallet/payment-options': 6000, '/wallet': 6000, '/agent-orders/me': 6000 },
       noSettle: true,
     },
-  ],
-  [
-    'deposit-error',
-    '/wallet/deposit',
-    { failing: { '/wallet/payment-options': true, '/wallet': true, '/agent-orders/me': true } },
-  ],
-  ['deposit-no-countries', '/wallet/deposit', { variant: 'no-countries' }],
-  ['activity', '/wallet/activity', {}],
-  ['activity-empty', '/wallet/activity', { variant: 'empty' }],
-  ['order-room', `/wallet/orders/deposit/${ORDER}`, {}],
-  [
-    'order-room-confirm',
-    `/wallet/orders/deposit/${ORDER}`,
-    {},
-    async (page) => {
+    expectStatus: true,
+  },
+  {
+    name: 'deposit-error',
+    path: '/wallet/deposit',
+    opts: {
+      failing: { '/wallet/payment-options': true, '/wallet': true, '/agent-orders/me': true },
+    },
+    touch: true,
+    expectAlert: true,
+  },
+  {
+    name: 'deposit-no-countries',
+    path: '/wallet/deposit',
+    opts: { variant: 'no-countries' },
+    touch: true,
+  },
+  { name: 'withdraw-start', path: '/wallet/withdraw', touch: true },
+  { name: 'activity', path: '/wallet/activity', touch: true },
+  { name: 'activity-empty', path: '/wallet/activity', opts: { variant: 'empty' }, touch: true },
+  { name: 'order-room', path: `/wallet/orders/deposit/${ORDER}`, touch: true },
+  {
+    name: 'order-room-confirm',
+    path: `/wallet/orders/deposit/${ORDER}`,
+    interact: async (page) => {
       await page.locator('.p2p-actions button').first().click();
       await delay(300);
     },
-    '.p2p-confirm',
-  ],
-  [
-    'order-room-error',
-    `/wallet/orders/deposit/${ORDER}`,
-    { failing: { [`/payment-orders/deposit/${ORDER}`]: true } },
-  ],
-  ['crypto-deposit', '/wallet/crypto?direction=deposit', {}],
-  ['agent-setup', '/wallet/agent-setup', {}],
+    scrollTo: '.p2p-confirm',
+    touch: true,
+  },
+  {
+    name: 'order-room-error',
+    path: `/wallet/orders/deposit/${ORDER}`,
+    opts: { failing: { [room404]: true } },
+    touch: true,
+    expectAlert: true,
+  },
+  { name: 'crypto-deposit', path: '/wallet/crypto?direction=deposit', touch: true },
+  { name: 'agent-setup', path: '/wallet/agent-setup', touch: true },
 ];
+// language, width, extra context options, tag
 const MATRIX = [
   ['en', 390],
   ['am', 390],
+  ['ar', 390],
   ['en', 1440],
   ['am', 1440],
 ];
-const NARROW = new Set(['deposit-filled', 'order-room', 'activity']);
+const NARROW = new Set([
+  'dashboard',
+  'deposit-filled',
+  'order-room',
+  'activity',
+  'wallet-overview',
+]);
+// 200% browser zoom of a 1280x800 window is a 640x400 CSS-pixel viewport at device scale 2.
+const ZOOM = new Set(['dashboard', 'wallet-overview', 'deposit-filled', 'order-room', 'casino']);
 
 (async () => {
   const browser = await chromium.launch({
@@ -473,15 +752,40 @@ const NARROW = new Set(['deposit-filled', 'order-room', 'activity']);
     channel: process.env.REVIEW_BROWSER_CHANNEL || 'chrome',
   });
   const results = [];
+  const only = process.env.REVIEW_ONLY ? new RegExp(process.env.REVIEW_ONLY) : null;
+  const cell = process.env.REVIEW_CELL ? new RegExp(process.env.REVIEW_CELL) : null;
   try {
-    const only = process.env.REVIEW_ONLY ? new RegExp(process.env.REVIEW_ONLY) : null;
-    for (const [name, path, opts, interact, scrollTarget] of SCENARIOS) {
+    for (const scenario of SCENARIOS) {
+      const { name, path, opts = {}, interact, scrollTo: scrollTarget } = scenario;
       if (only && !only.test(name)) continue;
-      const matrix = NARROW.has(name) ? [...MATRIX, ['en', 320], ['am', 320]] : MATRIX;
-      for (const [language, width] of matrix) {
-        const id = `${name}.${language}.${width}`;
-        const entry = { id, name, language, width };
-        const { context, page, state } = await session(browser, { ...opts, language, width });
+      const matrix = [...MATRIX];
+      if (NARROW.has(name)) matrix.push(['en', 320], ['am', 320], ['ar', 320]);
+      if (ZOOM.has(name))
+        matrix.push(
+          ['en', 640, { height: 400, dsf: 2 }, 'zoom200'],
+          ['ar', 640, { height: 400, dsf: 2 }, 'zoom200']
+        );
+      for (const [language, width, extra = {}, tag] of matrix) {
+        if (cell && !cell.test(`${language}.${tag || width}`)) continue;
+        const id = `${name}.${language}.${tag || width}`;
+        const phone = width < 600;
+        const entry = {
+          id,
+          name,
+          language,
+          width,
+          expectLang: language,
+          expectDir: LANGUAGES[language],
+          touchRequired: !!scenario.touch && phone,
+          expectAlert: !!scenario.expectAlert,
+          expectStatus: !!scenario.expectStatus,
+        };
+        const { context, page, state } = await session(browser, {
+          ...opts,
+          ...extra,
+          language,
+          width,
+        });
         try {
           await page.goto(origin + path);
           if (opts.noSettle) await delay(2500);
@@ -492,7 +796,10 @@ const NARROW = new Set(['deposit-filled', 'order-room', 'activity']);
             await delay(400);
           }
           if (interact) await interact(page);
-          Object.assign(entry, await audit(page));
+          if (inject) await injectDefect(page, inject);
+          Object.assign(entry, await audit(page, TOUCH_MIN));
+          entry.statusRegions = await page.locator('[role="status"]').count();
+          entry.alerts = await page.locator('[role="alert"]').count();
           if (scrollTarget)
             await page
               .locator(scrollTarget)
@@ -502,22 +809,10 @@ const NARROW = new Set(['deposit-filled', 'order-room', 'activity']);
               );
           await page.screenshot({
             path: resolve(outDir, `${id}.png`),
-            fullPage: !scrollTarget && !opts.noSettle,
+            fullPage: !scrollTarget && !opts.noSettle && !tag,
           });
-          if (
-            [
-              'deposit-filled',
-              'order-room',
-              'wallet-overview',
-              'activity',
-              'crypto-deposit',
-              'agent-setup',
-            ].includes(name) &&
-            language === 'en'
-          )
+          if (language !== 'am' && !opts.noSettle && !tag && width !== 320)
             entry.focus = await focusAudit(page);
-          entry.statusRegions = await page.locator('main [role="status"]').count();
-          entry.alerts = await page.locator('main [role="alert"]').count();
         } catch (e) {
           entry.error = String(e && e.message ? e.message : e).slice(0, 300);
         }
@@ -525,21 +820,21 @@ const NARROW = new Set(['deposit-filled', 'order-room', 'activity']);
         entry.external = [...new Set(state.external)];
         entry.pageErrors = state.errors;
         results.push(entry);
-        console.log(`${entry.error ? 'ERR ' : 'ok  '} ${id}${entry.overflow ? ' OVERFLOW' : ''}`);
         await context.close();
       }
     }
   } finally {
     await browser.close();
   }
-  if (!process.env.REVIEW_ONLY)
+  const verdict = evaluate(results);
+  if (!only && !cell && !inject)
     writeFileSync(resolve(outDir, `results.${label}.json`), JSON.stringify(results, null, 2));
-  const bad = results.filter(
-    (r) => r.error || r.overflow || r.writes.length || r.pageErrors.length
-  );
+  const failed = new Set(verdict.failures.map((f) => f.id));
+  for (const f of verdict.failures) console.log(`FAIL ${f.id} [${f.check}] ${f.detail}`);
   console.log(
-    `${results.length - bad.length}/${results.length} without errors, overflow, writes or page errors`
+    `${results.length - failed.size}/${results.length} renders pass every required check; ${verdict.failures.length} failure(s)`
   );
+  process.exitCode = verdict.ok ? 0 : 1;
 })().catch((e) => {
   console.error(e);
   process.exitCode = 1;

@@ -1,1 +1,3 @@
 packages/database/prisma/migrations/**/*.sql text eol=lf
+# Byte-exact provenance: a test hashes this source, so every checkout must keep LF.
+apps/web/src/components/football/engine/authored-motion-source.json text eol=lf

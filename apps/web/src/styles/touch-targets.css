@@ -1,0 +1,111 @@
+/*
+ * Touch targets: every control on the member shell, discovery pages and wallet pages
+ * offers at least a 44 x 44 CSS-pixel hit area on phones and touch screens.
+ *
+ * Presentation only. Sizes use !important because the same controls are themed from
+ * several stylesheets with different load order; nothing here sets colour or content.
+ * Desktop pointer layouts keep their compact sizes.
+ */
+@media (max-width: 767px), (pointer: coarse) {
+  /* Language picker: the select itself fills the chip, including the globe area. */
+  .salem-language {
+    min-height: 44px !important;
+    padding-block: 0 !important;
+    align-items: stretch !important;
+  }
+  .salem-language svg {
+    align-self: center;
+    flex: none;
+  }
+  .salem-language select {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 44px !important;
+    margin-block: -1px;
+    margin-inline-start: -24px;
+    padding-inline-start: 24px !important;
+  }
+
+  /* Install reminder. */
+  .salem-install-help {
+    min-height: 44px !important;
+  }
+  .salem-install-dismiss,
+  .salem-install-close {
+    min-width: 44px !important;
+    min-height: 44px !important;
+  }
+
+  /* Game tiles: favourite toggle. */
+  .salem-favorite {
+    width: 44px !important;
+    height: 44px !important;
+    min-width: 44px !important;
+    min-height: 44px !important;
+  }
+
+  /* Filter chips, category tabs and search fields. */
+  .salem-tabs button,
+  .salem-discovery-links a,
+  .casino-categories > button,
+  .casino-motion-toggle,
+  .sports-football-controls button {
+    min-width: 44px !important;
+    min-height: 44px !important;
+  }
+  .salem-search input {
+    min-height: 44px !important;
+  }
+
+  /* Stand-alone navigation links beside headings and in page footers. */
+  :is(
+      .salem-section-heading,
+      .salem-lounge-footer,
+      .salem-casino-intro,
+      .casino-topline,
+      .sports-topline,
+      .sports-wallet,
+      .sports-history > div
+    )
+    > a {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 44px !important;
+    min-height: 44px !important;
+  }
+
+  /* Disclosure rows. */
+  .together-catalogue > summary,
+  .crypto-page details > summary {
+    padding-block: 11px;
+    min-height: 44px !important;
+  }
+
+  /* Confirmation checkboxes: the whole labelled row is the target. */
+  .payment-check {
+    min-height: 44px !important;
+    align-items: center !important;
+  }
+}
+
+@media (max-width: 767px), (pointer: coarse) {
+  /* Account page links and buttons. */
+  .member-text-link,
+  .salem-button {
+    min-width: 44px !important;
+    min-height: 44px !important;
+  }
+}
+
+@media (max-width: 767px), (pointer: coarse) {
+  /* Short translated labels (for example the Amharic "Sign in") stay wide enough to tap. */
+  .salem-guest-signin,
+  .qube-auth p > a {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 44px !important;
+    min-height: 44px !important;
+  }
+}
