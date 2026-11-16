@@ -1,0 +1,8 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "deploy": {
+    "preDeployCommand": [
+      "pnpm --filter @socialplay/database exec prisma migrate status && node apps/api/dist/scripts/practice-activation.js --check && node apps/api/dist/scripts/practice-gifts-check.js && node apps/api/dist/scripts/payment-readiness.js && node apps/api/dist/scripts/member-experience-check.js"
+    ]
+  }
+}
