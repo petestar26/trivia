@@ -1,4 +1,4 @@
-import { fixtureUsdPolicy } from '../test/payment-policy-fixture.js';
+import { fixtureEtbPolicy } from '../test/payment-policy-fixture.js';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { prisma } from '@socialplay/database';
@@ -111,7 +111,7 @@ async function createHeldWithdrawal(tag: string, coinAmount = 10_000) {
       isActive: true,
     },
   });
-  await prisma.exchangeRateConfig.create({ data: { countryId: country.id, fiatCurrency: 'ETB', coinsPerUnit: 2, isActive: true, setBy: admin.id, effectiveAt: new Date(Date.now() - 1000) , pricingPolicy: fixtureUsdPolicy(2)} });
+  await prisma.exchangeRateConfig.create({ data: { countryId: country.id, fiatCurrency: 'ETB', coinsPerUnit: 1, isActive: true, setBy: admin.id, effectiveAt: new Date(Date.now() - 1000), pricingPolicy: fixtureEtbPolicy() } });
   const { agentUser, agent } = await createFundedAgent(tag, country.id, admin, superAdmin);
   const user = await createFundedUser(tag, 50_000);
   const payoutAccount = await createUserPayoutAccount(user.id, {
