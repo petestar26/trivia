@@ -1,10 +1,8 @@
 import { prisma } from '@socialplay/database';
+import { checkSupportReadiness } from './member-experience-readiness.js';
 import { assistantConfigured } from '../support/assistant.js';
 try {
-  const [row] = await prisma.$queryRaw<
-    { tickets: boolean; messages: boolean; groupTables: boolean }[]
-  >`SELECT (has_table_privilege(current_user,'support_tickets','SELECT') AND has_table_privilege(current_user,'support_tickets','INSERT') AND has_table_privilege(current_user,'support_tickets','UPDATE')) AS tickets,(has_table_privilege(current_user,'support_messages','SELECT') AND has_table_privilege(current_user,'support_messages','INSERT')) AS messages,to_regclass('group_pvp_rounds') IS NOT NULL AS "groupTables"`;
-  if (!row?.tickets || !row.messages) throw new Error('SUPPORT_ACCESS_UNAVAILABLE');
+  const row = await checkSupportReadiness(prisma);
   const [rewards] = await prisma.$queryRaw<{ ready: boolean }[]>`
     SELECT (has_table_privilege(current_user,'member_reward_config','SELECT')
       AND has_table_privilege(current_user,'member_reward_config','UPDATE')

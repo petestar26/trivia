@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
   pull_request:
     paths:
+      - 'apps/api/vitest.staff-native.config.ts'
       - '.github/workflows/play-together.yml'
       - 'apps/api/src/games/play-together/**'
       - 'apps/api/src/games/group-pvp/**'
@@ -143,7 +144,7 @@ jobs:
       - name: Current Birr, administrator, agent and reward contracts
         run: |
           pnpm --filter api exec vitest run --config vitest.etb.config.ts
-          pnpm --filter api exec vitest run --config vitest.staff-native.config.ts
+          PASSWORD_RESET_TEST_PHASE=guarded pnpm --filter api exec vitest run --config vitest.staff-native.config.ts
           pnpm --filter api exec vitest run --config vitest.member-rewards.config.ts src/economy/reward-coins.native.ts
       - name: Rules, consent, proof and access checks
         if: matrix.postgres == 16

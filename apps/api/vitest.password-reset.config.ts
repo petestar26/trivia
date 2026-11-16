@@ -17,6 +17,7 @@ export default defineConfig({
     hookTimeout: 30_000,
     env: {
       LOG_PRETTY: 'false',
+      PASSWORD_RESET_SECRET: 'isolated-owner-reset-only-test-secret',
       JWT_ACCESS_SECRET: 'isolated-recovery-access-test-secret',
       JWT_REFRESH_SECRET: 'isolated-recovery-refresh-test-secret',
     },
