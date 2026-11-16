@@ -58,8 +58,10 @@ async function main() {
       // The play route's header schema keeps only its own headers, so the
       // browser's access-token cookie authenticates it.
       const token = generateTokens(input.player.id, input.player.email, input.player.username, ['USER']).accessToken;
-      const play = () => server.inject({ method: 'POST', url: `${api}/games/dice/play`,
-        headers: { 'idempotency-key': key }, cookies: { sp_access_token: token }, payload: { betAmount: 10 } });
+      const play = () => server.inject({ method: 'POST', url: `${api}/games/spin_win/play`,
+        headers: { 'idempotency-key': key, origin: new URL(config.FRONTEND_URL).origin },
+        cookies: { sp_access_token: token }, payload: { betAmount: 37,
+          bets: Array.from({ length: 37 }, (_, number) => ({ marketId: 'number:' + number, amount: 1 })) } });
       const first = await play();
       const replay = await play();
       return { ok: first.statusCode === 201 && replay.statusCode === 200 && replay.json().data?.isReplay === true,
