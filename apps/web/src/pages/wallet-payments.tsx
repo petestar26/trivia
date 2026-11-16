@@ -842,7 +842,7 @@ function Payments({ userId }: { userId: string }) {
         <section className="payment-panel">
           <h2>{translateUi('Deposit requests')}</h2>
           {orders.isPending ? (
-            <p>{translateUi('Loading requests…')}</p>
+            <p role="status">{translateUi('Loading requests…')}</p>
           ) : orders.isError ? (
             <p role="alert">
               {translateUi('Could not load deposit requests.')}{' '}
@@ -899,7 +899,7 @@ function Payments({ userId }: { userId: string }) {
         <section className="payment-panel">
           <h2>{translateUi('Withdrawal requests')}</h2>
           {withdrawals.isPending ? (
-            <p>{translateUi('Loading requests…')}</p>
+            <p role="status">{translateUi('Loading requests…')}</p>
           ) : withdrawals.isError ? (
             <p role="alert">
               {translateUi('Could not load withdrawal requests.')}{' '}

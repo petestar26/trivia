@@ -379,3 +379,18 @@
   outline: 3px solid #ebd08c;
   outline-offset: 3px;
 }
+
+/* Member mobile review (presentation only). */
+/* Errors use the dark order-room palette instead of the light-theme pink box. */
+.p2p-page .payment-error {
+  background: #50242f;
+  color: #ffd6dc;
+  border: 1px solid #8a3d4c;
+}
+/* No order status is known before the order loads or when it fails to load. */
+.p2p-status:not([data-status]) {
+  display: none;
+}
+.p2p-back {
+  min-height: 44px;
+}

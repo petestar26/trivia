@@ -229,3 +229,79 @@
 .payment-evidence { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 100%; }
 .payment-panel details > summary { cursor: pointer; font-weight: 650; padding: .75rem 0; }
 .payment-panel details[open] > * + * { margin-top: .75rem; }
+
+/* Member mobile review (presentation only; no request, amount or state logic). */
+/* Loading and error lines span the balance strip instead of one narrow column. */
+.payment-balance > p {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+/* Inline Retry controls look and measure like buttons wherever an error is shown. */
+.payments-page [role='alert'] button,
+.payment-balance button {
+  min-height: 44px;
+  margin-inline-start: 0.5rem;
+  border: 1px solid currentColor;
+  border-radius: 0.7rem;
+  padding: 0.6rem 1rem;
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+/* A bare form inside a panel keeps the panel's field spacing. */
+.payment-panel > form:not([class]) {
+  display: grid;
+  gap: 1rem;
+}
+/* The order link reads as a control and meets the 44px touch target. */
+.payment-order-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0.6rem 1rem;
+  border: 1px solid #94a3b8;
+  border-radius: 0.7rem;
+  font-weight: 600;
+  font-size: 0.875rem;
+  text-align: center;
+}
+.wallet-history-links a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+}
+.wallet-payment-rules summary {
+  padding: 12px 0;
+}
+@media (max-width: 600px) {
+  /* Two actions per row on phones, one on very narrow screens; never three-line labels. */
+  .payment-actions > button {
+    flex: 1 1 9rem;
+  }
+  .payment-actions > .payment-order-link {
+    flex: 1 1 100%;
+  }
+}
+@media (max-width: 480px) {
+  /* Three balances as rows: the amount stays on one line next to its label. */
+  .payments-page.wallet-member .payment-balance {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+  .payments-page.wallet-member .payment-balance > div {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .payments-page.wallet-member .payment-balance > div span {
+    min-width: 0;
+    font-size: 12px;
+  }
+  .payments-page.wallet-member .payment-balance > div:nth-child(n) strong {
+    flex: none;
+    margin-top: 0;
+    font-size: 18px;
+    white-space: nowrap;
+  }
+}

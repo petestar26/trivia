@@ -1,0 +1,39 @@
+Salem Bet member mobile review: wallet, deposit and agent-payment screens
+Base: faed9b7aab075f57dc3d6dd739df95bfcef804e0 (review/salem-runtime-repairs-pg18-20261116)
+Scope: apps/web/src/pages/wallet-payments.css, wallet-order-room.css (appended rules only) and
+       wallet-payments.tsx (role="status" on two "Loading requests…" lines). No API, migration, wallet,
+       payment, provider, role or credential file is touched.
+
+BROWSER (review.cjs; Playwright-core driving installed Chrome against the Vite dev server on 127.0.0.1;
+SYNTHETIC fixtures for every API response; other origins and WebSockets blocked; service workers off;
+no database, account or provider involved; any non-GET request other than the passive reward-activity
+ping is rejected and recorded):
+PASS: 70/70 renders before and 70/70 after with no horizontal overflow, no page error and no write.
+      16 states x English/Amharic x 390 px and 1440 px, plus 320 px for deposit form, activity and order room.
+      States: dashboard, wallet overview (with rows / empty), deposit start, filled, invalid amount, loading,
+      load failure, no payment countries, activity (with orders / empty), order room, order-room confirmation,
+      order-room load failure, USDT deposit, agent application.
+PASS: keyboard Tab walk (English, each width) on wallet overview, deposit, activity, order room, USDT deposit
+      and agent application: every focused control shows an outline or ring, before and after.
+Phone touch targets under 44 px on the wallet, deposit, activity and order-room pages (English, 390/320):
+      before: "Open order and appeal" 24, "Back to payments" 24, "Which balance can I use?" 20,
+              "All agent requests" 20, "Crypto requests" 20, order-room "Retry" 43; inline balance and
+              payment-option "Retry" were unstyled text.
+      after:  none on those pages. Left as found: USDT page "Exchange rate details" summary 24.
+Loading announcements on the deposit page: 2 role=status regions before, 3 after (request list added).
+Results: results.before.json, results.after.json. Screenshots are not committed.
+
+CHECKS:
+PASS: web tsc --noEmit.
+PASS: web Vitest src/pages/wallet*: 7 files / 88 tests.
+web Vitest full run: 207/208 files, 3,058/3,059 tests. The one failure,
+      components/football/engine/authored-motion.test.ts (SHA-256 of a model text asset), is caused by this
+      Windows checkout converting LF to CRLF (core.autocrlf=true); it does not involve the changed files.
+PASS: ESLint on wallet-payments.tsx; git diff --check.
+Prettier: wallet-payments.css, wallet-order-room.css and wallet-payments.tsx already report style
+      differences at the base commit in this CRLF checkout; not reformatted to keep the diff minimal.
+NOT RUN: API tests, PostgreSQL migration/contract suites, production web build, gateway/PWA tests,
+      shell-qa.cjs / compare.cjs, GitHub CI, real-device and screen-reader testing, real backend.
+NOTE: results.before.json was recorded before the harness learned to wait for failed queries to finish
+      retrying, so its two load-failure states were measured mid-retry; the before screenshots of those
+      states were re-taken afterwards with the wait in place.
