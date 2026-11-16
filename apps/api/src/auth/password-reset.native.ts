@@ -20,6 +20,10 @@ if (
   process.env.SCHEDULED_NATIVE_DB_ACK !== 'throwaway'
 )
   throw Error('Disposable local database required');
+// Test contract only: this never controls the production route's unconditional guard.
+const resetTestPhase = process.env.PASSWORD_RESET_TEST_PHASE ?? 'unguarded';
+if (!['guarded', 'unguarded'].includes(resetTestPhase))
+  throw Error('PASSWORD_RESET_TEST_PHASE must be guarded or unguarded');
 const oldPassword = 'Test-Old-Recovery-43!',
   newPassword = 'Test-New-Recovery-72!';
 const app = Fastify({ logger: false });
@@ -148,9 +152,14 @@ it('does not bypass suspension, role changes, account matching, or password stre
   ).toBe(true);
 });
 
-it('protects browser origins and returns a private result without leaking credentials', async () => {
+it(`protects browser origins and returns a private result without leaking credentials (${resetTestPhase})`, async () => {
   const user = await account();
   const link = await issueOwnerReset(user.id, user.email!);
+  const before = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+  await prisma.session.create({
+    data: { userId: user.id, refreshToken: randomUUID(), expiresAt: new Date(Date.now() + 60_000) },
+  });
+  const nonce = readResetToken(link.token).nonce;
   const payload = { token: link.token, password: newPassword };
   expect(
     (
@@ -168,6 +177,26 @@ it('protects browser origins and returns a private result without leaking creden
     headers: { origin: new URL(config.FRONTEND_URL).origin },
     payload,
   });
+  if (resetTestPhase === 'guarded') {
+    expect(result.statusCode).toBe(503);
+    expect(result.headers['cache-control']).toBe('private, no-store');
+    expect(result.headers['set-cookie']).toBeUndefined();
+    expect(result.body).not.toContain(newPassword);
+    expect(result.body).not.toContain(link.token);
+    const after = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+    expect(after.passwordHash).toBe(before.passwordHash);
+    expect(after.tokenVersion).toBe(before.tokenVersion);
+    expect(await prisma.session.count({ where: { userId: user.id } })).toBe(1);
+    const [record] = await prisma.$queryRaw<
+      { consumed_at: Date | null }[]
+    >`SELECT consumed_at FROM password_reset_private.issuances WHERE nonce=${nonce}::uuid`;
+    expect(record.consumed_at).toBeNull();
+    expect(await prisma.auditLog.count({
+      where: { entityId: user.id, action: 'OWNER_PASSWORD_RESET_COMPLETED' },
+    })).toBe(0);
+    return;
+  }
+  // Preserve the positive HTTP contract for the unguarded v2 release phase.
   expect(result.statusCode).toBe(200);
   expect(result.headers['cache-control']).toContain('no-store');
   expect(result.body).not.toContain(newPassword);
