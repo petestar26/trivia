@@ -7,7 +7,7 @@ import { hashPassword } from '../utils/auth.js';
 import { ApiError } from '../middleware/api-error.js';
 import { getSocketServer } from '../realtime/broadcast.js';
 
-const purpose = 'salem-owner-password-reset-v1';
+const purpose = 'salem-owner-password-reset-v2';
 const claimsSchema = z
   .object({
     purpose: z.literal(purpose),
@@ -19,10 +19,13 @@ const claimsSchema = z
   })
   .strict();
 type Claims = z.infer<typeof claimsSchema>;
-const signature = (body: string) =>
-  createHmac('sha256', createHmac('sha256', config.JWT_ACCESS_SECRET).update(purpose).digest())
-    .update(body)
-    .digest();
+const signature = (body: string) => {
+  const key = config.PASSWORD_RESET_SECRET;
+  // No JWT fallback: old links and incomplete configuration fail closed.
+  if (!key || key === config.JWT_ACCESS_SECRET || key === config.JWT_REFRESH_SECRET)
+    throw ApiError.internal('Password reset is not configured');
+  return createHmac('sha256', key).update(purpose).update('\0').update(body).digest();
+};
 const invalid = () =>
   ApiError.unauthorized(
     'This reset link is invalid, expired, or already used. Request a new link.'
@@ -67,6 +70,11 @@ export async function issueOwnerReset(userId: string, email: string) {
         nonce: randomUUID(),
         exp: Date.now() + 15 * 60_000,
       };
+      // This ledger is not an audit log: only the database owner can insert.
+      await tx.$executeRaw`INSERT INTO password_reset_private.issuances
+        (nonce, user_id, role, token_version, expires_at)
+        VALUES (${claims.nonce}::uuid, ${claims.sub}, ${claims.role}, ${claims.version},
+                ${new Date(claims.exp)})`;
       await tx.user.update({ where: { id: user.id }, data: { tokenVersion: { increment: 1 } } });
       await tx.session.deleteMany({ where: { userId: user.id } });
       await tx.auditLog.create({
@@ -125,9 +133,16 @@ export async function completePasswordReset(input: unknown) {
         claims.exp <= Date.now()
       )
         throw invalid();
+      // Consumption and every credential/session/audit write share one transaction.
+      // The user row lock serializes concurrent redemption and reissuance.
+      const [record] = await tx.$queryRaw<{ consumed: boolean }[]>`
+        SELECT public.consume_owner_password_reset(${claims.nonce}::uuid, ${claims.sub},
+          ${claims.role}::text, ${claims.version}::integer, ${new Date(claims.exp)}::timestamptz) AS consumed`;
+      if (!record?.consumed) throw invalid();
       await tx.user.update({
         where: { id: user.id },
         data: { passwordHash: hash, tokenVersion: { increment: 1 } },
+        select: { id: true },
       });
       await tx.session.deleteMany({ where: { userId: user.id } });
       await tx.auditLog.create({
@@ -138,6 +153,7 @@ export async function completePasswordReset(input: unknown) {
           entityId: user.id,
           newData: { nonce: claims.nonce, sessionsRevoked: true },
         },
+        select: { id: true },
       });
     });
   } catch (error) {

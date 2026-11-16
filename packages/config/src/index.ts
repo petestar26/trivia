@@ -24,6 +24,8 @@ const envSchema = z.object({
   DATABASE_POOL_SIZE: z.coerce.number().int().positive().default(10),
   JWT_ACCESS_SECRET: z.string().min(32),
   JWT_REFRESH_SECRET: z.string().min(32),
+  // Optional for boot compatibility; reset issuance/redemption fail closed without it.
+  PASSWORD_RESET_SECRET: z.string().min(32).optional(),
   JWT_ACCESS_EXPIRY: z.string().default('15m'),
   JWT_REFRESH_EXPIRY: z.string().default('30d'),
   JWT_ISSUER: z.string().default('socialplay'),
