@@ -28,6 +28,12 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
     return payload;
   });
   server.post('/password-reset', {
+    // Temporary cutover barrier. Deliberately unconditional: neither missing
+    // configuration nor an inherited v1 environment can reopen redemption.
+    // Keep this on the matched route so direct origins and proxy aliases agree.
+    onRequest: async () => {
+      throw ApiError.serviceUnavailable('Password reset is temporarily unavailable');
+    },
     config: { rateLimit: { keyGenerator: request => anonymousRateLimitKey(request, config.WEB_GATEWAY_SECRET), max: 5, timeWindow: '15 minutes' } },
   }, async (request, reply) => {
     const result = await completePasswordReset(request.body);

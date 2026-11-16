@@ -1,4 +1,4 @@
-import { fixtureUsdPolicy } from '../test/payment-policy-fixture.js';
+import { fixtureEtbPolicy } from '../test/payment-policy-fixture.js';
 import { describe, it, expect, afterAll } from 'vitest';
 import { prisma } from '@socialplay/database';
 import { submitAgentApplication, approveAgentApplication } from '../agents/agent-service.js';
@@ -82,15 +82,15 @@ async function createPaymentMethod(countryId: string, tag: string) {
   });
 }
 
-async function createExchangeRate(countryId: string, fiatCurrency: string, coinsPerUnit: number, adminId: string) {
+async function createExchangeRate(countryId: string, fiatCurrency: string, adminId: string) {
   return prisma.exchangeRateConfig.create({ data: {
       countryId,
       fiatCurrency,
-      coinsPerUnit,
+      coinsPerUnit: 1,
       isActive: true,
       setBy: adminId,
       effectiveAt: new Date(Date.now() - 1_000),
-      pricingPolicy: fixtureUsdPolicy(coinsPerUnit)} });
+      pricingPolicy: fixtureEtbPolicy() } });
 }
 
 /** ACTIVE agent with a funded USD fiat liquidity bucket. No AgentInventory
@@ -217,13 +217,13 @@ async function cleanWithdrawalFixtures() {
 
 /** Full happy-path setup: funded agent, funded user, active payout
  * account. Returns everything a creation test typically needs. */
-async function setupHappyPath(tag: string, opts: { coins?: number; liquidityUsd?: bigint; coinsPerUnit?: number } = {}) {
+async function setupHappyPath(tag: string, opts: { coins?: number; liquidityUsd?: bigint } = {}) {
   const admin = await createAdmin(tag);
   const superAdmin = await createSuperAdmin(`${tag}-super`);
   const country = await createCountry(tag);
   const method = await createPaymentMethod(country.id, tag);
   await activateTestWithdrawalPolicy(country.id, admin.id);
-  await createExchangeRate(country.id, 'ETB', opts.coinsPerUnit ?? 2, admin.id);
+  await createExchangeRate(country.id, 'ETB', admin.id);
   const agent = await createFundedAgent(tag, country.id, admin, superAdmin, opts.liquidityUsd ?? 100_000n);
   const user = await createFundedUser(tag, opts.coins ?? 10_000);
   const payoutAccount = await createActivePayoutAccount(user.id, country.id, method.id);
@@ -570,7 +570,8 @@ describeIf('withdrawals/withdrawal-service', () => {
     expect(typeof (withdrawal as any).fiatAmount).toBe('bigint');
     const dto = { ...(withdrawal as any), fiatAmount: (withdrawal as any).fiatAmount.toString() };
     expect(() => JSON.stringify(dto)).not.toThrow();
-    expect(JSON.parse(JSON.stringify(dto)).fiatAmount).toBe('500');
+    // ETB_V1 pays one santim per wallet unit (was 500 under the retired 2-per-unit rate).
+    expect(JSON.parse(JSON.stringify(dto)).fiatAmount).toBe('1000');
   });
 
   it('getOwnWithdrawalById returns the withdrawal for its owner and rejects everyone else', async () => {
@@ -679,8 +680,9 @@ describeIf('withdrawals/withdrawal-service', () => {
     // Plenty of coins, but liquidity only covers ONE 500-minor-unit payout.
     const { user, country, agent, payoutAccount } = await setupHappyPath(tag, { coins: 20_000, liquidityUsd: 500n });
 
-    const quoteA = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 }); // needs 500
-    const quoteB = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 }); // needs 500
+    // ETB_V1 pays one santim per wallet unit, so 500 units need 500 minor units.
+    const quoteA = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 500 }); // needs 500
+    const quoteB = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 500 }); // needs 500
 
     const results = await Promise.allSettled([
       createWithdrawal(user.id, { quoteId: quoteA.id, payoutAccountId: payoutAccount.id, idempotencyKey: `key-a-${tag}` }, 1000),
@@ -794,7 +796,7 @@ describeIf('withdrawals/withdrawal-service', () => {
     const country = await createCountry(tag);
     const method = await createPaymentMethod(country.id, tag);
     await activateTestWithdrawalPolicy(country.id, admin.id);
-    await createExchangeRate(country.id, 'ETB', 2, admin.id);
+    await createExchangeRate(country.id, 'ETB', admin.id);
 
     // The withdrawing user is ALSO this country's only funded agent.
     // Distinct tag from `admin`'s — createUser() dedupes by email, so
@@ -839,7 +841,7 @@ describeIf('withdrawals/withdrawal-service', () => {
     const country = await createCountry(tag);
     const method = await createPaymentMethod(country.id, tag);
     await activateTestWithdrawalPolicy(country.id, admin.id);
-    await createExchangeRate(country.id, 'ETB', 2, admin.id);
+    await createExchangeRate(country.id, 'ETB', admin.id);
 
     // Distinct tag from `admin`'s — createUser() dedupes by email, so
     // reusing `tag` here would resolve to the SAME row as `admin` and
