@@ -60,6 +60,8 @@ let app: PrismaClient;
 let f: PurchasedFixture;
 let approvers: Approvers;
 let setup: ReturnType<typeof runtimeAccess>;
+let originalSpin: Awaited<ReturnType<typeof prisma.gameDefinition.findUniqueOrThrow>>;
+const spinTicket = Array.from({ length: 37 }, (_, number) => ({ marketId: 'number:' + number, amount: 1 }));
 
 /** Runs the owner-run setup script (ledger:runtime-access) with the given environment overrides. */
 function runtimeAccess(overrides: Record<string, string | undefined>, args: string[] = []) {
@@ -88,9 +90,25 @@ beforeAll(async () => {
   app = new PrismaClient({ datasourceUrl: runtimeUrl, log: [] });
   f = await purchasedFixture(1000);
   approvers = await makeApprovers('runtime-role');
+  // Same supported Coin fixture as games.test.ts; never unpause Dice.
+  originalSpin = await prisma.gameDefinition.findUniqueOrThrow({ where: { key: 'spin_win' } });
+  const latest = await prisma.gameRules.aggregate({ where: { gameId: originalSpin.id }, _max: { version: true } });
+  const version = (latest._max.version ?? 0) + 1;
+  await prisma.gameRules.create({ data: {
+    gameId: originalSpin.id, version, mode: 'WAGER', family: 'INSTANT',
+    wagerCurrency: 'COINS', rewardCurrency: 'COINS', rules: { rulesId: 'single-zero-standard-v1' },
+    resultSchemaVersion: 1, rulesHash: '0'.repeat(64),
+  } });
+  await prisma.gameDefinition.update({ where: { id: originalSpin.id }, data: {
+    catalogStatus: 'AVAILABLE', isActive: true, currentRulesVersion: version,
+  } });
 }, 120_000);
 
 afterAll(async () => {
+  if (originalSpin) await prisma.gameDefinition.update({ where: { id: originalSpin.id }, data: {
+    catalogStatus: originalSpin.catalogStatus, isActive: originalSpin.isActive,
+    currentRulesVersion: originalSpin.currentRulesVersion,
+  } });
   await app?.$disconnect();
   await prisma.$executeRawUnsafe(`DROP OWNED BY "${role}"`);
   await prisma.$executeRawUnsafe(`DROP ROLE IF EXISTS "${role}"`);
@@ -334,6 +352,71 @@ describe('0. the owner-run setup script', () => {
 });
 
 describe('1. the documented runtime role holds data access only', () => {
+  it('checks the installed beacon timing predicate at microsecond boundaries without disabling guards', async () => {
+    const [{ body }] = await prisma.$queryRawUnsafe<{ body: string }[]>(
+      "SELECT prosrc AS body FROM pg_proc WHERE oid='public.house_beacon_timing_valid(text)'::regprocedure");
+    const start = body.indexOf('SELECT COALESCE(g.mode');
+    const end = body.indexOf('FROM public.house_round_beacon_pins', start);
+    expect(start).toBeGreaterThanOrEqual(0); expect(end).toBeGreaterThan(start);
+    const predicate = body.slice(start + 'SELECT '.length, end).trim();
+    // Predicate-only synthetic rows, not persisted invalid financial records.
+    // Evaluate the installed function's exact predicate: no copied, rounded approximation.
+    const cases: [string, number, number, number, string, string, string | null, boolean][] = [
+      ['at open', 0, 1, 20000000, 'FINANCIAL', 'spin_win', 'sha256-quicknet-rejection-u32be-v2', true],
+      ['before open', -1, 1, 20000000, 'FINANCIAL', 'spin_win', 'sha256-quicknet-rejection-u32be-v2', false],
+      ['one microsecond before close', 9999999, 9999999, 20000000, 'FINANCIAL', 'spin_win', 'sha256-quicknet-rejection-u32be-v2', true],
+      ['at close', 10000000, 10000000, 20000000, 'FINANCIAL', 'spin_win', 'sha256-quicknet-rejection-u32be-v2', false],
+      ['prepared before pin', 1, 0, 20000000, 'FINANCIAL', 'spin_win', 'sha256-quicknet-rejection-u32be-v2', false],
+      ['prepared at close', 0, 10000000, 20000000, 'FINANCIAL', 'spin_win', 'sha256-quicknet-rejection-u32be-v2', false],
+      ['received early', 0, 1, 19999999, 'FINANCIAL', 'spin_win', 'sha256-quicknet-rejection-u32be-v2', false],
+      ['other mode', 0, 1, 20000000, 'PRACTICE', 'spin_win', 'sha256-quicknet-rejection-u32be-v2', false],
+      ['other game', 0, 1, 20000000, 'FINANCIAL', 'dice', 'sha256-quicknet-rejection-u32be-v2', false],
+      ['old algorithm', 0, 1, 20000000, 'FINANCIAL', 'spin_win', 'sha256-rejection-u32be-v1', false],
+      ['missing private metadata', 0, 1, 20000000, 'FINANCIAL', 'spin_win', null, false],
+    ];
+    for (const [label, pin, prepared, received, mode, game, algorithm, expected] of cases) {
+      const [row] = await prisma.$queryRawUnsafe<{ valid: boolean }[]>(`
+        WITH g AS (SELECT $4::text AS mode, $5::text AS game_key,
+          1700000000000::bigint AS opens_ms, 1700000010000::bigint AS closes_ms),
+        p AS (SELECT to_timestamp(1700000000) + $1::bigint * interval '1 microsecond' AS pinned_at,
+          to_timestamp(1700000000) + $3::bigint * interval '1 microsecond' AS received_at,
+          1700000020000::bigint AS beacon_time_ms),
+        x AS (SELECT $6::text AS algorithm,
+          to_timestamp(1700000000) + $2::bigint * interval '1 microsecond' AS prepared_at)
+        SELECT ${predicate} AS valid FROM g CROSS JOIN p CROSS JOIN x`,
+        pin, prepared, received, mode, game, algorithm);
+      expect(row.valid, label).toBe(expected);
+    }
+  });
+
+  it('reads only boolean beacon timing, while private seed access stays denied', async () => {
+    const [missing] = await app.$queryRawUnsafe<{ valid: boolean }[]>(
+      'SELECT public.house_beacon_timing_valid($1) AS valid', uid('missing-beacon'));
+    expect(missing).toEqual({ valid: false });
+    expect(await asApp([['SELECT seed_hex FROM public.house_round_randomness LIMIT 0']]))
+      .toMatch(/rejects: .*permission denied for table house_round_randomness/);
+    const [fn] = await prisma.$queryRawUnsafe<{ definer: boolean; result: string; settings: string[] }[]>(`
+      SELECT prosecdef AS definer, pg_get_function_result(oid) AS result, proconfig AS settings
+      FROM pg_proc WHERE oid='public.house_beacon_timing_valid(text)'::regprocedure`);
+    expect(fn).toEqual({ definer: true, result: 'boolean', settings: ['search_path=pg_catalog, pg_temp'] });
+    // Compare every persisted pin, including unsigned/non-DRAWN rows, with the
+    // original owner-only expression. Do not narrow row coverage for runtime.
+    const parity = await prisma.$queryRawUnsafe<{ id: string; expected: boolean; actual: boolean }[]>(`
+      SELECT p.round_id AS id,
+        COALESCE(g.mode='FINANCIAL' AND g.game_key='spin_win'
+          AND x.algorithm='sha256-quicknet-rejection-u32be-v2'
+          AND EXTRACT(EPOCH FROM p.pinned_at)*1000>=g.opens_ms
+          AND EXTRACT(EPOCH FROM p.pinned_at)*1000<g.closes_ms
+          AND x.prepared_at>=p.pinned_at
+          AND EXTRACT(EPOCH FROM x.prepared_at)*1000<g.closes_ms
+          AND EXTRACT(EPOCH FROM p.received_at)*1000>=p.beacon_time_ms,FALSE) AS expected,
+        public.house_beacon_timing_valid(p.round_id) AS actual
+      FROM public.house_round_beacon_pins p
+      LEFT JOIN public.scheduled_game_rounds g ON g.id=p.round_id
+      LEFT JOIN public.house_round_randomness x ON x.round_id=p.round_id`);
+    for (const row of parity) expect(row.actual, row.id).toBe(row.expected);
+  });
+
   it('is an ordinary role: no superuser, no RLS bypass, owns nothing', async () => {
     const [facts] = await app.$queryRawUnsafe<{ superuser: boolean; bypass: boolean; owned: number; replication: string }[]>(`
       SELECT r."rolsuper" AS superuser, r."rolbypassrls" AS bypass,
@@ -760,6 +843,18 @@ describe('3. amounts are never rounded before validation', () => {
 });
 
 describe('4. the API and the worker work under the runtime role', () => {
+  it('does not unpause Coin Dice to satisfy runtime-role coverage', async () => {
+    const method = await prisma.paymentMethodDefinition.findFirstOrThrow({ where: { countryId: f.country.id } });
+    await prisma.userPayoutAccount.create({ data: { userId: f.buyer.id, countryId: f.country.id,
+      methodDefId: method.id, accountDetails: { label: 'runtime-role-pause' }, status: 'ACTIVE' } });
+    const before = await ledgerFingerprint(f.buyer.id);
+    await expect(playGame({ userId: f.buyer.id, gameKey: 'dice', betAmount: 10,
+      idempotencyKey: uid('rr-paused-dice') })).rejects.toMatchObject({
+        statusCode: 400, message: 'This game is not available to play',
+      });
+    expect(await ledgerFingerprint(f.buyer.id)).toEqual(before);
+  });
+
   it('registers, plays, settles a signed adjustment and review, enables a gate and runs the worker', async () => {
     const method = await prisma.paymentMethodDefinition.findFirstOrThrow({ where: { countryId: f.country.id } });
     await prisma.userPayoutAccount.create({ data: { userId: f.buyer.id, countryId: f.country.id, methodDefId: method.id,
@@ -767,7 +862,7 @@ describe('4. the API and the worker work under the runtime role', () => {
     const admins = await makeApprovers('runtime-e2e');
     const who = async (id: string) => prisma.user.findUniqueOrThrow({ where: { id }, select: { id: true, username: true, email: true } });
     const input = { player: await who(f.buyer.id), adminA: await who(admins.first.id), adminB: await who(admins.second.id) };
-    const env = { ...process.env, DATABASE_URL: runtimeUrl, LOG_LEVEL: 'fatal', LOG_PRETTY: 'false' };
+    const env = { ...process.env, DATABASE_URL: runtimeUrl, LEDGER_RUNTIME_ROLE: role, LOG_LEVEL: 'fatal', LOG_PRETTY: 'false' };
     const harness = spawnSync(TSX, [join(API_ROOT, 'src/test/runtime-role-harness.ts'), JSON.stringify(input)],
       { cwd: API_ROOT, env, encoding: 'utf8', timeout: 240_000 });
     const line = harness.stdout.split('\n').reverse().find((l) => l.startsWith('{"steps"') || l.startsWith('{"fatal"'));
@@ -1075,7 +1170,7 @@ describe('8. the older SECURITY DEFINER guards never run a planted operator with
     .flatMap((type) => (['=', '<>'] as const).map((op) => ({ op, type })));
 
   /**
-   * A Dice wager through the game service, its transaction on the runtime
+   * A supported Spin Win wager through the game service, its transaction on the runtime
    * role's connection. `immediate` runs every deferred check as soon as the
    * wager's writes are done, inside the transaction (a wager balances only
    * once all of them are written); `deferred` leaves them to COMMIT.
@@ -1091,7 +1186,7 @@ describe('8. the older SECURITY DEFINER guards never run a planted operator with
       return played;
     }, { ...options, timeout: 120_000 })) as never);
     try {
-      return await playGame({ userId: f.buyer.id, gameKey: 'dice', betAmount: 10, idempotencyKey: uid('rr-wager') });
+      return await playGame({ userId: f.buyer.id, gameKey: 'spin_win', betAmount: 37, clientData: { bets: spinTicket }, idempotencyKey: uid('rr-wager') });
     } finally {
       spy.mockRestore();
     }
@@ -1357,6 +1452,43 @@ describe('10. no cascade the runtime role can start runs a planted object with t
   };
   const moveAgent = (agentId: string): Statement => ['UPDATE "agents" SET "id" = "id" || \'-moved\' WHERE "id" = $1', agentId];
 
+  // Keep all guards enabled; choose FK creation order for targeted coverage.
+  const receivingAccountFk = async () => (await prisma.$queryRawUnsafe<{ name: string; definition: string }[]>(`
+    SELECT c.conname::text AS name, pg_get_constraintdef(c.oid) AS definition
+    FROM pg_constraint c WHERE c.contype='f'
+      AND c.conrelid='agent_payment_accounts'::regclass AND c.confrelid='agents'::regclass`))[0];
+  const recreateAccountFk = (fk: { name: string; definition: string }): Statement[] => [
+    [`ALTER TABLE "agent_payment_accounts" DROP CONSTRAINT "${fk.name}"`],
+    [`ALTER TABLE "agent_payment_accounts" ADD CONSTRAINT "${fk.name}" ${fk.definition}`],
+  ];
+
+  it('the receiving-account guard rejects an Agent cascade before downstream guards', async () => {
+    const agent = await settledAgent();
+    const outcome = await asRuntimeRoleRolledBack([
+      [`GRANT UPDATE ON "agents" TO "${role}"`],
+    ], moveAgent(agent.agentId), false);
+    expect(outcome).toMatch(/rejects: .*Receiving account identity is immutable/);
+    expect((await prisma.agent.findUniqueOrThrow({ where: { id: agent.agentId } })).id).toBe(agent.agentId);
+  });
+
+  it('the order-destination guard rejects the cascade when it runs before the legacy proof guard', async () => {
+    const agent = await settledAgent();
+    const accountFk = await receivingAccountFk();
+    expect(accountFk).toBeDefined();
+    const plant = await unrelatedCreatorPlants([{ toJsonb: 'public.agent_orders' }]);
+    try {
+      const outcome = await asRuntimeRoleRolledBack([
+        [`GRANT UPDATE ON "agents" TO "${role}"`],
+        ...recreateAccountFk(accountFk),
+      ], moveAgent(agent.agentId), false);
+      expect(outcome).toMatch(/rejects: .*Order receiving destination is immutable/);
+      expect(await plant.advanced()).toEqual([]);
+    } finally {
+      await plant.drop();
+    }
+    expect((await prisma.agent.findUniqueOrThrow({ where: { id: agent.agentId } })).id).toBe(agent.agentId);
+  });
+
   it('an Agent id change: the setup took it away; granted back later, the settled order\'s proof guard runs as the owner but never the planted to_jsonb(agent_orders)', async () => {
     // 1. The setup runs.
     const setup = runtimeAccess({ DATABASE_URL: runtimeUrl });
@@ -1365,8 +1497,30 @@ describe('10. no cascade the runtime role can start runs a planted object with t
     // 2-3. After it, an unrelated role may create in public, and plants an
     // exact-type to_jsonb(public.agent_orders): the order proof guard calls
     // to_jsonb(NEW) on the order row a cascade rewrites.
+    const accountFk = await receivingAccountFk();
+    expect(accountFk).toBeDefined();
+    const triggerMetadata = async () => (await prisma.$queryRawUnsafe<{
+      name: string; functionId: string; enabled: string; type: number; constraintId: string;
+    }[]>(`SELECT tgname::text AS name, tgfoid::text AS "functionId", tgenabled::text AS enabled,
+        tgtype::int AS type, tgconstraint::text AS "constraintId"
+      FROM pg_trigger WHERE tgrelid='public.agent_orders'::regclass
+        AND tgname IN ('settled_agent_order_proof_immutable','aa_runtime_test_settled_agent_order_proof_immutable')`))[0];
+    const originalTrigger = await triggerMetadata();
+    expect(originalTrigger?.name).toBe('settled_agent_order_proof_immutable');
+    expect(originalTrigger?.enabled).toBe('O');
     const plant = await unrelatedCreatorPlants([{ toJsonb: 'public.agent_orders' }]);
+    let reorderedTrigger = false;
     try {
+      // BEFORE triggers run by name. Keep BOTH guards enabled and unchanged,
+      // but explicitly put the legacy guard first in this disposable fixture.
+      // The preceding case covers the normal order-destination-first path.
+      await prisma.$executeRawUnsafe(
+        'ALTER TRIGGER settled_agent_order_proof_immutable ON public.agent_orders RENAME TO aa_runtime_test_settled_agent_order_proof_immutable');
+      reorderedTrigger = true;
+      expect(await triggerMetadata()).toEqual({
+        ...originalTrigger, name: 'aa_runtime_test_settled_agent_order_proof_immutable',
+      });
+      await prisma.$transaction(recreateAccountFk(accountFk).map(([sql]) => prisma.$executeRawUnsafe(sql)));
       // 4. The runtime role changes the Agent's id: as the setup left it,
       // it may not change that key at all.
       const refused = await asApp([['DISCARD PLANS'], moveAgent(agent.agentId)]);
@@ -1385,8 +1539,14 @@ describe('10. no cascade the runtime role can start runs a planted object with t
         advanced: [],
       });
     } finally {
-      await plant.drop();
-      await grants();
+      try {
+        if (reorderedTrigger) await prisma.$executeRawUnsafe(
+          'ALTER TRIGGER aa_runtime_test_settled_agent_order_proof_immutable ON public.agent_orders RENAME TO settled_agent_order_proof_immutable');
+        expect(await triggerMetadata()).toEqual(originalTrigger);
+      } finally {
+        await plant.drop();
+        await grants();
+      }
     }
     expect((await prisma.agent.findUniqueOrThrow({ where: { id: agent.agentId } })).id).toBe(agent.agentId);
   });
@@ -1400,6 +1560,8 @@ describe('10. no cascade the runtime role can start runs a planted object with t
     const [fk] = await prisma.$queryRawUnsafe<{ name: string; definition: string }[]>(`
       SELECT c.conname::text AS name, pg_get_constraintdef(c.oid) AS definition FROM pg_constraint c
       WHERE c.contype = 'f' AND c.conrelid = 'agent_orders'::regclass AND c.confrelid = 'agents'::regclass`);
+    const accountFk = await receivingAccountFk();
+    expect(accountFk).toBeDefined();
     const plant = await unrelatedCreatorPlants([{ toJsonb: 'public.agent_reservations' }, { toJsonb: 'public.agent_orders' }]);
     try {
       const outcomes: string[] = [];
@@ -1408,6 +1570,7 @@ describe('10. no cascade the runtime role can start runs a planted object with t
           [`GRANT UPDATE ON "agents" TO "${role}"`],
           [`ALTER TABLE "agent_orders" DROP CONSTRAINT "${fk.name}"`],
           [`ALTER TABLE "agent_orders" ADD CONSTRAINT "${fk.name}" ${fk.definition}`],
+          ...recreateAccountFk(accountFk),
         ], moveAgent(agent.agentId), immediate));
       }
       expect({ outcomes, advanced: await plant.advanced() }).toEqual({
@@ -2088,6 +2251,20 @@ describe('11. the setup checks every role the runtime role can become, and a ref
       });
     });
 
+    for (const privilege of ['INSERT', 'UPDATE', 'INSERT (id)', 'UPDATE (id)']) {
+      it(`crypto receipt ${privilege} inherited explicitly from a superuser is refused`, async (ctx) => {
+        if (!pg16) ctx.skip();
+        for (const path of paths) {
+          await withMembership(path, { inherit: true, set: false }, {
+            attributes: 'SUPERUSER',
+            prepare: async (holder) => [`GRANT ${privilege} ON public.crypto_receipts TO "${holder}"`],
+          }, async () => {
+            await grantsRefusedChangingNothing(/API runtime can forge crypto receipt/);
+          });
+        }
+      });
+    }
+
     it('a superuser the runtime role only inherits from, or holds only ADMIN OPTION on (which only a superuser can use): its bypass does not reach the runtime role, so the grants function and the setup apply and verify', async (ctx) => {
       if (!pg16) ctx.skip();
       expect(await setupFailures()).toEqual([]);
@@ -2420,4 +2597,85 @@ describe('11. the setup checks every role the runtime role can become, and a ref
       }
     });
   });
+});
+
+
+// Last on purpose: immutable synthetic proof history stays in the disposable
+// cluster until its supervisor removes it. It must not pollute earlier scans.
+describe('12. populated beacon timing through a real restricted login', () => {
+  it('withholds seeds, changes false to true only after receipt, and still rejects an invalid synthetic proof', async () => {
+    const streamId = 'rrbeacon_' + randomUUID().replaceAll('-', '').slice(0, 16);
+    const roundId = streamId + ':0';
+    const seedHex = randomBytes(32).toString('hex');
+    await prisma.$transaction(async (tx) => {
+      const [{ anchor }] = await tx.$queryRawUnsafe<{ anchor: bigint }[]>(
+        "SELECT floor(EXTRACT(EPOCH FROM clock_timestamp())*1000)::bigint-1000 AS anchor");
+      await tx.$executeRawUnsafe(`INSERT INTO public.scheduled_game_streams
+        (id,game_key,rules_id,mode,enabled,anchor_ms,betting_ms,reveal_ms,result_ms)
+        VALUES ($1,'spin_win','single-zero-rtp90-v2','FINANCIAL',true,$2,20000,1000,1000)`,streamId,anchor);
+      await tx.$executeRawUnsafe(`INSERT INTO public.scheduled_game_rounds
+        (id,stream_id,sequence,game_key,rules_id,mode,opens_ms,closes_ms,reveal_ends_ms,ends_ms)
+        VALUES ($1,$2,0,'spin_win','single-zero-rtp90-v2','FINANCIAL',$3,$4,$5,$6)`,
+        roundId,streamId,anchor,anchor+20000n,anchor+21000n,anchor+22000n);
+      await tx.$executeRawUnsafe(`INSERT INTO public.house_round_beacon_pins
+        (round_id,chain_hash,beacon_round,beacon_time_ms)
+        SELECT id,'52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971',
+          public.house_quicknet_target(closes_ms),
+          1692803367000::bigint+(public.house_quicknet_target(closes_ms)-1)*3000
+        FROM public.scheduled_game_rounds WHERE id=$1`,roundId);
+      await tx.$executeRawUnsafe(`INSERT INTO public.house_round_randomness
+        (round_id,seed_hex,commitment_sha256,algorithm)
+        VALUES ($1,$2,pg_catalog.encode(public.digest(pg_catalog.convert_to(
+          'playqube:spin-win:commit:v1'||chr(10)||$1||chr(10)||'single-zero-rtp90-v2'||chr(10)||$2,
+          'UTF8'),'sha256'::text),'hex'),'sha256-quicknet-rejection-u32be-v2')`,roundId,seedHex);
+    });
+    const readAsRuntime = async () => (await app.$queryRawUnsafe<{
+      login: string; effective: string; valid: boolean;
+    }[]>(`SELECT session_user::text AS login,current_user::text AS effective,
+      public.house_beacon_timing_valid($1) AS valid`,roundId))[0];
+    expect(await readAsRuntime()).toEqual({ login: role, effective: role, valid: false });
+    const seedDenied = async () => {
+      await expect(app.$queryRawUnsafe('SELECT seed_hex FROM public.house_round_randomness WHERE round_id=$1',roundId))
+        .rejects.toThrow(/permission denied for table house_round_randomness/);
+    };
+    await seedDenied();
+    const [{ count }] = await prisma.$queryRawUnsafe<{ count: number }[]>(
+      'SELECT count(*)::int AS count FROM public.house_round_beacon_pins WHERE round_id=$1',roundId);
+    expect(count).toBe(1); // Populated coverage is mandatory, never a vacuous loop.
+    const [{ waitMs }] = await prisma.$queryRawUnsafe<{ waitMs: number }[]>(`
+      SELECT greatest(0,beacon_time_ms-floor(EXTRACT(EPOCH FROM clock_timestamp())*1000)+10)::int AS "waitMs"
+      FROM public.house_round_beacon_pins WHERE round_id=$1`,roundId);
+    expect(waitMs).toBeGreaterThanOrEqual(0);
+    expect(waitMs).toBeLessThanOrEqual(45000);
+    await new Promise((resolve) => setTimeout(resolve,waitMs));
+    // SQL validates exact signature hash/timing, not BLS. This all-zero fixture
+    // is deliberately NOT a valid external beacon; I22 must reject it below.
+    await prisma.$executeRawUnsafe(`UPDATE public.house_round_beacon_pins
+      SET signature_hex=repeat('00',48),
+        randomness_hex=pg_catalog.encode(public.digest(pg_catalog.decode(repeat('00',48),'hex'),'sha256'::text),'hex')
+      WHERE round_id=$1`,roundId);
+    expect(await readAsRuntime()).toEqual({ login: role, effective: role, valid: true });
+    await seedDenied();
+    const [{ expected }] = await prisma.$queryRawUnsafe<{ expected: boolean }[]>(`
+      SELECT COALESCE(g.mode='FINANCIAL' AND g.game_key='spin_win'
+        AND x.algorithm='sha256-quicknet-rejection-u32be-v2'
+        AND EXTRACT(EPOCH FROM p.pinned_at)*1000>=g.opens_ms
+        AND EXTRACT(EPOCH FROM p.pinned_at)*1000<g.closes_ms
+        AND x.prepared_at>=p.pinned_at
+        AND EXTRACT(EPOCH FROM x.prepared_at)*1000<g.closes_ms
+        AND EXTRACT(EPOCH FROM p.received_at)*1000>=p.beacon_time_ms,FALSE) AS expected
+      FROM public.house_round_beacon_pins p
+      JOIN public.scheduled_game_rounds g ON g.id=p.round_id
+      JOIN public.house_round_randomness x ON x.round_id=p.round_id WHERE p.round_id=$1`,roundId);
+    expect(expected).toBe(true);
+    let scan: Awaited<ReturnType<typeof runLedgerInvariantCheckInTransaction>> | undefined;
+    await expect(app.$transaction(async (tx) => {
+      scan = await runLedgerInvariantCheckInTransaction(tx,null,false);
+      throw new RolledBack('synthetic-proof-scan');
+    }, { timeout: 120000 })).rejects.toBeInstanceOf(RolledBack);
+    expect(scan).toBeDefined();
+    const failure = scan!.violations.find((v) => v.invariant.startsWith('I22'));
+    expect(scan!.passed).toBe(false);
+    expect(failure?.sample).toContain(roundId);
+  }, 120000);
 });

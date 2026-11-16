@@ -85,6 +85,7 @@ const STRICT_SCHEDULED_FUNCTIONS = [
   'house_round_randomness_guard', 'house_round_randomness_failures', 'house_round_randomness_constraint',
   'house_spin_outcome', 'house_ticket_resolution_failures', 'house_ticket_resolution_constraint',
   'house_quicknet_target', 'house_round_beacon_guard', 'house_public_spin_proof',
+  'house_beacon_timing_valid',
   'house_publication_guard', 'ledger_apply_runtime_grants_pre_publication',
 ];
 const privilegedApprovalFunctionsSql = `ARRAY[${[...PRIVILEGED_APPROVAL_FUNCTIONS, ...STRICT_SCHEDULED_FUNCTIONS].map((name) => `'${name}'`).join(',')}]::text[]`;
@@ -609,17 +610,9 @@ async function checkBeaconProofs(tx: Tx): Promise<LedgerViolation | null> {
       SELECT p.round_id AS id, g.closes_ms AS "cutoffMs", p.chain_hash AS "chainHash",
         p.beacon_round AS "beaconRound", p.beacon_time_ms AS "beaconTimeMs",
         p.signature_hex AS "signatureHex", p.randomness_hex AS "randomnessHex",
-        COALESCE(g.mode='FINANCIAL' AND g.game_key='spin_win'
-          AND x.algorithm='sha256-quicknet-rejection-u32be-v2'
-          AND EXTRACT(EPOCH FROM p.pinned_at)*1000>=g.opens_ms
-          AND EXTRACT(EPOCH FROM p.pinned_at)*1000<g.closes_ms
-          AND x.prepared_at>=p.pinned_at
-          AND EXTRACT(EPOCH FROM x.prepared_at)*1000<g.closes_ms
-          AND EXTRACT(EPOCH FROM p.received_at)*1000>=p.beacon_time_ms,
-          FALSE) AS "timingValid"
+        public.house_beacon_timing_valid(p.round_id) AS "timingValid"
       FROM public.house_round_beacon_pins p
       LEFT JOIN public.scheduled_game_rounds g ON g.id=p.round_id
-      LEFT JOIN public.house_round_randomness x ON x.round_id=p.round_id
       WHERE p.signature_hex IS NOT NULL
         AND (${cursor}::TEXT IS NULL OR p.round_id COLLATE "C">${cursor}::TEXT COLLATE "C")
       ORDER BY p.round_id COLLATE "C" LIMIT 100`;

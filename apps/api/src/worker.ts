@@ -1,3 +1,4 @@
+import { verifyLedgerRuntimeIdentity } from './scripts/ledger-runtime-identity-check.js';
 import { sweepExpiredAgentOrders } from './agents/order-service.js';
 import { fileURLToPath } from 'node:url';
 import { config } from '@socialplay/config';
@@ -276,6 +277,19 @@ async function main(): Promise<number> {
     workerConfig = parseWorkerConfig(process.argv.slice(2), process.env);
   } catch (err) {
     console.error(JSON.stringify({ level: 'error', msg: 'invalid worker configuration', error: serializeError(err) }));
+    return 1;
+  }
+
+  // This entrypoint shares the ledger runtime role with the API, not the
+  // dedicated crypto verifier role. Refuse unsafe credentials before any sweep.
+  try {
+    await prisma.$transaction(
+      (tx) => verifyLedgerRuntimeIdentity(tx, process.env.LEDGER_RUNTIME_ROLE ?? 'playqube_app'),
+      { isolationLevel: 'RepeatableRead', timeout: 60_000 },
+    );
+  } catch {
+    console.error(JSON.stringify({ level: 'error', msg: 'worker runtime identity verification failed' }));
+    await prisma.$disconnect().catch(() => undefined);
     return 1;
   }
 
