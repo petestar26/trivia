@@ -1,4 +1,4 @@
-import { fixtureUsdPolicy } from '../test/payment-policy-fixture.js';
+import { fixtureEtbPolicy } from '../test/payment-policy-fixture.js';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { prisma } from '@socialplay/database';
 import type { Prisma } from '@prisma/client';
@@ -6,7 +6,7 @@ import { waitForBlockedBackends, ROW_LOCK_WAITS } from '../test/pg-locks.js';
 import { submitAgentApplication, approveAgentApplication } from './agent-service.js';
 import { createAgentPaymentAccount, approveAgentPaymentAccount } from './payment-account-service.js';
 import { fundAgentInventory, getAgentInventory } from './inventory-service.js';
-import { createAgentOrder, submitOrderPayment, settleAgentOrder } from './order-service.js';
+import { createAgentOrder, submitOrderPayment, settleAgentOrder, cancelAgentOrder } from './order-service.js';
 import { openDispute, getDisputeById, claimDispute, resolveDispute, listOpenDisputesForAdmin } from './dispute-service.js';
 
 // ─── DB availability probe ─────────────────────────────────────
@@ -91,8 +91,10 @@ async function createPaymentMethod(countryId: string, tag: string) {
   });
 }
 
-async function createExchangeRate(countryId: string, fiatCurrency: string, coinsPerUnit: number, adminId: string) {
-  return prisma.exchangeRateConfig.create({ data: { countryId, fiatCurrency, coinsPerUnit, isActive: true, setBy: adminId , pricingPolicy: fixtureUsdPolicy(coinsPerUnit)} });
+/** Native ETB terms: one wallet unit per santim. Orders that ran at the
+ * retired 10-per-unit rate pay ten times the fiat to mint the same units. */
+async function createExchangeRate(countryId: string, fiatCurrency: string, adminId: string) {
+  return prisma.exchangeRateConfig.create({ data: { countryId, fiatCurrency, coinsPerUnit: 1, isActive: true, setBy: adminId, pricingPolicy: fixtureEtbPolicy() } });
 }
 
 async function setupActiveAgent(
@@ -136,7 +138,7 @@ async function makeDisputableOrder(
     agentId: fixture.agent.id,
     countryId: country.id,
     paymentAccountId: fixture.account.id,
-    fiatAmount: 500,
+    fiatAmount: 5000,
     idempotencyKey: `key-${Math.random()}`,
   });
   await submitOrderPayment(customer.id, created.order.id);
@@ -210,7 +212,7 @@ describeIf('Dispute creation', () => {
     superAdmin = await createSuperAdmin('createsuper');
     country = await createCountry('create');
     method = await createPaymentMethod(country.id, 'create');
-    await createExchangeRate(country.id, country.currencyCode, 10, admin.id);
+    await createExchangeRate(country.id, country.currencyCode, admin.id);
   });
 
   it('customer can open a dispute on their own PAYMENT_SUBMITTED order', async () => {
@@ -277,17 +279,19 @@ describeIf('Dispute creation', () => {
     ).rejects.toThrow(/invalid dispute reason/i);
   });
 
-  it('dispute cannot be opened on an order not in PAYMENT_SUBMITTED', async () => {
+  it('dispute cannot be opened on an order outside CREATED or PAYMENT_SUBMITTED', async () => {
     const fixture = await setupActiveAgent('open5', country.id, method.id, admin, superAdmin, 100_000);
     const customer = await createUser('custopen5');
     const created = await createAgentOrder(customer.id, {
       agentId: fixture.agent.id,
       countryId: country.id,
       paymentAccountId: fixture.account.id,
-      fiatAmount: 500,
+      fiatAmount: 5000,
       idempotencyKey: `key-${Math.random()}`,
     });
-    // still CREATED, payment never submitted
+    // Both parties may appeal a CREATED order since two-sided appeals
+    // (bfe8905); a cancelled order has released its reservation and may not.
+    await cancelAgentOrder(customer.id, created.order.id);
     await expect(
       openDispute(customer.id, {
         orderId: created.order.id,
@@ -359,7 +363,7 @@ describeIf('Dispute access and ownership', () => {
     superAdmin = await createSuperAdmin('accesssuper');
     country = await createCountry('access');
     method = await createPaymentMethod(country.id, 'access');
-    await createExchangeRate(country.id, country.currencyCode, 10, admin.id);
+    await createExchangeRate(country.id, country.currencyCode, admin.id);
   });
 
   it('customer, agent, and admin can access a dispute; a stranger cannot', async () => {
@@ -397,7 +401,7 @@ describeIf('Dispute claim and resolution', () => {
     superAdmin = await createSuperAdmin('resolvesuper');
     country = await createCountry('resolve');
     method = await createPaymentMethod(country.id, 'resolve');
-    await createExchangeRate(country.id, country.currencyCode, 10, admin.id);
+    await createExchangeRate(country.id, country.currencyCode, admin.id);
   });
 
   async function makeOpenDispute(tag: string) {
@@ -528,7 +532,7 @@ describeIf('Dispute claim and resolution', () => {
       agentId: fixture.agent.id,
       countryId: country.id,
       paymentAccountId: fixture.account.id,
-      fiatAmount: 500,
+      fiatAmount: 5000,
       idempotencyKey: `key-${Math.random()}`,
     });
     await submitOrderPayment(selfAdminUser.id, created.order.id);
@@ -614,7 +618,7 @@ describeIf('Dispute notifications and audit', () => {
     superAdmin = await createSuperAdmin('notifsuper');
     country = await createCountry('notif');
     method = await createPaymentMethod(country.id, 'notif');
-    await createExchangeRate(country.id, country.currencyCode, 10, admin.id);
+    await createExchangeRate(country.id, country.currencyCode, admin.id);
   });
 
   it('AGENT_DISPUTE_OPENED notifies the other party exactly once', async () => {
@@ -701,7 +705,7 @@ describeIf('Complete order + dispute lifecycle', () => {
     superAdmin = await createSuperAdmin('lifecyclesuper');
     country = await createCountry('lifecycle');
     method = await createPaymentMethod(country.id, 'lifecycle');
-    await createExchangeRate(country.id, country.currencyCode, 10, admin.id);
+    await createExchangeRate(country.id, country.currencyCode, admin.id);
   });
 
   it('order -> payment submitted -> dispute opened -> claimed -> resolved (RELEASE) end-to-end', async () => {
@@ -712,7 +716,7 @@ describeIf('Complete order + dispute lifecycle', () => {
       agentId: fixture.agent.id,
       countryId: country.id,
       paymentAccountId: fixture.account.id,
-      fiatAmount: 500,
+      fiatAmount: 5000,
       idempotencyKey: `key-${Math.random()}`,
     });
     expect(created.order.status).toBe('CREATED');
