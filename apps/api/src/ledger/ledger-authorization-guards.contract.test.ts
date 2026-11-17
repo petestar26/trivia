@@ -116,8 +116,8 @@ describe('the forged LEGACY_RESOLVE / ADMIN_ADJUST mint path is closed', () => {
   let f: PurchasedFixture; let other: PurchasedFixture;
   let first: { id: string }; let second: { id: string }; let creditor: Approvers;
   beforeAll(async () => {
-    f = await purchasedFixture(1000);
-    other = await purchasedFixture(500);
+    f = await purchasedFixture(10000);
+    other = await purchasedFixture(10000);
     first = await user(uid('first'), 'SUPER_ADMIN');
     second = await user(uid('second'), 'SUPER_ADMIN');
     creditor = await makeApprovers('auth-creditor');

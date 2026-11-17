@@ -199,8 +199,8 @@ describe('Coin adjustments execute exactly one two-administrator approval', () =
   let f: PurchasedFixture; let other: PurchasedFixture; let approvers: Approvers;
   let A: string; let B: string;
   beforeAll(async () => {
-    f = await purchasedFixture(1000);
-    other = await purchasedFixture(500);
+    f = await purchasedFixture(10000);
+    other = await purchasedFixture(10000);
     approvers = await makeApprovers('adj-auth');
     A = approvers.first.id; B = approvers.second.id;
   });

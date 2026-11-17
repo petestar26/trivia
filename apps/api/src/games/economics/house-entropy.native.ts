@@ -49,7 +49,8 @@ async function round() {
 }
 
 async function buyer() {
-  const bought = await purchasedFixture(240);
+  // 100 ETB in santim; entropy and ticket amounts are intentionally unchanged.
+  const bought = await purchasedFixture(10_000);
   const method = await owner.paymentMethodDefinition.findFirstOrThrow({ where: {
     countryId: bought.country.id, type: 'BANK_TRANSFER', isActive: true,
   } });
