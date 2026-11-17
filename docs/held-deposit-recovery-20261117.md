@@ -103,5 +103,13 @@ The payment CI also covers the held-case screen and the added runtime tests.
   exist and needs another control.
 - Translations in `catalogues/held-deposit-recovery.ts` are drafts and need a
   native-speaker review.
-- Rollback: `docs/operations/held-deposit-recovery-rollback.sql` (refuses once
-  any adjudication exists).
+- Recovery: `docs/operations/held-deposit-recovery-rollback.sql` is an emergency
+  schema-reversal reference, **not a routine rollback procedure**. Its safety
+  guards refuse any adjudication or enabled outcome, but that does not make
+  schema reversal compatible with Prisma migration history or application code.
+  Never mark a successfully applied migration rolled back, or edit migration
+  history manually. Stop and obtain a separately reviewed, tested and approved
+  forward-recovery plan, preserving financial and investigation records. That
+  plan must cover incompatible writers, backup/restore, application and grant
+  compatibility, and post-recovery checks. No recovery execution is authorized
+  by this document.
