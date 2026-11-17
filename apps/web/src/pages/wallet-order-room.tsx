@@ -10,6 +10,7 @@ import { useLanguage } from '@/providers/language-provider';
 import { useWalletAction, walletError } from '@/hooks/use-wallet-action';
 import { interfaceCodeLabel } from '@/lib/i18n/labels';
 import { LatePaymentReport } from './wallet-late-payments';
+import { HeldDepositStatus, type HeldCaseView } from './wallet-held-deposits';
 import './wallet-payments.css';
 import './wallet-order-room.css';
 
@@ -55,6 +56,7 @@ export type PaymentRoom = {
     description: string;
     resolutionNote: string | null;
   } | null;
+  heldCase?: HeldCaseView | null;
   messages: Message[];
   nextCursor: string | null;
   actions: Record<
@@ -438,6 +440,9 @@ function OrderRoom({
                 )}
                 {p.actions.latePayment && (
                   <LatePaymentReport orderId={id} currency={p.fiatCurrency} />
+                )}
+                {p.heldCase && (
+                  <HeldDepositStatus orderId={id} held={p.heldCase} member={p.role === 'member'} />
                 )}
                 {p.role === 'support' && <Link to="/admin/disputes">{t('Open review desk')}</Link>}
               </div>

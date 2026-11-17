@@ -88,6 +88,7 @@ const NOVEMBER_RELEASES = [
   '20261113060000_deposit_destination_revisions',
   '20261113060000_owner_reset_issuance',
   '20261115000000_runtime_role_contract_repairs',
+  '20261117000000_held_deposit_recovery',
 ];
 const AGENT_ACTIVATION_UTC = '20261007040000_agent_activation_utc';
 const RECOVERY_RUNTIME_HARDENING = '20261007032000_recovery_runtime_hardening';
