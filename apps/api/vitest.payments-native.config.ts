@@ -2,6 +2,7 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     include: [
+      'src/agents/etb-requirements.native.ts',
       'src/agents/payment-room.native.ts',
       'src/agents/payment-maintenance.test.ts',
       'src/workspaces/withdrawals.native.ts',

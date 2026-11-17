@@ -1,6 +1,6 @@
 import type { Prisma } from '@socialplay/database';
 import { ApiError } from '../middleware/api-error.js';
-import { parseUsdPolicy, priceUsdPayment } from './usd-pricing.js';
+import { parseUsdPolicy, priceAcceptedDeposit } from './usd-pricing.js';
 export const DEPOSIT_ENTRY_MS = 15 * 60 * 1000;
 export const MAX_PENDING_DEPOSITS = 3;
 export function depositEntryDeadline(order: { createdAt: Date; pricingSnapshot: unknown }): Date {
@@ -136,7 +136,7 @@ export async function assertDepositReady(
         pricingAt
       );
       if (phase === 'settlement') {
-        const price = priceUsdPayment(policy, 'deposit', order.fiatAmount!);
+        const price = priceAcceptedDeposit(policy, order.fiatAmount!, snapshot);
         if (price.coinAmount !== order.coinAmount) {
           throw ApiError.conflict('Locked payment amount does not match');
         }

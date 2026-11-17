@@ -1,3 +1,4 @@
+import { ETB_P2P_REQUIREMENTS, etbP2pMinimum } from '@socialplay/shared';
 import { z } from 'zod';
 import { ApiError } from '../middleware/api-error.js';
 
@@ -63,6 +64,33 @@ export function priceUsdPayment(
   direction: 'deposit' | 'withdrawal',
   amount: number
 ) {
+  return computePaymentPrice(policy, direction, amount, 'current');
+}
+
+/** Recheck accepted server-stored deposit terms, never today's admission policy.
+ * Missing marker identifies pre-cutover snapshots; malformed markers fail closed.
+ * This is deliberately separate from new-request pricing. */
+export function priceAcceptedDeposit(policy: UsdPolicy, amount: number, snapshot: unknown) {
+  if (!snapshot || typeof snapshot !== 'object') throw ApiError.badRequest('Invalid accepted payment snapshot');
+  const recorded = snapshot as Record<string, unknown>;
+  let minimumPolicy: 'current' | 'legacy' = 'legacy';
+  if (Object.prototype.hasOwnProperty.call(recorded, 'p2pMinimumPolicy')) {
+    const marker = z.object({
+      version: z.literal(ETB_P2P_REQUIREMENTS.version),
+      depositMinMinor: z.literal(ETB_P2P_REQUIREMENTS.depositMinMinor),
+      withdrawalMinMinor: z.literal(ETB_P2P_REQUIREMENTS.withdrawalMinMinor),
+      minorUnitsPerEtb: z.literal(ETB_P2P_REQUIREMENTS.minorUnitsPerEtb),
+    }).strict().safeParse(recorded.p2pMinimumPolicy);
+    if (policy.version !== 'ETB_V1' || !marker.success) throw ApiError.badRequest('Invalid accepted payment minimum policy');
+    minimumPolicy = 'current';
+  }
+  return computePaymentPrice(policy, 'deposit', amount, minimumPolicy);
+}
+
+function computePaymentPrice(
+  policy: UsdPolicy, direction: 'deposit' | 'withdrawal', amount: number,
+  minimumPolicy: 'current' | 'legacy',
+) {
   const rate = rateFraction(policy),
     minorScale = 10n ** BigInt(policy.minorDigits);
   let fiatMinor: bigint, coins: bigint, usdNumerator: bigint, usdDenominator: bigint;
@@ -70,7 +98,10 @@ export function priceUsdPayment(
     fiatMinor = whole(amount, 2147483647);
     usdNumerator = fiatMinor * rate.denominator;
     usdDenominator = minorScale * rate.numerator;
-    if (usdNumerator * 100n < BigInt(policy.p2pDepositMinUsdCents) * usdDenominator) {
+    if (policy.version === 'ETB_V1' && minimumPolicy === 'current' && fiatMinor < BigInt(etbP2pMinimum('deposit'))) {
+      throw ApiError.badRequest('Minimum P2P deposit is 100 ETB');
+    }
+    if ((policy.version === 'USD_V1' || minimumPolicy === 'legacy') && usdNumerator * 100n < BigInt(policy.p2pDepositMinUsdCents) * usdDenominator) {
       throw ApiError.badRequest(
         `Minimum P2P deposit is USD ${(policy.p2pDepositMinUsdCents / 100).toFixed(2)}`
       );
@@ -80,7 +111,10 @@ export function priceUsdPayment(
     coins = whole(amount, 1000000000);
     usdNumerator = policy.version === 'ETB_V1' ? coins * rate.denominator : coins;
     usdDenominator = policy.version === 'ETB_V1' ? minorScale * rate.numerator : BigInt(policy.coinsPerUsd);
-    if (usdNumerator * 100n <= BigInt(policy.p2pWithdrawalAboveUsdCents) * usdDenominator) {
+    if (policy.version === 'ETB_V1' && minimumPolicy === 'current' && coins < BigInt(etbP2pMinimum('withdrawal'))) {
+      throw ApiError.badRequest('Minimum P2P withdrawal is 500 ETB');
+    }
+    if ((policy.version === 'USD_V1' || minimumPolicy === 'legacy') && usdNumerator * 100n <= BigInt(policy.p2pWithdrawalAboveUsdCents) * usdDenominator) {
       throw ApiError.badRequest(
         `P2P withdrawal must exceed USD ${(policy.p2pWithdrawalAboveUsdCents / 100).toFixed(2)}`
       );
@@ -96,6 +130,7 @@ export function priceUsdPayment(
     fiatAmount: fiatMinor,
     snapshot: {
       ...policy,
+      ...(policy.version === 'ETB_V1' && minimumPolicy === 'current' ? { p2pMinimumPolicy: ETB_P2P_REQUIREMENTS } : {}),
       direction,
       usdNumerator: usdNumerator.toString(),
       usdDenominator: usdDenominator.toString(),

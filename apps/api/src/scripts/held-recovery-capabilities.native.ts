@@ -67,7 +67,7 @@ it('admits a synthetic deposit as runtime; missing policy SELECT blocks readines
   await publishUsdRate(admin.id, country.id, fixtureEtbPolicy());
   await fundAgentInventory(admin.id, agent.agentId, 100000, randomUUID());
   const account = await owner.agentPaymentAccount.create({ data: { agentId: agent.agentId, countryId: country.id, methodDefId: method.id, status: 'APPROVED', accountDetails: { accountNumber: 'SYNTHETIC-NOT-A-REAL-ACCOUNT' } } });
-  const args = () => ({ agentId: agent.agentId, countryId: country.id, paymentAccountId: account.id, fiatAmount: 5000, idempotencyKey: randomUUID() });
+  const args = () => ({ agentId: agent.agentId, countryId: country.id, paymentAccountId: account.id, fiatAmount: 10000, idempotencyKey: randomUUID() });
   selected.client = runtime;
   const admitted = await createAgentOrder(buyer.id, args());
   expect(admitted.order.status).toBe('CREATED');
