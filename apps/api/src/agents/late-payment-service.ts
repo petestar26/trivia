@@ -121,6 +121,9 @@ export async function reportLatePayment(userId: string, raw: unknown) {
     }
     if (await tx.dispute.findFirst({where: {orderId: order.id, status: 'RESOLVED'}, select: {id: true}}))
       throw ApiError.conflict('This deposit already has a resolved dispute. Contact support about that decision; do not open a separate recovery case.');
+    // A held-deposit adjudication is the order's final answer (also enforced in the database).
+    if (await tx.heldDepositAdjudication.findUnique({where: {orderId: order.id}, select: {id: true}}))
+      throw ApiError.conflict('This deposit was already decided by payment support. Contact support about that decision.');
     if (!['EXPIRED', 'CANCELLED'].includes(order.status))
       throw ApiError.conflict('Recovery requires an expired or cancelled deposit order');
     const reservation = await tx.agentReservation.findUnique({ where: { orderId: order.id } });

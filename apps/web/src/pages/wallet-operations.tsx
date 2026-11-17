@@ -1,5 +1,6 @@
 import { interfaceCodeLabel } from '@/lib/i18n/labels';
 import { LatePaymentCases } from './wallet-late-payments';
+import { HeldDepositCases } from './wallet-held-deposits';
 import { WalletSetupAdmin } from './wallet-setup-admin';
 import { WalletPricingAdmin } from './wallet-pricing-admin';
 import { useState } from 'react';
@@ -271,6 +272,7 @@ function Operations({ userId, workspace }: { userId: string; workspace?: 'admin'
             )}
           </section>
         ))}
+      {admin && <HeldDepositCases />}
       {admin && <LatePaymentCases admin />}
       {agent && <LatePaymentCases />}
       {selection && (
