@@ -1,5 +1,7 @@
--- Rollback for 20261117000000_held_deposit_recovery. Owner-run, by hand, never
--- automatically. It restores the two original deposit guards exactly and removes
+-- Emergency schema-reversal reference for 20261117000000_held_deposit_recovery.
+-- NOT a routine release rollback or an executable cutover instruction. Stop and
+-- obtain a separately reviewed and approved recovery plan before running it.
+-- Owner-run, by hand, never automatically. It restores the two original deposit guards exactly and removes
 -- the recovery objects. safetyHold values are not touched: every held order
 -- stays held, exactly as before the migration.
 --
@@ -10,8 +12,18 @@
 --   * investigation cases exist and the operator has not first exported them and
 --     acknowledged the discard in this session with
 --       SET held_recovery.discard_cases = 'exported-and-acknowledged';
--- Afterwards mark the migration rolled back in _prisma_migrations by the normal
--- release procedure. The API build that uses these tables must be withdrawn first.
+-- A successfully applied migration must NOT be marked rolled back or edited in
+-- _prisma_migrations. Prisma migrate resolve --rolled-back is not a rollback for
+-- successful migrations; the pinned CLI rejects that state. Running this SQL
+-- alone would leave migration history inconsistent with the physical schema.
+-- Keep history intact and prefer a separately reviewed, tested and approved
+-- forward recovery through the normal migration workflow. Do not create that
+-- migration, run this reference SQL, or restore a database under this document's
+-- authority. Preserve adjudications, case evidence and financial history.
+-- Any recovery plan must first stop incompatible writers, verify a restorable
+-- backup and define compatible application/grant versions and post-recovery
+-- checks. If this SQL was already run, stop and escalate; do not repair migration
+-- history manually or retry deployment as a substitute for a recovery plan.
 BEGIN;
 LOCK TABLE public.agent_orders, public.agent_reservations, public.agent_order_settlements, public.disputes,
   public.late_payment_cases, public.late_payment_reference_claims, public.held_deposit_adjudications,
