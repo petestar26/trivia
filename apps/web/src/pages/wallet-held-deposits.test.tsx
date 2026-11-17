@@ -110,3 +110,24 @@ it('requires evidence, a personal check and a case-specific code before a credit
   await waitFor(() => expect(m.post).toHaveBeenCalledTimes(4));
   expect(m.post.mock.calls[3][1].idempotencyKey).toBe(first.idempotencyKey);
 });
+
+
+it('requires a reason for takeover, sends the displayed version and blocks duplicate clicks while pending', async () => {
+  const other = detail(); other.case.assignedToMe = false;
+  m.get.mockImplementation((path: string) => Promise.resolve({ data: path === '/held-deposits' ? queue(true) : other }));
+  let reject!: (e: unknown) => void;
+  m.post.mockImplementation(() => new Promise((_resolve, no) => { reject = no; }));
+  mount(<HeldDepositCases />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Open case' }));
+  const button = await screen.findByRole('button', { name: 'Take over case' });
+  expect(button).toBeDisabled();
+  fireEvent.change(screen.getByLabelText('Decision reason'), { target: { value: 'Assigned administrator unavailable for the review.' } });
+  fireEvent.click(button); fireEvent.click(button);
+  expect(button).toBeDisabled();
+  expect(m.post).toHaveBeenCalledOnce();
+  expect(m.post.mock.calls[0].slice(0, 2)).toEqual(['/held-deposits/order/reassign', { expectedCaseVersion: 3, note: 'Assigned administrator unavailable for the review.' }]);
+  reject(new Error('Case changed; reload it and review again'));
+  expect(await screen.findByRole('alert')).toBeInTheDocument();
+  await waitFor(() => expect(button).toBeEnabled());
+  expect(screen.queryByRole('button', { name: 'Record decision' })).toBeNull();
+});

@@ -8,6 +8,7 @@ import {
   listHeldCases,
   markHeldCaseUnknown,
   releaseHeldCase,
+  reassignHeldCase,
 } from './held-deposit-recovery-service.js';
 
 const context = (request: FastifyRequest) => ({ ip: request.ip, userAgent: request.headers['user-agent'] });
@@ -35,6 +36,9 @@ export async function heldDepositRoutes(server: FastifyInstance) {
   }));
   server.post<Order>('/:orderId/claim', { preHandler: admin, config: limit(60) }, async (req) => ({
     success: true, data: await claimHeldCase(req.user!.sub, req.params.orderId, context(req)),
+  }));
+  server.post<Order>('/:orderId/reassign', { preHandler: admin, bodyLimit: 16384, config: limit(60) }, async (req) => ({
+    success: true, data: await reassignHeldCase(req.user!.sub, req.params.orderId, req.body, context(req)),
   }));
   server.post<Order>('/:orderId/release', { preHandler: admin, bodyLimit: 16384, config: limit(60) }, async (req) => ({
     success: true, data: await releaseHeldCase(req.user!.sub, req.params.orderId, req.body, context(req)),

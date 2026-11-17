@@ -2,6 +2,19 @@ import type { TranslationCatalog } from '../types';
 // Held-deposit recovery. Draft translations: they need review by a native
 // speaker before release, like every financial message.
 export default {
+  'Take over case': {
+    am: 'ጉዳዩን ተረከብ', om: 'Dhimma kana fudhadhu', ti: 'ነቲ ጉዳይ ተረከብ',
+    so: 'La wareeg kiiska', ar: 'تولَّ مسؤولية الحالة', sw: 'Chukua jukumu la kesi', fr: 'Reprendre le dossier',
+  },
+  'If the assigned administrator is unavailable, explain why you are taking over. Funds and the safety hold stay unchanged.': {
+    am: 'የተመደበው አስተዳዳሪ ከሌለ፣ ጉዳዩን ለምን እንደሚረከቡ ያብራሩ። ገንዘቡና የደህንነት እገዳው አይቀየሩም።',
+    om: 'Bulchaan ramadame yoo hin jirre, maaliif akka dhimma kana fudhattu ibsi. Maallaqnii fi dhorkaan nageenyaa hin jijjiiraman.',
+    ti: 'እቲ ዝተመደበ ኣመሓዳሪ እንተዘይተረኺቡ፣ ነቲ ጉዳይ ስለምንታይ ከም እትርከቦ ግለጽ። ገንዘብን ናይ ድሕንነት እገዳን ኣይቅየሩን።',
+    so: 'Haddii maamulaha loo xilsaaray aanu diyaar ahayn, sharax sababta aad kiiska ula wareegayso. Lacagta iyo hakadka badbaadadu isma beddelayaan.',
+    ar: 'إذا كان المسؤول المعيّن غير متاح، فوضّح سبب توليك المسؤولية. تبقى الأموال والتعليق الاحترازي دون تغيير.',
+    sw: 'Ikiwa msimamizi aliyeteuliwa hayupo, eleza sababu ya kuchukua jukumu. Fedha na zuio la usalama havitabadilika.',
+    fr: 'Si l’administrateur désigné est indisponible, expliquez pourquoi vous reprenez le dossier. Les fonds et le blocage de sécurité restent inchangés.',
+  },
   'Safety hold': {
     am: 'የደህንነት እገዳ',
     om: 'Dhorkaa nageenyaa',

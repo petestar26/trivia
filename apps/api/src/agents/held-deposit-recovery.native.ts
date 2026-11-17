@@ -18,7 +18,7 @@ import { nextTestCountryCode } from '../test/financial-policy-fixtures.js';
 import { waitForBlockedBackends } from '../test/pg-locks.js';
 import {
   adjudicateHeldDeposit, claimHeldCase, declareHeldPayment, getHeldCase, heldAdjudicationPurpose,
-  listHeldCases, markHeldCaseUnknown, releaseHeldCase,
+  listHeldCases, markHeldCaseUnknown, releaseHeldCase, reassignHeldCase,
 } from './held-deposit-recovery-service.js';
 
 const url = new URL(process.env.DATABASE_URL ?? 'http://invalid');
@@ -632,4 +632,81 @@ describe('order limit and monitoring', () => {
     expect(queue.monitoring.oldestHeldAt).toBeInstanceOf(Date);
     await expectInventoryConsistent(w);
   });
+});
+
+
+describe('audited nonfinancial reassignment', () => {
+  for (const prior of ['ACTIVE', 'SUSPENDED', 'DEMOTED'] as const) {
+    it(`takes over a ${prior} assignee without changing financial state or hold`, async () => {
+      const w = await world(), order = await heldOrder(w);
+      const claim = await claimHeldCase(w.main.id, order.id);
+      if (prior === 'SUSPENDED') await prisma.user.update({ where: { id: w.main.id }, data: { status: 'SUSPENDED' } });
+      if (prior === 'DEMOTED') await prisma.user.update({ where: { id: w.main.id }, data: { role: 'ADMIN' } });
+      const before = await snapshot(w, order.id);
+      const args = { expectedCaseVersion: claim!.version, note: 'Previous administrator is unavailable; taking responsibility.' };
+      const result = await reassignHeldCase(w.otherMain.id, order.id, args);
+      expect(result).toMatchObject({ status: 'ASSIGNED', version: claim!.version + 1 });
+      expect(await snapshot(w, order.id)).toEqual(before);
+      expect(await prisma.heldDepositCase.findUniqueOrThrow({ where: { orderId: order.id } })).toMatchObject({ assignedAdminId: w.otherMain.id, classification: 'UNREVIEWED' });
+      const events = await prisma.heldDepositCaseEvent.findMany({ where: { orderId: order.id, actorId: w.otherMain.id } });
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({ kind: 'CLAIMED', caseVersion: result!.version, detail: { action: 'REASSIGNED', previousAdminId: w.main.id, assignedAdminId: w.otherMain.id, note: args.note } });
+      expect(await prisma.auditLog.count({ where: { entityId: order.id, action: 'HELD_DEPOSIT_CASE_REASSIGNED' } })).toBe(1);
+      await expect(reassignHeldCase(w.otherMain.id, order.id, args)).rejects.toThrow();
+      await expect(markHeldCaseUnknown(w.main.id, order.id, { expectedCaseVersion: result!.version, note: 'Old assignee cannot decide this case.' })).rejects.toThrow();
+      expect(await snapshot(w, order.id)).toEqual(before);
+    });
+  }
+  it('rejects non-main staff, inactive actors, parties, short reasons and stale versions atomically', async () => {
+    const w = await world(), order = await heldOrder(w);
+    const claim = await claimHeldCase(w.main.id, order.id);
+    const args = { expectedCaseVersion: claim!.version, note: 'Assigned administrator is unavailable.' };
+    const before = await snapshot(w, order.id);
+    for (const actor of [w.admin.id, w.member.id, w.agentUser.id]) {
+      await expect(reassignHeldCase(actor, order.id, args)).rejects.toThrow();
+    }
+    for (const actor of [w.member.id, w.agentUser.id]) {
+      await prisma.user.update({ where: { id: actor }, data: { role: 'SUPER_ADMIN' } });
+      await expect(reassignHeldCase(actor, order.id, args)).rejects.toThrow();
+    }
+    await prisma.user.update({ where: { id: w.otherMain.id }, data: { status: 'SUSPENDED' } });
+    await expect(reassignHeldCase(w.otherMain.id, order.id, args)).rejects.toThrow();
+    await prisma.user.update({ where: { id: w.otherMain.id }, data: { status: 'ACTIVE' } });
+    await expect(reassignHeldCase(w.otherMain.id, order.id, { ...args, note: 'short' })).rejects.toThrow();
+    await expect(reassignHeldCase(w.otherMain.id, order.id, { ...args, expectedCaseVersion: args.expectedCaseVersion + 1 })).rejects.toThrow();
+    expect(await snapshot(w, order.id)).toEqual(before);
+    expect(await prisma.auditLog.count({ where: { entityId: order.id, action: 'HELD_DEPOSIT_CASE_REASSIGNED' } })).toBe(0);
+    expect((await prisma.heldDepositCase.findUniqueOrThrow({ where: { orderId: order.id } })).version).toBe(args.expectedCaseVersion);
+  });
+  it('allows exactly one of competing expected-version takeovers', async () => {
+    const w = await world(), order = await heldOrder(w);
+    const third = await prisma.user.create({ data: { username: `third_${randomUUID()}`, role: 'SUPER_ADMIN' } });
+    const claim = await claimHeldCase(w.main.id, order.id);
+    const args = { expectedCaseVersion: claim!.version, note: 'Assigned administrator unavailable; taking case.' };
+    const before = await snapshot(w, order.id);
+    const results = await Promise.all([settled(reassignHeldCase(w.otherMain.id, order.id, args)), settled(reassignHeldCase(third.id, order.id, args))]);
+    expect(results.filter(r => r.ok)).toHaveLength(1);
+    expect(await prisma.auditLog.count({ where: { entityId: order.id, action: 'HELD_DEPOSIT_CASE_REASSIGNED' } })).toBe(1);
+    expect(await snapshot(w, order.id)).toEqual(before);
+  });
+});
+
+
+it('serializes takeover against the prior assignee decision and refuses takeover of an open case', async () => {
+  const w = await world(), order = await heldOrder(w);
+  const claim = await claimHeldCase(w.main.id, order.id);
+  const args = { expectedCaseVersion: claim!.version, note: 'Administrator unavailable; synthetic concurrency check.' };
+  const before = await snapshot(w, order.id);
+  const results = await Promise.all([
+    settled(reassignHeldCase(w.otherMain.id, order.id, args)),
+    settled(markHeldCaseUnknown(w.main.id, order.id, args)),
+  ]);
+  expect(results.filter(r => r.ok)).toHaveLength(1);
+  expect(await snapshot(w, order.id)).toEqual(before);
+  const current = await prisma.heldDepositCase.findUniqueOrThrow({ where: { orderId: order.id } });
+  expect(current.version).toBe(claim!.version + 1);
+  await releaseHeldCase(current.assignedAdminId!, order.id, { ...args, expectedCaseVersion: current.version });
+  const released = await prisma.heldDepositCase.findUniqueOrThrow({ where: { orderId: order.id } });
+  await expect(reassignHeldCase(w.otherMain.id, order.id, { ...args, expectedCaseVersion: released.version })).rejects.toThrow();
+  expect(await snapshot(w, order.id)).toEqual(before);
 });

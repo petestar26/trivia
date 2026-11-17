@@ -288,6 +288,32 @@ export async function claimHeldCase(adminId: string, orderId: string, context?: 
   } catch (error) { refused(error); }
 }
 
+/** Explicit nonfinancial takeover, including an unavailable active assignee.
+ * Never assigns to a third party or clears the hold. The expected version makes
+ * concurrent takeovers and stale decisions fail rather than silently overwrite. */
+export async function reassignHeldCase(adminId: string, orderId: string, raw: unknown, context?: Context) {
+  const args = parse(noteSchema, raw, 'A takeover reason of at least 10 characters and the displayed case version are required');
+  try {
+    return await prisma.$transaction(async (tx) => {
+      await lockActor(tx, adminId, 'main');
+      const order = await lockHeldOrder(tx, orderId);
+      assertNotParty(adminId, order);
+      if (!(HELD_OPEN_STATUSES as readonly string[]).includes(order.status)) throw ApiError.conflict('This order is already closed');
+      const current = await lockCase(tx, orderId);
+      if (current.status !== 'ASSIGNED' || !current.assignedAdminId || current.assignedAdminId === adminId)
+        throw ApiError.conflict('Only a case assigned to another administrator can be taken over');
+      if (current.version !== args.expectedCaseVersion) throw ApiError.conflict('Case changed; reload it and review again');
+      const updated = await tx.heldDepositCase.update({ where: { orderId }, data: { assignedAdminId: adminId, assignedAt: new Date() } });
+      const detail = { action: 'REASSIGNED', previousAdminId: current.assignedAdminId, assignedAdminId: adminId,
+        previousVersion: current.version, version: updated.version, note: args.note };
+      // Existing immutable event kind; action distinguishes takeover from an open claim.
+      await event(tx, orderId, adminId, 'CLAIMED', updated.version, detail);
+      await audit(tx, adminId, orderId, 'HELD_DEPOSIT_CASE_REASSIGNED', detail, context);
+      return { orderId, status: updated.status, version: updated.version };
+    });
+  } catch (error) { refused(error); }
+}
+
 /** The assignee hands the case back; nothing financial changes. */
 export async function releaseHeldCase(adminId: string, orderId: string, raw: unknown, context?: Context) {
   const args = parse(noteSchema, raw, 'A note of at least 10 characters and the displayed case version are required');

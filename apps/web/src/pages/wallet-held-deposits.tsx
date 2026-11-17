@@ -400,6 +400,23 @@ function HeldCaseDetail({ orderId, close }: { orderId: string; close: () => void
       setBusy(false);
     }
   }
+  async function takeOver() {
+    if (!d.case || busy || reason.trim().length < 10) return;
+    setBusy(true);
+    setError('');
+    try {
+      await post(`/held-deposits/${orderId}/reassign`, {
+        expectedCaseVersion: d.case.version,
+        note: reason,
+      });
+      await cache.invalidateQueries({ queryKey: ['payments'] });
+      close();
+    } catch (e) {
+      setError(walletError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
   async function handBack() {
     if (!d.case) return;
     setBusy(true);
@@ -456,7 +473,21 @@ function HeldCaseDetail({ orderId, close }: { orderId: string; close: () => void
           {translateUi('Decision recorded.')} {interfaceCodeLabel(translateUi, d.adjudication.outcome)}
         </p>
       ) : !mine ? (
-        <p>{translateUi('Claim this case to record a decision.')}</p>
+        <>
+          <p>{translateUi('Claim this case to record a decision.')}</p>
+          {d.case?.status === 'ASSIGNED' && (
+            <>
+              <p>{translateUi('If the assigned administrator is unavailable, explain why you are taking over. Funds and the safety hold stay unchanged.')}</p>
+              <label>
+                {translateUi('Decision reason')}
+                <textarea maxLength={4000} value={reason} onChange={(e) => setReason(e.target.value)} />
+              </label>
+              <button disabled={busy || reason.trim().length < 10} onClick={takeOver}>
+                {translateUi('Take over case')}
+              </button>
+            </>
+          )}
+        </>
       ) : (
         <>
           <label>
