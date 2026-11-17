@@ -7,6 +7,7 @@ import { footballRoutes } from '../games/virtual-football/routes.js';
 import { skyCrashRoutes } from '../games/sky-crash/routes.js';
 import { cryptoPaymentRoutes } from '../crypto-payments/routes.js';
 import { latePaymentRoutes } from '../agents/late-payment-routes.js';
+import { heldDepositRoutes } from '../agents/held-deposit-routes.js';
 import { crashPointRoutes } from '../games/crash-point/routes.js';
 import { adminAgentAccountRoutes } from '../agents/admin-account-routes.js';
 import { workspaceRoutes } from './workspaces.js';
@@ -93,6 +94,7 @@ export async function registerRoutes(server: FastifyInstance): Promise<void> {
   await server.register(agentOrderRoutes, { prefix: '/agent-orders' });
   await server.register(paymentRoomRoutes, { prefix: '/payment-orders' });
   await server.register(latePaymentRoutes, { prefix: '/late-payments' });
+  await server.register(heldDepositRoutes, { prefix: '/held-deposits' });
   await server.register(agentDisputeRoutes, { prefix: '/agent-disputes' });
   await server.register(agentConversationRoutes, { prefix: '/agent-conversations' });
   await server.register(agentConfigRoutes, { prefix: '/agent-config' });

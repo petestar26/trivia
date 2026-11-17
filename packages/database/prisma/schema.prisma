@@ -1974,6 +1974,94 @@ model AgentPaymentAccountRevision {
   @@map("agent_payment_account_revisions")
 }
 
+// ─── Held-deposit recovery ────────────────────────────────────────
+// safetyHold is never cleared. These rows are the only authorised way a held
+// order reaches a terminal state; the database authorises each adjudication.
+// Policy ships fully disabled; only the database owner may enable an outcome.
+model HeldDepositRecoveryPolicy {
+  id                    Boolean  @id @default(true)
+  unpaidReleaseEnabled  Boolean  @default(false)
+  coinCreditEnabled     Boolean  @default(false)
+  externalReturnEnabled Boolean  @default(false)
+  admissionExceptionMax Int      @default(0)
+  approvedBy            String?
+  approvalReference     String?
+  updatedAt             DateTime @default(now())
+
+  @@map("held_deposit_recovery_policy")
+}
+
+model HeldDepositCase {
+  orderId           String    @id
+  status            String    @default("OPEN")
+  classification    String    @default("UNREVIEWED")
+  memberDeclaration String?
+  memberDeclaredAt  DateTime?
+  assignedAdminId   String?
+  assignedAt        DateTime?
+  version           Int       @default(1)
+  openedAt          DateTime  @default(now())
+  resolvedAt        DateTime?
+  updatedAt         DateTime  @default(now())
+
+  @@index([status, openedAt], map: "held_deposit_cases_queue")
+  @@map("held_deposit_cases")
+}
+
+// Append-only. Sensitive: never returned to members, agents or ordinary admins.
+model HeldDepositCaseEvent {
+  id          String   @id
+  orderId     String
+  actorId     String
+  kind        String
+  caseVersion Int
+  detail      Json     @default("{}")
+  createdAt   DateTime @default(now())
+
+  @@index([orderId, createdAt], map: "held_deposit_case_events_order")
+  @@map("held_deposit_case_events")
+}
+
+// Append-only; at most one outcome per order, ever.
+model HeldDepositAdjudication {
+  orderId                  String    @id
+  id                       String    @unique
+  outcome                  String
+  adminId                  String
+  idempotencyKey           String
+  requestHash              String
+  stepUpId                 String    @unique
+  caseVersion              Int
+  orderStatusBefore        String
+  reservationId            String
+  coinAmount               Int
+  fiatAmount               Int
+  reason                   String
+  evidence                 Json
+  verifiedPaymentReference String?
+  verifiedAmount           Int?
+  verifiedPaidAt           DateTime?
+  returnReference          String?
+  returnedAmount           Int?
+  returnedAt               DateTime?
+  authorizedTxid           BigInt
+  createdAt                DateTime  @default(now())
+
+  @@unique([adminId, idempotencyKey])
+  @@map("held_deposit_adjudications")
+}
+
+model HeldDepositReferenceClaim {
+  methodId  String
+  reference String
+  orderId   String
+  kind      String
+
+  @@id([methodId, reference])
+  @@unique([orderId, kind])
+  @@map("held_deposit_reference_claims")
+}
+
 // ─── Agent finance ────────────────────────────────────────────────
 
 model AgentInventory {

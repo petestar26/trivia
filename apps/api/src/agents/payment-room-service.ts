@@ -3,6 +3,7 @@ import { prisma, type Prisma } from '@socialplay/database';
 import { z } from 'zod';
 import { ApiError } from '../middleware/index.js';
 import { depositEntryDeadline } from './order-lifecycle.js';
+import { heldCaseForParty } from './held-deposit-recovery-service.js';
 import { serializeAdminWithdrawal, serializeWithdrawal } from '../withdrawals/dto.js';
 
 export type PaymentKind = 'deposit' | 'withdrawal';
@@ -113,6 +114,11 @@ export async function getPaymentRoom(
         ('safetyHold' in payment && payment.safetyHold === true) ||
         !receivingAccount || receivingAccount.safetyHold || receivingAccount.status === 'DISABLED'
       );
+      // Members and agents see a state only; reasons and evidence stay with the main administrator.
+      const heldCase = kind === 'deposit' && 'safetyHold' in payment
+        ? await heldCaseForParty(db, id, role === 'member' ? 'member' : role === 'agent' ? 'agent' : 'admin',
+            { safetyHold: payment.safetyHold === true, status: payment.status })
+        : null;
       const where = kind === 'deposit' ? { orderId: id } : { withdrawalId: id };
       const disputes =
         kind === 'deposit'
@@ -212,6 +218,7 @@ export async function getPaymentRoom(
         role,
         status: payment.status,
         safetyHold,
+        heldCase,
         number: 'orderNumber' in payment ? payment.orderNumber : payment.withdrawalNumber,
         coinAmount: payment.coinAmount,
         fiatAmount: normalized.fiatAmount,
