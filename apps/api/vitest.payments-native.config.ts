@@ -7,6 +7,7 @@ export default defineConfig({
       'src/workspaces/withdrawals.native.ts',
       'src/agents/payment-readiness.native.ts',
       'src/agents/held-deposit-recovery.native.ts',
+      'src/scripts/held-recovery-capabilities.native.ts',
     ],
     fileParallelism: false,
     pool: 'forks',

@@ -48,6 +48,30 @@ vouch for), so this work never clears it and never expires held orders.
   and the trail are readable by main administrators who are not a party.
   Ordinary administrators see the queue (amounts, ages) and nothing else.
 
+## Approved nonfinancial reassignment (local implementation)
+
+Peter approved another active, non-party SUPER_ADMIN taking over when the
+assigned administrator is unavailable, including an administrator who is still
+active. This is explicit self-assignment, not automatic expiry or assignment to
+an arbitrary third party. A reason of 10–4000 characters and the displayed case
+version are mandatory. The service locks the actor, receiving account, order,
+and case in the existing order, then verifies that the order remains held/open
+and the case is assigned to somebody else. A stale version is refused.
+
+The same transaction changes only case assignee/time, records an immutable
+`CLAIMED` case event with `detail.action = REASSIGNED`, and writes an
+`HELD_DEPOSIT_CASE_REASSIGNED` audit entry containing the prior/new assignee,
+prior/new version, and reason. It does not clear the hold, change classification,
+consume a step-up, resolve the order, or move money/inventory. Old-assignee
+commands fail their assignment/version checks after takeover. No new migration
+is required. Financial outcomes remain disabled and require separate approval.
+
+The local readiness repair requires the held-policy read used by new deposit
+admission, recovery-table SELECT/INSERT capabilities, and mutable case-column
+UPDATE capabilities. Missing capabilities block predeploy; this does not apply
+grants automatically. The owner grant step is still required after migrations.
+The payment CI also covers the held-case screen and the added runtime tests.
+
 ## Decisions needed from Peter (nothing below is activated)
 
 1. **Who is the "main admin"?** Implemented as `SUPER_ADMIN`. Should it be a
