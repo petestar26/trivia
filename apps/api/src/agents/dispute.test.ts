@@ -138,7 +138,7 @@ async function makeDisputableOrder(
     agentId: fixture.agent.id,
     countryId: country.id,
     paymentAccountId: fixture.account.id,
-    fiatAmount: 5000,
+    fiatAmount: 10_000,
     idempotencyKey: `key-${Math.random()}`,
   });
   await submitOrderPayment(customer.id, created.order.id);
@@ -286,7 +286,7 @@ describeIf('Dispute creation', () => {
       agentId: fixture.agent.id,
       countryId: country.id,
       paymentAccountId: fixture.account.id,
-      fiatAmount: 5000,
+      fiatAmount: 10_000,
       idempotencyKey: `key-${Math.random()}`,
     });
     // Both parties may appeal a CREATED order since two-sided appeals
@@ -532,7 +532,7 @@ describeIf('Dispute claim and resolution', () => {
       agentId: fixture.agent.id,
       countryId: country.id,
       paymentAccountId: fixture.account.id,
-      fiatAmount: 5000,
+      fiatAmount: 10_000,
       idempotencyKey: `key-${Math.random()}`,
     });
     await submitOrderPayment(selfAdminUser.id, created.order.id);
@@ -716,7 +716,7 @@ describeIf('Complete order + dispute lifecycle', () => {
       agentId: fixture.agent.id,
       countryId: country.id,
       paymentAccountId: fixture.account.id,
-      fiatAmount: 5000,
+      fiatAmount: 10_000,
       idempotencyKey: `key-${Math.random()}`,
     });
     expect(created.order.status).toBe('CREATED');

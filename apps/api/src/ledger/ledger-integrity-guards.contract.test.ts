@@ -84,8 +84,8 @@ describe('ledger database guards reject malformed writes made with plain SQL', (
   let f: PurchasedFixture;
   let other: PurchasedFixture;
   beforeAll(async () => {
-    f = await purchasedFixture(1000);
-    other = await purchasedFixture(500);
+    f = await purchasedFixture(10000);
+    other = await purchasedFixture(10000);
   });
 
   describe('lot initialization', () => {
@@ -246,7 +246,7 @@ describe('ledger database guards reject malformed writes made with plain SQL', (
     });
     it('classified wallet equality: refuses a wallet balance its lots do not explain', async () => {
       expect(await verdict(() => [walletDeltaSql(f.buyer.id, 7)]))
-        .toMatch(/rejects: .*classified wallet .* imbalance: wallet 1007, lots 1000/);
+        .toMatch(/rejects: .*classified wallet .* imbalance: wallet 10007, lots 10000/);
     });
     it('classified wallet equality: refuses a pre-journal lot for a classified user', async () => {
       expect(await verdict(() => [legacyLotSql(uid('legacy'), f.buyer.id, 10)]))

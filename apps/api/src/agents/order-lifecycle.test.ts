@@ -185,3 +185,48 @@ it('preserves legacy order snapshots when an account edit is pending review', as
     pricingSnapshot: {...terms(), expiresAt: now.toISOString()}, fiatAmount: 30000, coinAmount: 192,
   }, 'settlement')).resolves.toBeUndefined();
 });
+
+it.each([
+  ['legacy accepted 50 ETB', undefined, 5000, true],
+  ['legacy under original USD floor', undefined, 100, false],
+  ['new accepted 100 ETB', 'current', 10000, true],
+  ['new below recorded minimum', 'current', 5000, false],
+  ['unknown recorded policy', { version: 'UNKNOWN' }, 10000, false],
+  ['null recorded policy', null, 10000, false],
+  ['altered recorded minimum', { version: 'ETB_P2P_20261117', depositMinMinor: 1, withdrawalMinMinor: 50000, minorUnitsPerEtb: 100 }, 5000, false],
+])('settlement honors immutable %s terms', async (_name, marker, amount, allowed) => {
+  const { ETB_P2P_REQUIREMENTS } = await import('@socialplay/shared');
+  const base = terms();
+  const { coinsPerUsd: _unused, ...etb } = base;
+  const snapshot = Object.freeze({ ...etb, version: 'ETB_V1', walletCurrency: 'ETB', localPerUsd: '20',
+    expiresAt: now.toISOString(),
+    ...(marker === undefined ? {} : { p2pMinimumPolicy: marker === 'current' ? ETB_P2P_REQUIREMENTS : marker }),
+  });
+  const before = JSON.stringify(snapshot);
+  const tx = { $queryRaw: vi.fn() };
+  for (const row of readinessRows()) tx.$queryRaw.mockResolvedValueOnce(row);
+  const accepted = Object.freeze({ ...order, createdAt: new Date(now.getTime()-900),
+    status: 'PAYMENT_SUBMITTED', paymentSubmittedAt: new Date(now.getTime()-500),
+    pricingSnapshot: snapshot, fiatAmount: amount as number, coinAmount: amount as number });
+  const result = assertDepositReady(tx as any, accepted, 'settlement');
+  if (allowed) await expect(result).resolves.toBeUndefined();
+  else await expect(result).rejects.toMatchObject({statusCode:409});
+  expect(JSON.stringify(snapshot)).toBe(before);
+  expect(accepted.pricingSnapshot).toBe(snapshot);
+});
+
+it('settles recorded 100 ETB at 150 ETB/USD without reinstating the old 300 ETB floor', async () => {
+  const { ETB_P2P_REQUIREMENTS } = await import('@socialplay/shared');
+  const { coinsPerUsd: _unused, ...base } = terms();
+  const snapshot = Object.freeze({ ...base, version: 'ETB_V1', walletCurrency: 'ETB',
+    localPerUsd: '150', expiresAt: now.toISOString(), p2pMinimumPolicy: ETB_P2P_REQUIREMENTS });
+  const before = JSON.stringify(snapshot);
+  const tx = { $queryRaw: vi.fn() };
+  for (const row of readinessRows()) tx.$queryRaw.mockResolvedValueOnce(row);
+  await expect(assertDepositReady(tx as any, {
+    ...order, createdAt: new Date(now.getTime()-900), status: 'PAYMENT_SUBMITTED',
+    paymentSubmittedAt: new Date(now.getTime()-500), pricingSnapshot: snapshot,
+    fiatAmount: 10000, coinAmount: 10000,
+  }, 'settlement')).resolves.toBeUndefined();
+  expect(JSON.stringify(snapshot)).toBe(before);
+});

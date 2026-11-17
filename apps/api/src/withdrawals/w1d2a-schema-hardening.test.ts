@@ -1,3 +1,4 @@
+// New quotes use at least 50,000 santim (500 ETB); lifecycle assertions retain their original meaning.
 import { fixtureEtbPolicy } from '../test/payment-policy-fixture.js';
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { prisma, Prisma } from '@socialplay/database';
@@ -136,10 +137,10 @@ async function createHeldWithdrawal(tag: string, opts: { coins?: number; coinAmo
   const method = await createPaymentMethod(country.id, tag);
   await createExchangeRate(country.id, 'ETB', admin.id);
   const { agentUser, agent } = await createFundedAgent(tag, country.id, admin, superAdmin, opts.liquidityUsd ?? 500_000n);
-  const user = await createFundedUser(tag, opts.coins ?? 50_000);
+  const user = await createFundedUser(tag, opts.coins ?? 250_000);
   const payoutAccount = await createActivePayoutAccount(user.id, country.id, method.id);
 
-  const coinAmount = opts.coinAmount ?? 10_000;
+  const coinAmount = opts.coinAmount ?? 50_000;
   const idempotencyKey = `w1d2a-${tag}-${Date.now()}`;
   const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount });
   const { withdrawal } = await createWithdrawal(
@@ -220,9 +221,9 @@ describeIf('W-1D2A: one-live-withdrawal-per-user creation rule', () => {
 
   it('createWithdrawal rejects a second live withdrawal for the same user with ACTIVE_WITHDRAWAL_EXISTS, without consuming its quote', async () => {
     const tag = `one-live-${Date.now()}`;
-    const { user, country, payoutAccount } = await createHeldWithdrawal(tag, { coins: 50_000, liquidityUsd: 500_000n });
+    const { user, country, payoutAccount } = await createHeldWithdrawal(tag, { coins: 250_000, liquidityUsd: 500_000n });
 
-    const secondQuote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 5_000 });
+    const secondQuote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 50_000 });
     await expect(
       createWithdrawal(
         user.id,
@@ -239,7 +240,7 @@ describeIf('W-1D2A: one-live-withdrawal-per-user creation rule', () => {
 
   it('idempotent create replay still works even while the withdrawal is live', async () => {
     const tag = `replay-${Date.now()}`;
-    const { user, payoutAccount, withdrawal: first } = await createHeldWithdrawal(tag, { coins: 50_000, liquidityUsd: 500_000n });
+    const { user, payoutAccount, withdrawal: first } = await createHeldWithdrawal(tag, { coins: 250_000, liquidityUsd: 500_000n });
 
     // Rebuild the exact same request (same idempotency key + same request
     // fields) as the fixture used. Replay is keyed on [userId, idempotencyKey]
@@ -286,7 +287,7 @@ describeIf('W-1D2A follow-up: createWithdrawal idempotency under the one-live ru
     // competing quotes' fiat amounts to keep that test deterministic
     // rather than timing/setup-sensitive to INSUFFICIENT_LIQUIDITY.
     await createFundedAgent(tag, country.id, admin, superAdmin, 10_000_000n);
-    const user = await createFundedUser(tag, 50_000);
+    const user = await createFundedUser(tag, 250_000);
     const payoutAccount = await createActivePayoutAccount(user.id, country.id, method.id);
     return { user, country, payoutAccount };
   }
@@ -294,7 +295,7 @@ describeIf('W-1D2A follow-up: createWithdrawal idempotency under the one-live ru
   it('concurrent creates with the SAME idempotency key + same payload both resolve to the same withdrawal — no spurious ACTIVE_WITHDRAWAL_EXISTS', async () => {
     const tag = `concurrent-same-key-${Date.now()}`;
     const { user, country, payoutAccount } = await setupUserForConcurrency(tag);
-    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 5_000 });
+    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 50_000 });
     const args = { quoteId: quote.id, payoutAccountId: payoutAccount.id, idempotencyKey: `same-key-${tag}` };
 
     const results = await Promise.allSettled([
@@ -320,8 +321,8 @@ describeIf('W-1D2A follow-up: createWithdrawal idempotency under the one-live ru
   it('concurrent creates with DIFFERENT idempotency keys for the same user: exactly one succeeds, the loser maps to ACTIVE_WITHDRAWAL_EXISTS, never a raw P2002', async () => {
     const tag = `concurrent-diff-key-${Date.now()}`;
     const { user, country, payoutAccount } = await setupUserForConcurrency(tag);
-    const quoteA = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 4_000 });
-    const quoteB = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 4_500 });
+    const quoteA = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 50_000 });
+    const quoteB = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 55_000 });
 
     const results = await Promise.allSettled([
       createWithdrawal(user.id, { quoteId: quoteA.id, payoutAccountId: payoutAccount.id, idempotencyKey: `diff-a-${tag}` }, 1000),
@@ -352,9 +353,9 @@ describeIf('W-1D2A: DB backstop rejects two live withdrawals per user', () => {
     // bypass the application-level guard and insert a SECOND live withdrawal
     // for the SAME user directly (past the service layer) — the partial unique
     // index withdrawals_one_live_per_user_unique is the hard DB backstop.
-    const { user, country, payoutAccount, withdrawal } = await createHeldWithdrawal(tag, { coins: 50_000, liquidityUsd: 500_000n });
+    const { user, country, payoutAccount, withdrawal } = await createHeldWithdrawal(tag, { coins: 250_000, liquidityUsd: 500_000n });
 
-    const secondQuote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 5_000 });
+    const secondQuote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 50_000 });
     const quote2 = await prisma.withdrawalQuote.findUnique({ where: { id: secondQuote.id } });
 
     const duplicateInsert = () =>
@@ -434,7 +435,7 @@ describeIf('W-1D2A: user cancel works when assigned agent is disabled and withdr
 
   it('user cancel with a disabled assigned agent refunds exactly, releases reservation, and marks hold REFUNDED', async () => {
     const tag = `cancel-disabled-${Date.now()}`;
-    const { agent, user, withdrawal } = await createHeldWithdrawal(tag, { coins: 50_000, liquidityUsd: 500_000n });
+    const { agent, user, withdrawal } = await createHeldWithdrawal(tag, { coins: 250_000, liquidityUsd: 500_000n });
     const balanceBefore = await getWalletBalance(user.id);
     await setAgentStatus(agent.id, 'DISABLED');
 
@@ -457,7 +458,7 @@ describeIf('W-1D2A: consumeReservedLiquidity helper', () => {
 
   it('consumes an ACTIVE reservation: CONSUMED, total/reserved decrease exactly, one CONSUME ledger row, no AgentInventory touch', async () => {
     const tag = `consume-${Date.now()}`;
-    const { agent, withdrawal } = await createHeldWithdrawal(tag, { coins: 50_000, liquidityUsd: 500_000n });
+    const { agent, withdrawal } = await createHeldWithdrawal(tag, { coins: 250_000, liquidityUsd: 500_000n });
 
     const reservation = await prisma.withdrawalLiquidityReservation.findUnique({ where: { withdrawalId: withdrawal.id } });
     const liquidityBefore = await prisma.agentFiatLiquidity.findUnique({

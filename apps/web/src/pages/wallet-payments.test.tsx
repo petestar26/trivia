@@ -510,3 +510,39 @@ it('lets members save a payout destination while customer payments await setup',
   );
   expect(m.post.mock.calls.every(([path]) => path === '/withdrawals/payout-accounts')).toBe(true);
 });
+
+function etbOptions() {
+  m.get.mockImplementation(async (path: string) => ({ data:
+    path === '/wallet/payment-options' ? { ...options, countries: [{ ...options.countries[0], currencyCode: 'ETB', usdPricingEnabled: true, agentPaymentEnabled: true }], agents: [{ ...options.agents[0], maxOrderAmount: 1000000 }] }
+    : path.includes('deposit-preview') ? { policy: { version: 'ETB_V1', localPerUsd: '150', p2pDepositMinUsdCents: 200, p2pWithdrawalAboveUsdCents: 400, observedAt: new Date().toISOString(), expiresAt: new Date(Date.now()+60000).toISOString() }, preview: path.includes('fiatAmount=') ? { coinAmount: Number(path.split('fiatAmount=')[1]) } : null }
+    : path === '/withdrawals/payout-accounts' ? [{ id: 'payout', countryId: 'country', status: 'ACTIVE', displayLabel: 'My account', accountDetails: {} }] : [] }));
+}
+it('uses the inclusive 100 ETB deposit minimum, shows requirements and preserves confirmation', async () => {
+  etbOptions(); mount();
+  fireEvent.change(await screen.findByLabelText('Country'), { target: { value: 'country' } });
+  fireEvent.change(screen.getByLabelText('Agent'), { target: { value: 'agent' } });
+  fireEvent.change(screen.getByLabelText('Payment method'), { target: { value: 'account' } });
+  fireEvent.change(screen.getByLabelText('Amount to pay · ETB'), { target: { value: '99.99' } });
+  expect(await screen.findByRole('alert')).toHaveTextContent('Minimum P2P deposit is 100 ETB');
+  expect(screen.getByRole('link', { name: 'Payment requirements' })).toHaveAttribute('href', '/payment-requirements');
+  const button = screen.getByRole('button', { name: 'Create deposit request' });
+  expect(button).toBeDisabled();
+  fireEvent.change(screen.getByLabelText('Amount to pay · ETB'), { target: { value: '100.00' } });
+  expect(button).toBeDisabled();
+  fireEvent.click(screen.getByRole('checkbox'));
+  await waitFor(() => expect(button).toBeEnabled());
+  expect(m.post).not.toHaveBeenCalled();
+});
+it('uses the inclusive 500 ETB withdrawal minimum without relaxing account requirements', async () => {
+  etbOptions(); mount('withdraw');
+  fireEvent.change(await screen.findByLabelText('Country'), { target: { value: 'country' } });
+  fireEvent.change(screen.getByLabelText('Amount to withdraw · ETB'), { target: { value: '499.99' } });
+  const button = screen.getByRole('button', { name: 'Get withdrawal quote' });
+  expect(button).toBeDisabled();
+  expect(await screen.findByRole('alert')).toHaveTextContent('Minimum P2P withdrawal is 500 ETB');
+  fireEvent.change(screen.getByLabelText('Amount to withdraw · ETB'), { target: { value: '500' } });
+  expect(button).toBeDisabled();
+  fireEvent.change(screen.getByLabelText('Payout account'), { target: { value: 'payout' } });
+  await waitFor(() => expect(button).toBeEnabled());
+  expect(m.post).not.toHaveBeenCalled();
+});

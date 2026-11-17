@@ -84,7 +84,7 @@ type World = Awaited<ReturnType<typeof world>>;
 async function heldOrder(w: World, stage: 'CREATED' | 'PAYMENT_SUBMITTED' | 'DISPUTE' = 'PAYMENT_SUBMITTED', buyerId = w.member.id) {
   const account = await w.newAccount();
   const { order } = await createAgentOrder(buyerId, {
-    agentId: w.agentId, countryId: w.country.id, paymentAccountId: account.id, fiatAmount: 5000, idempotencyKey: randomUUID(),
+    agentId: w.agentId, countryId: w.country.id, paymentAccountId: account.id, fiatAmount: 10000, idempotencyKey: randomUUID(),
   });
   if (stage !== 'CREATED') await submitOrderPayment(buyerId, order.id);
   if (stage === 'DISPUTE') await openDispute(buyerId, { orderId: order.id, reason: 'OTHER', description: 'Synthetic payment problem, no external transfer.', idempotencyKey: randomUUID() });
@@ -102,14 +102,14 @@ const evidence = [{ kind: 'BANK_STATEMENT' as const, reference: 'SYNTHETIC-STATE
 const base = (expectedCaseVersion: number) => ({
   idempotencyKey: randomUUID(), expectedCaseVersion, reason: 'Synthetic adjudication reason for tests.', evidence, verified: true as const,
 });
-const received = (version: number, fiatAmount = 5000) => ({
+const received = (version: number, fiatAmount = 10000) => ({
   outcome: 'VERIFIED_PAYMENT_RECEIVED' as const, ...base(version),
   verifiedPaymentReference: ref('PAY'), verifiedAmount: fiatAmount, verifiedPaidAt: new Date().toISOString(),
 });
 const returned = (version: number) => ({
   outcome: 'VERIFIED_EXTERNAL_RETURN' as const, ...base(version),
-  verifiedPaymentReference: ref('PAY'), verifiedAmount: 5000, verifiedPaidAt: new Date().toISOString(),
-  returnReference: ref('RET'), returnedAmount: 5000, returnedAt: new Date().toISOString(),
+  verifiedPaymentReference: ref('PAY'), verifiedAmount: 10000, verifiedPaidAt: new Date().toISOString(),
+  returnReference: ref('RET'), returnedAmount: 10000, returnedAt: new Date().toISOString(),
 });
 const unpaid = (version: number) => ({ outcome: 'VERIFIED_UNPAID' as const, ...base(version) });
 async function ready(w: World, orderId: string, admin = w.main) {
@@ -335,9 +335,9 @@ describe('outcomes', () => {
     }
     // No parallel late-payment record for a decided order (service and database).
     await expect(reportLatePayment(w.member.id, { orderId: order.id, idempotencyKey: randomUUID(), paymentReference: ref('LATE'),
-      paidAmount: 5000, paidAt: new Date().toISOString(), description: 'Synthetic late report.' })).rejects.toMatchObject({ statusCode: 409 });
+      paidAmount: 10000, paidAt: new Date().toISOString(), description: 'Synthetic late report.' })).rejects.toMatchObject({ statusCode: 409 });
     await expect(prisma.latePaymentCase.create({ data: { orderId: order.id, openedBy: w.member.id, idempotencyKey: randomUUID(),
-      paymentReference: ref('LATE'), paidAmount: 5000, paidAt: new Date(), description: 'Synthetic direct insert.' } })).rejects.toThrow();
+      paymentReference: ref('LATE'), paidAmount: 10000, paidAt: new Date(), description: 'Synthetic direct insert.' } })).rejects.toThrow();
     await expectInventoryConsistent(w);
   });
 
@@ -377,7 +377,7 @@ describe('outcomes', () => {
     const before = await snapshot(w, submitted.id);
     await expect(adjudicateHeldDeposit(w.main.id, TOKEN_IAT, submitted.id, unpaid(version))).rejects.toMatchObject({ statusCode: 409 });
     // Partial or excess payments and partial returns stay under investigation.
-    await expect(adjudicateHeldDeposit(w.main.id, TOKEN_IAT, submitted.id, received(version, 4999))).rejects.toMatchObject({ statusCode: 409 });
+    await expect(adjudicateHeldDeposit(w.main.id, TOKEN_IAT, submitted.id, received(version, 9999))).rejects.toMatchObject({ statusCode: 409 });
     await expect(adjudicateHeldDeposit(w.main.id, TOKEN_IAT, submitted.id, { ...returned(version), returnedAmount: 4000 })).rejects.toMatchObject({ statusCode: 409 });
     const marked = await markHeldCaseUnknown(w.main.id, submitted.id, { expectedCaseVersion: version, note: 'Synthetic: bank confirmation pending.' });
     expect(marked).toMatchObject({ status: 'ASSIGNED', classification: 'PAYMENT_CLAIMED_UNKNOWN' });
@@ -536,7 +536,7 @@ describe('concurrency and idempotency', () => {
     const w = await world();
     for (let round = 0; round < 4; round++) {
       const account = await w.newAccount();
-      const { order } = await createAgentOrder(w.member.id, { agentId: w.agentId, countryId: w.country.id, paymentAccountId: account.id, fiatAmount: 5000, idempotencyKey: randomUUID() });
+      const { order } = await createAgentOrder(w.member.id, { agentId: w.agentId, countryId: w.country.id, paymentAccountId: account.id, fiatAmount: 10000, idempotencyKey: randomUUID() });
       const [disable, submit] = await Promise.all([
         settled(disableOwnPaymentAccount(w.agentUser.id, account.id, account.updatedAt.toISOString())),
         settled(submitOrderPayment(w.member.id, order.id)),
@@ -612,7 +612,7 @@ describe('order limit and monitoring', () => {
     for (let i = 0; i < 3; i++) await heldOrder(w, 'CREATED');
     const fresh = async () => {
       const account = await w.newAccount();
-      return createAgentOrder(w.member.id, { agentId: w.agentId, countryId: w.country.id, paymentAccountId: account.id, fiatAmount: 5000, idempotencyKey: randomUUID() });
+      return createAgentOrder(w.member.id, { agentId: w.agentId, countryId: w.country.id, paymentAccountId: account.id, fiatAmount: 10000, idempotencyKey: randomUUID() });
     };
     // Default policy: no exception. Held orders still occupy the limit.
     await expect(fresh()).rejects.toMatchObject({ statusCode: 409, message: expect.stringMatching(/safety hold/) });
@@ -628,7 +628,7 @@ describe('order limit and monitoring', () => {
     const queue = await listHeldCases(w.admin.id);
     expect(queue.monitoring.openHeldOrders).toBeGreaterThanOrEqual(3);
     expect(queue.monitoring.maxOpenHeldPerMember).toBeGreaterThanOrEqual(3);
-    expect(queue.monitoring.reservedCoins).toBeGreaterThanOrEqual(3 * 5000);
+    expect(queue.monitoring.reservedCoins).toBeGreaterThanOrEqual(3 * 10000);
     expect(queue.monitoring.oldestHeldAt).toBeInstanceOf(Date);
     await expectInventoryConsistent(w);
   });

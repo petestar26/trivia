@@ -1,3 +1,4 @@
+// New quotes use at least 50,000 santim (500 ETB); lifecycle assertions retain their original meaning.
 import { fixtureEtbPolicy } from '../test/payment-policy-fixture.js';
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { prisma } from '@socialplay/database';
@@ -147,10 +148,10 @@ async function createHeldWithdrawal(
   await activateTestWithdrawalPolicy(country.id, admin.id);
   await createExchangeRate(country.id, 'ETB', admin.id);
   const { agentUser, agent } = await createFundedAgent(tag, country.id, admin, superAdmin, opts.liquidityUsd ?? 500_000n);
-  const user = await createFundedUser(tag, opts.coins ?? 50_000);
+  const user = await createFundedUser(tag, opts.coins ?? 250_000);
   const payoutAccount = await createActivePayoutAccount(user.id, country.id, method.id);
 
-  const coinAmount = opts.coinAmount ?? 10_000;
+  const coinAmount = opts.coinAmount ?? 50_000;
   const idempotencyKey = `${TAG_PREFIX}create-${tag}-${Date.now()}`;
   const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount });
   const { withdrawal } = await createWithdrawal(

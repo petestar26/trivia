@@ -1,3 +1,4 @@
+// New quotes use at least 50,000 santim (500 ETB); lifecycle assertions retain their original meaning.
 import { fixtureEtbPolicy } from '../test/payment-policy-fixture.js';
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { prisma } from '@socialplay/database';
@@ -144,14 +145,14 @@ async function createHeldWithdrawal(tag: string, opts: { coins?: number; coinAmo
   await activateTestWithdrawalPolicy(country.id, admin.id);
   await createExchangeRate(country.id, 'ETB', admin.id);
   const { agentUser, agent } = await createFundedAgent(tag, country.id, admin, superAdmin, opts.liquidityUsd ?? 500_000n);
-  const user = await createFundedUser(tag, opts.coins ?? 50_000);
+  const user = await createFundedUser(tag, opts.coins ?? 250_000);
   const payoutAccount = await createUserPayoutAccount(user.id, {
     countryId: country.id,
     methodDefId: method.id,
     accountDetails: { bankName: 'Test Bank', accountNumber: '001122333' },
   });
 
-  const coinAmount = opts.coinAmount ?? 10_000;
+  const coinAmount = opts.coinAmount ?? 50_000;
   const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount });
   const { withdrawal } = await createWithdrawal(
     user.id,
@@ -546,7 +547,7 @@ describeIf('W-1D1: cancelHeldWithdrawal (HELD → CANCELLED)', () => {
 
   it('user can cancel HELD withdrawal', async () => {
     const tag = `cancel-ok-${Date.now()}`;
-    const { user, withdrawal } = await createHeldWithdrawal(tag, { coinAmount: 5000, coins: 20_000 });
+    const { user, withdrawal } = await createHeldWithdrawal(tag, { coinAmount: 50_000, coins: 200_000 });
 
     const beforeBalance = await getWalletBalance(user.id);
 
@@ -556,17 +557,17 @@ describeIf('W-1D1: cancelHeldWithdrawal (HELD → CANCELLED)', () => {
     expect((result.result as any).cancelledAt).not.toBeNull();
 
     const afterBalance = await getWalletBalance(user.id);
-    expect(afterBalance.coinsBalance).toBe(beforeBalance.coinsBalance + 5000);
+    expect(afterBalance.coinsBalance).toBe(beforeBalance.coinsBalance + 50_000);
   });
 
   it('cancel uses hold.coinAmount', async () => {
     const tag = `cancel-hold-${Date.now()}`;
-    // withdrawal.coinAmount is determined by quote (10000 coins at default exchange rate 2 = 5000 fiat)
+    // The quote carries 80,000 santim (800 ETB), one santim per wallet unit.
     // But hold.coinAmount is set from quote.coinAmount at creation time
-    const { user, withdrawal } = await createHeldWithdrawal(tag, { coinAmount: 8000 });
+    const { user, withdrawal } = await createHeldWithdrawal(tag, { coinAmount: 80_000 });
 
     const hold = await prisma.withdrawalHold.findUnique({ where: { withdrawalId: withdrawal.id } });
-    expect(hold!.coinAmount).toBe(8000);
+    expect(hold!.coinAmount).toBe(80_000);
 
     const before = await getWalletBalance(user.id);
     await cancelHeldWithdrawal(user.id, withdrawal.id, { idempotencyKey: `cancel-hold-${tag}` });
@@ -785,8 +786,8 @@ describeIf('W-1D1: cancelHeldWithdrawal (HELD → CANCELLED)', () => {
     await createExchangeRate(country.id, 'ETB', admin.id);
     const { agent } = await createFundedAgent(tag, country.id, admin, superAdmin, 1_000_000n);
 
-    const userA = await createFundedUser(`${tag}-a`, 50_000);
-    const userB = await createFundedUser(`${tag}-b`, 50_000);
+    const userA = await createFundedUser(`${tag}-a`, 250_000);
+    const userB = await createFundedUser(`${tag}-b`, 250_000);
     const payoutA = await createUserPayoutAccount(userA.id, {
       countryId: country.id, methodDefId: method.id, accountDetails: { bankName: 'TB', accountNumber: '111' },
     });
@@ -794,8 +795,8 @@ describeIf('W-1D1: cancelHeldWithdrawal (HELD → CANCELLED)', () => {
       countryId: country.id, methodDefId: method.id, accountDetails: { bankName: 'TB', accountNumber: '222' },
     });
 
-    const quoteA = await createWithdrawalQuote(userA.id, { countryId: country.id, coinAmount: 5_000 });
-    const quoteB = await createWithdrawalQuote(userB.id, { countryId: country.id, coinAmount: 7_000 });
+    const quoteA = await createWithdrawalQuote(userA.id, { countryId: country.id, coinAmount: 50_000 });
+    const quoteB = await createWithdrawalQuote(userB.id, { countryId: country.id, coinAmount: 70_000 });
     const { withdrawal: wA } = await createWithdrawal(
       userA.id, { quoteId: quoteA.id, payoutAccountId: payoutA.id, idempotencyKey: `wA-${tag}` }, 1000
     );

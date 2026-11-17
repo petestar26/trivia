@@ -11,7 +11,7 @@ import { createAgentOrder, submitOrderPayment, settleAgentOrder } from '../agent
 import { createWithdrawalQuote } from '../withdrawals/quote-service.js';
 import { createWithdrawal, cancelHeldWithdrawal } from '../withdrawals/withdrawal-service.js';
 import { sendGift } from '../economy/gift-service.js';
-import { flushCoinLedgerConstraints } from '../economy/coin-ledger-service.js';
+import { creditCoins, flushCoinLedgerConstraints } from '../economy/coin-ledger-service.js';
 import type { CreditCoinsArgs, DebitCoinsArgs } from '../economy/coin-ledger-service.js';
 import { runLedgerInvariantCheckInTransaction } from '../economy/ledger-invariant-checker.js';
 import { playGame } from '../games/game-play.js';
@@ -36,6 +36,7 @@ async function unusedCountryCode() {
 }
 
 /** One real settled agent order and the full quote/withdrawal prerequisites.
+ * Callers use 100000 santim so current 500 ETB withdrawal holds are admissible.
  * Fixture stays isolated by generated IDs; financial history is append-only. */
 async function purchasedFixture(amount: number) {
   const tag = randomUUID().replaceAll('-', '').slice(0, 12);
@@ -91,7 +92,7 @@ async function purchasedFixture(amount: number) {
   });
   await submitOrderPayment(buyer.id, created.order.id);
   await settleAgentOrder(agentUser.id, created.order.id);
-  return { buyer, recipient, country, payoutAccount, agent, agentUser, agentAccount };
+  return { buyer, recipient, country, payoutAccount, agent, agentUser, agentAccount, policy };
 }
 
 async function withdraw(fixture: Awaited<ReturnType<typeof purchasedFixture>>, coins: number, idempotencyKey = uid('withdraw')) {
@@ -162,7 +163,7 @@ afterAll(async () => prisma.$disconnect());
 
 describe('Opus financial flows, failing first on 7b84d99', () => {
   it('T4: Coin-denominated competition prizes are disabled before escrow is taken', async () => {
-    const fixture = await purchasedFixture(1000);
+    const fixture = await purchasedFixture(100000);
     const group = await prisma.group.create({
       data: { ownerId: fixture.buyer.id, name: uid('ledger-competition'), description: 'Contract gate' },
     });
@@ -182,17 +183,17 @@ describe('Opus financial flows, failing first on 7b84d99', () => {
   });
 
   it('T1/I5: a real settled Agent order yields withdrawable Coins and a successful hold', async () => {
-    const fixture = await purchasedFixture(1000);
-    expect(await walletCoins(fixture.buyer.id)).toBe(1000);
-    const result = await withdraw(fixture, 500);
+    const fixture = await purchasedFixture(100000);
+    expect(await walletCoins(fixture.buyer.id)).toBe(100000);
+    const result = await withdraw(fixture, 50000);
     expect((result.withdrawal as { status: string }).status).toBe('HELD');
-    expect(await walletCoins(fixture.buyer.id)).toBe(500);
+    expect(await walletCoins(fixture.buyer.id)).toBe(50000);
   });
 
-  it('T3/I1/M9/M15: a gift consumes purchased lineage, so subsequent Trivia Coins cannot fund a withdrawal', async () => {
-    const fixture = await purchasedFixture(1000);
+  it('T3/I1/M9/M15: a gift consumes purchased lineage, so subsequent reward-only Coins cannot fund a withdrawal', async () => {
+    const fixture = await purchasedFixture(100000);
     const gift = await prisma.gift.create({
-      data: { name: uid('ledger-gift'), coinPrice: 1000, recipientPointValue: 100, isActive: true },
+      data: { name: uid('ledger-gift'), coinPrice: 100000, recipientPointValue: 100, isActive: true },
     });
     await sendGift({ senderId: fixture.buyer.id, recipientId: fixture.recipient.id, giftId: gift.id, quantity: 1, idempotencyKey: uid('gift') });
     expect(await walletCoins(fixture.buyer.id)).toBe(0);
@@ -206,25 +207,33 @@ describe('Opus financial flows, failing first on 7b84d99', () => {
       expect(result.rewardAmount).toBe(30);
     }
     expect(await walletCoins(fixture.buyer.id)).toBe(420);
-    // Reward-only balance exceeds the USD quote minimum but cannot fund a withdrawal.
-    await expect(withdraw(fixture, 400)).rejects.toMatchObject({ statusCode: 400 });
-    expect(await walletCoins(fixture.buyer.id)).toBe(420);
+    // Keep the 14 real Trivia awards above, then add a journaled restricted
+    // reward so the balance exceeds today's 500 ETB quote floor. This test must
+    // reject provenance at hold creation, not pass because the quote is too small.
+    await prisma.$transaction((tx) => creditCoins(tx, fixture.buyer.id, 50000, {
+      type: 'BONUS_GRANT', scopeType: 'TEST', scopeId: uid('minimum-floor-reward'),
+      referenceType: 'GAME', description: 'Synthetic restricted reward above withdrawal floor',
+      policy: { id: fixture.policy.id, version: fixture.policy.version }, requirementAmount: 100000,
+    }));
+    expect(await walletCoins(fixture.buyer.id)).toBe(50420);
+    await expect(withdraw(fixture, 50000)).rejects.toThrow('Insufficient withdrawable ETB');
+    expect(await walletCoins(fixture.buyer.id)).toBe(50420);
     expect(await prisma.withdrawal.count({ where: { userId: fixture.buyer.id } })).toBe(0);
   });
 
   it('T9/I9/M7/M8: cancelling a hold restores the same purchased lot exactly once', async () => {
-    const fixture = await purchasedFixture(1000);
-    const { withdrawal } = await withdraw(fixture, 400);
-    expect(await walletCoins(fixture.buyer.id)).toBe(600);
+    const fixture = await purchasedFixture(100000);
+    const { withdrawal } = await withdraw(fixture, 50000);
+    expect(await walletCoins(fixture.buyer.id)).toBe(50000);
     await cancelHeldWithdrawal(fixture.buyer.id, (withdrawal as { id: string }).id, { idempotencyKey: uid('cancel') });
-    expect(await walletCoins(fixture.buyer.id)).toBe(1000);
+    expect(await walletCoins(fixture.buyer.id)).toBe(100000);
     const available = await withdrawable(fixture.buyer.id);
-    expect(available).toBe(1000);
+    expect(available).toBe(100000);
   });
 
   it('T10/I9: the same cancellation key replays with one linked RELEASE', async () => {
-    const fixture = await purchasedFixture(1000);
-    const { withdrawal } = await withdraw(fixture, 400);
+    const fixture = await purchasedFixture(100000);
+    const { withdrawal } = await withdraw(fixture, 50000);
     const withdrawalId = (withdrawal as { id: string }).id;
     const idempotencyKey = uid('cancel-once');
     const first = await cancelHeldWithdrawal(fixture.buyer.id, withdrawalId, { idempotencyKey });
@@ -236,14 +245,14 @@ describe('Opus financial flows, failing first on 7b84d99', () => {
       WHERE "type"='WITHDRAWAL_RELEASE' AND "scopeType"='WITHDRAWAL' AND "scopeId"=${withdrawalId}
     `;
     expect(Number(releases[0].count)).toBe(1);
-    expect(await withdrawable(fixture.buyer.id)).toBe(1000);
+    expect(await withdrawable(fixture.buyer.id)).toBe(100000);
     await assertEconomicBalance(fixture.buyer.id);
   });
 });
 
 describe('I1: wallet equals current lot value after each economic step', () => {
   it('tracks purchase, gift, bonus, hold, release and rollback without a gap', async () => {
-    const fixture = await purchasedFixture(1000);
+    const fixture = await purchasedFixture(100000);
     await assertEconomicBalance(fixture.buyer.id);
     const gift = await prisma.gift.create({
       data: { name: uid('ledger-small-gift'), coinPrice: 100, recipientPointValue: 10, isActive: true },
@@ -257,21 +266,30 @@ describe('I1: wallet equals current lot value after each economic step', () => {
     await playGame({ userId: fixture.buyer.id, gameKey: 'trivia', clientData: { questionId: question.id, answerIndex: 0 }, idempotencyKey: uid('bonus') });
     await assertEconomicBalance(fixture.buyer.id);
 
-    const { withdrawal } = await withdraw(fixture, 400);
+    const { withdrawal } = await withdraw(fixture, 50000);
     await assertEconomicBalance(fixture.buyer.id);
     await cancelHeldWithdrawal(fixture.buyer.id, (withdrawal as { id: string }).id, { idempotencyKey: uid('release') });
     await assertEconomicBalance(fixture.buyer.id);
 
     const beforeFailure = await economicTotals(fixture.buyer.id);
-    await expect(playGame({ userId: fixture.buyer.id, gameKey: 'dice', betAmount: 1000, idempotencyKey: uid('insufficient') })).rejects.toMatchObject({ statusCode: 400 });
+    // Preserve the existing rejected game-input regression, without treating
+    // a generic game validation error as evidence of insufficient funds.
+    await expect(playGame({ userId: fixture.buyer.id, gameKey: 'dice', betAmount: 1000, idempotencyKey: uid('rejected-game') })).rejects.toMatchObject({ statusCode: 400 });
     expect(await economicTotals(fixture.buyer.id)).toEqual(beforeFailure);
+    // 99999 exceeds both the 99900 purchased remainder and 99930 total wallet,
+    // but is above the 50000 quote floor and below the 100000 manual-review cap.
+    // Require the actual source-allocation failure, not max-bet/quote validation.
+    const withdrawalsBeforeFailure = await prisma.withdrawal.count({ where: { userId: fixture.buyer.id } });
+    await expect(withdraw(fixture, 99999)).rejects.toThrow('Insufficient withdrawable ETB: 999.00 eligible');
+    expect(await economicTotals(fixture.buyer.id)).toEqual(beforeFailure);
+    expect(await prisma.withdrawal.count({ where: { userId: fixture.buyer.id } })).toBe(withdrawalsBeforeFailure);
   });
 });
 
 describe('Opus deterministic lock schedules', () => {
   it('R1/M11: duplicate withdrawal create waits on a per-user advisory lock and replays one hold', async () => {
-    const fixture = await purchasedFixture(1000);
-    const quote = await createWithdrawalQuote(fixture.buyer.id, { countryId: fixture.country.id, coinAmount: 400 });
+    const fixture = await purchasedFixture(100000);
+    const quote = await createWithdrawalQuote(fixture.buyer.id, { countryId: fixture.country.id, coinAmount: 50000 });
     const args = { quoteId: quote.id, payoutAccountId: fixture.payoutAccount.id, idempotencyKey: uid('same-withdrawal') };
     const scope = `withdrawal_create:${fixture.buyer.id}`;
     const holder = await heldLock((tx) => tx.$queryRaw`
@@ -303,9 +321,9 @@ describe('Opus deterministic lock schedules', () => {
   });
 
   it('R1: duplicate withdrawal create replays after a five-second user-row lock wait', async () => {
-    const fixture = await purchasedFixture(1000);
+    const fixture = await purchasedFixture(100000);
     const quote = await createWithdrawalQuote(fixture.buyer.id, {
-      countryId: fixture.country.id, coinAmount: 400,
+      countryId: fixture.country.id, coinAmount: 50000,
     });
     const args = { quoteId: quote.id, payoutAccountId: fixture.payoutAccount.id,
       idempotencyKey: uid('long-wait-withdrawal') };
@@ -339,7 +357,7 @@ describe('Opus deterministic lock schedules', () => {
   }, 30000);
 
   it('R3: suspension committed before the user lock yields 403 and zero settlement writes', async () => {
-    const fixture = await purchasedFixture(1000);
+    const fixture = await purchasedFixture(100000);
     const before = {
       wallet: await walletCoins(fixture.buyer.id),
       sessions: await prisma.gameSession.count({ where: { userId: fixture.buyer.id } }),
@@ -367,7 +385,7 @@ describe('Opus deterministic lock schedules', () => {
   });
 
   it('R3: a play holding the user row commits before a concurrent suspension', async () => {
-    const fixture = await purchasedFixture(1000);
+    const fixture = await purchasedFixture(100000);
     // Trivia exercises the same user/game locking while Coin games remain paused.
     const game = await prisma.gameDefinition.findUniqueOrThrow({ where: { key: 'trivia' } });
     const question = await prisma.triviaQuestion.create({ data: { question: uid('Lock order question'), choices: ['yes','no'], correctIndex: 0, category: 'ledger' } });
@@ -394,9 +412,9 @@ describe('Opus deterministic lock schedules', () => {
   });
 
   it('R3: an agent disabled before withdrawal selection cannot receive a new hold', async () => {
-    const fixture = await purchasedFixture(1000);
+    const fixture = await purchasedFixture(100000);
     const quote = await createWithdrawalQuote(fixture.buyer.id, {
-      countryId: fixture.country.id, coinAmount: 400,
+      countryId: fixture.country.id, coinAmount: 50000,
     });
     const before = await walletCoins(fixture.buyer.id);
     const holder = await heldLock((tx) => tx.agent.update({
@@ -422,9 +440,9 @@ describe('Opus deterministic lock schedules', () => {
   }, 20000);
 
   it('R2: country disable committed before withdrawal country lock rejects an old quote', async () => {
-    const fixture = await purchasedFixture(1000);
+    const fixture = await purchasedFixture(100000);
     const quote = await createWithdrawalQuote(fixture.buyer.id, {
-      countryId: fixture.country.id, coinAmount: 400,
+      countryId: fixture.country.id, coinAmount: 50000,
     });
     const before = await walletCoins(fixture.buyer.id);
     const holder = await heldLock((tx) => tx.country.update({
@@ -451,7 +469,7 @@ describe('Opus deterministic lock schedules', () => {
   }, 20000);
 
   it('R6: opposite gifts lock the lower wallet first and both finish without deadlock', async () => {
-    const fixture = await purchasedFixture(1000);
+    const fixture = await purchasedFixture(100000);
     await prisma.userPayoutAccount.create({ data: {
       userId: fixture.recipient.id, countryId: fixture.country.id,
       methodDefId: fixture.payoutAccount.methodDefId,
@@ -460,7 +478,7 @@ describe('Opus deterministic lock schedules', () => {
     } });
     const secondOrder = await createAgentOrder(fixture.recipient.id, {
       agentId: fixture.agent.id, countryId: fixture.country.id, paymentAccountId: fixture.agentAccount.id,
-      fiatAmount: 1000, idempotencyKey: uid('second-order'),
+      fiatAmount: 100000, idempotencyKey: uid('second-order'),
     });
     await submitOrderPayment(fixture.recipient.id, secondOrder.order.id);
     await settleAgentOrder(fixture.agentUser.id, secondOrder.order.id);
@@ -492,15 +510,15 @@ describe('Opus deterministic lock schedules', () => {
     expect(higherLockable).toBe('free'); // a reversed wallet lock order makes this 'locked'
     expect(outcomes).toHaveLength(2);
     expect(outcomes.every((result) => result.ok)).toBe(true);
-    expect(await walletCoins(lower)).toBe(990);
-    expect(await walletCoins(higher)).toBe(990);
+    expect(await walletCoins(lower)).toBe(99990);
+    expect(await walletCoins(higher)).toBe(99990);
     await assertEconomicBalance(lower);
     await assertEconomicBalance(higher);
   });
 
   it('R7/I9: cancel and payout claim serialize on the withdrawal row; only one transition wins', async () => {
-    const fixture = await purchasedFixture(1000);
-    const { withdrawal } = await withdraw(fixture, 400);
+    const fixture = await purchasedFixture(100000);
+    const { withdrawal } = await withdraw(fixture, 50000);
     const withdrawalId = (withdrawal as { id: string }).id;
     const holder = await heldLock((tx) => tx.$queryRaw`
       SELECT id FROM withdrawals WHERE id = ${withdrawalId} FOR UPDATE
@@ -526,18 +544,18 @@ describe('Opus deterministic lock schedules', () => {
     const final = await prisma.withdrawal.findUniqueOrThrow({ where: { id: withdrawalId } });
     expect(['CANCELLED', 'PAYOUT_IN_PROGRESS']).toContain(final.status);
     if (final.status === 'CANCELLED') {
-      expect(await walletCoins(fixture.buyer.id)).toBe(1000);
-      expect(await withdrawable(fixture.buyer.id)).toBe(1000);
+      expect(await walletCoins(fixture.buyer.id)).toBe(100000);
+      expect(await withdrawable(fixture.buyer.id)).toBe(100000);
     } else {
-      expect(await walletCoins(fixture.buyer.id)).toBe(600);
-      expect(await withdrawable(fixture.buyer.id)).toBe(600);
+      expect(await walletCoins(fixture.buyer.id)).toBe(50000);
+      expect(await withdrawable(fixture.buyer.id)).toBe(50000);
     }
   });
 });
 
 describe('C1: ADMIN_QUALIFY is reserved and disabled (Correction 1)', () => {
   it('the reserved-type guard alone rejects a bare ADMIN_QUALIFY operation insert, with no other statement in the transaction', async () => {
-    const fixture = await purchasedFixture(1000);
+    const fixture = await purchasedFixture(100000);
     const opId = uid('c1-bare-op');
     await expect(prisma.economicOperation.create({ data: {
       id: opId, type: 'ADMIN_QUALIFY', userId: fixture.buyer.id,
@@ -548,7 +566,7 @@ describe('C1: ADMIN_QUALIFY is reserved and disabled (Correction 1)', () => {
   });
 
   it('a direct-SQL attempt to create an ADMIN_QUALIFY operation rolls back completely: no operation, entry, lot, wallet change, wallet transaction, or review row survives', async () => {
-    const fixture = await purchasedFixture(1000);
+    const fixture = await purchasedFixture(100000);
     const before = await economicTotals(fixture.buyer.id);
     const opId = uid('c1-attack-op');
     const lotId = uid('c1-attack-lot');
@@ -606,7 +624,7 @@ describe('C1: ADMIN_QUALIFY is reserved and disabled (Correction 1)', () => {
   });
 
   it('the invariant checker independently flags any ADMIN_QUALIFY operation as I0, even if one existed', async () => {
-    const fixture = await purchasedFixture(1000);
+    const fixture = await purchasedFixture(100000);
     const opId = uid('c1-poison-op');
     await expect(prisma.$transaction(async (tx) => {
       // session_replication_role bypasses ORIGIN-mode triggers for this one
@@ -632,7 +650,7 @@ describe('C1: ADMIN_QUALIFY is reserved and disabled (Correction 1)', () => {
 
 describe('C2: value-bearing lots require a valid, journaled source operation (Correction 2)', () => {
   it('rejects a phantom lot with no source operation at all, even when the wallet is updated to match it (isolates the journal-integrity guard from the older wallet-equality guard)', async () => {
-    const fixture = await purchasedFixture(1000);
+    const fixture = await purchasedFixture(100000);
     const before = await economicTotals(fixture.buyer.id);
     const lotId = uid('c2-phantom-b');
     await expect(prisma.$transaction(async (tx) => {
@@ -654,7 +672,7 @@ describe('C2: value-bearing lots require a valid, journaled source operation (Co
   });
 
   it('rejects a phantom lot carrying a real, valid sourceOperationId but no journal entries, even when the wallet is updated to match it', async () => {
-    const fixture = await purchasedFixture(1000);
+    const fixture = await purchasedFixture(100000);
     const before = await economicTotals(fixture.buyer.id);
     const realOp = await prisma.economicOperation.findFirstOrThrow({ where: { userId: fixture.buyer.id } });
     const lotId = uid('c2-phantom-c');
@@ -675,7 +693,7 @@ describe('C2: value-bearing lots require a valid, journaled source operation (Co
   });
 
   it('rejects the named two-transaction attack: T1 creates a phantom lot alone, T2 separately tries to make the wallet match it — both fail, and state is byte-for-byte unchanged', async () => {
-    const fixture = await purchasedFixture(1000);
+    const fixture = await purchasedFixture(100000);
     const before = await economicTotals(fixture.buyer.id);
     const lotId = uid('c2-phantom-d');
     await expect(prisma.$transaction(async (tx) => {
@@ -700,9 +718,9 @@ describe('C2: value-bearing lots require a valid, journaled source operation (Co
   });
 
   it('legitimate purchase, withdrawal hold, cancel and gift flows still reconcile end to end (regression)', async () => {
-    const fixture = await purchasedFixture(1000);
+    const fixture = await purchasedFixture(100000);
     await assertEconomicBalance(fixture.buyer.id);
-    const { withdrawal } = await withdraw(fixture, 400);
+    const { withdrawal } = await withdraw(fixture, 50000);
     await assertEconomicBalance(fixture.buyer.id);
     await cancelHeldWithdrawal(fixture.buyer.id, (withdrawal as { id: string }).id, { idempotencyKey: uid('c2-cancel') });
     await assertEconomicBalance(fixture.buyer.id);
@@ -716,7 +734,7 @@ describe('C2: value-bearing lots require a valid, journaled source operation (Co
 
 describe('C3: gift replay is an immutable snapshot, never re-read from the catalog (Correction 3)', () => {
   it('an exact replay returns the original response even after the catalog item is renamed', async () => {
-    const fixture = await purchasedFixture(1000);
+    const fixture = await purchasedFixture(100000);
     const gift = await prisma.gift.create({
       data: { name: uid('c3-original-name'), coinPrice: 100, recipientPointValue: 10, isActive: true },
     });
@@ -742,7 +760,7 @@ describe('C3: gift replay is an immutable snapshot, never re-read from the catal
   });
 
   it('a conflicting payload reusing the same idempotency key still returns 409, without touching the catalog', async () => {
-    const fixture = await purchasedFixture(1000);
+    const fixture = await purchasedFixture(100000);
     const giftA = await prisma.gift.create({
       data: { name: uid('c3-gift-a'), coinPrice: 100, recipientPointValue: 10, isActive: true },
     });
@@ -757,7 +775,7 @@ describe('C3: gift replay is an immutable snapshot, never re-read from the catal
   });
 
   it('a legacy pre-Correction-3 record (no stored snapshot) replays safely with giftName null, never fabricated from the current catalog', async () => {
-    const fixture = await purchasedFixture(1000);
+    const fixture = await purchasedFixture(100000);
     const gift = await prisma.gift.create({
       data: { name: uid('c3-legacy-name'), coinPrice: 100, recipientPointValue: 10, isActive: true },
     });

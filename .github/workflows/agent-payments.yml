@@ -7,17 +7,21 @@ on:
       - 'apps/api/src/agents/**'
       - 'apps/api/src/scripts/**'
       - 'apps/api/vitest.review-unit.config.ts'
+      - 'apps/api/vitest.etb-requirements.config.ts'
+      - 'apps/api/vitest.etb-native.config.ts'
       - 'apps/api/src/withdrawals/**'
       - 'apps/api/src/economy/**'
       - 'apps/api/src/routes/index.ts'
       - 'apps/api/src/server.ts'
       - 'apps/api/vitest.payments-native.config.ts'
       - 'apps/web/src/pages/wallet*'
+      - 'apps/web/src/pages/payment-requirements*'
       - 'apps/web/src/hooks/use-wallet-action*'
       - 'apps/web/src/components/notifications/**'
       - 'apps/web/src/lib/payment*'
       - 'apps/web/src/lib/i18n/**'
       - 'packages/database/**'
+      - 'packages/shared/**'
       - 'scripts/review-payments-preview.mjs'
 permissions:
   contents: read
@@ -45,6 +49,7 @@ jobs:
       DATABASE_URL: postgresql://postgres:disposable-payment-tests@127.0.0.1:5432/playqube_scheduled_throwaway
       TEST_LEDGER_DB_NAME: playqube_scheduled_throwaway
       SCHEDULED_NATIVE_DB_ACK: throwaway
+      ETB_NATIVE_DB_ACK: fresh-synthetic
       NODE_ENV: test
       LOG_PRETTY: 'false'
       LOG_LEVEL: error
@@ -73,9 +78,10 @@ jobs:
         if: matrix.postgres == '16'
         run: |
           pnpm --filter api typecheck
+          pnpm --filter api exec vitest run --config vitest.etb-requirements.config.ts
           pnpm --filter api exec vitest run --config vitest.review-unit.config.ts
           pnpm --filter web typecheck
-          pnpm --filter web exec vitest run src/pages/wallet-order-room.test.tsx src/pages/wallet-payments.test.tsx src/pages/wallet-late-payments.test.tsx src/pages/wallet-held-deposits.test.tsx src/pages/wallet-routes.test.tsx src/hooks/use-wallet-action.test.tsx src/components/notifications --minWorkers=1 --maxWorkers=1
+          pnpm --filter web exec vitest run src/pages/wallet-order-room.test.tsx src/pages/wallet-payments.test.tsx src/pages/payment-requirements.test.tsx src/pages/wallet-pricing-admin.test.tsx src/pages/wallet-late-payments.test.tsx src/pages/wallet-held-deposits.test.tsx src/pages/wallet-routes.test.tsx src/hooks/use-wallet-action.test.tsx src/components/notifications --minWorkers=1 --maxWorkers=1
           node apps/web/src/lib/i18n/tools/coverage.mjs --strict
       - name: Production build and gateway
         if: matrix.postgres == '16'

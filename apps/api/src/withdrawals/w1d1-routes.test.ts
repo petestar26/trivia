@@ -1,3 +1,4 @@
+// New quotes use at least 50,000 santim (500 ETB); lifecycle assertions retain their original meaning.
 import { fixtureEtbPolicy } from '../test/payment-policy-fixture.js';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
@@ -92,7 +93,7 @@ async function createFundedUser(tag: string, coins: number) {
   return user;
 }
 
-async function createHeldWithdrawal(tag: string, coinAmount = 10_000) {
+async function createHeldWithdrawal(tag: string, coinAmount = 50_000) {
   const admin = await createAdmin(tag);
   const superAdmin = await createSuperAdmin(`${tag}-s`);
   const country = await createCountry(tag);
@@ -113,7 +114,7 @@ async function createHeldWithdrawal(tag: string, coinAmount = 10_000) {
   });
   await prisma.exchangeRateConfig.create({ data: { countryId: country.id, fiatCurrency: 'ETB', coinsPerUnit: 1, isActive: true, setBy: admin.id, effectiveAt: new Date(Date.now() - 1000), pricingPolicy: fixtureEtbPolicy() } });
   const { agentUser, agent } = await createFundedAgent(tag, country.id, admin, superAdmin);
-  const user = await createFundedUser(tag, 50_000);
+  const user = await createFundedUser(tag, 250_000);
   const payoutAccount = await createUserPayoutAccount(user.id, {
     countryId: country.id, methodDefId: pm.id, accountDetails: { bankName: 'TB', accountNumber: '123' },
   });

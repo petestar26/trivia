@@ -31,7 +31,9 @@ async function gate(enabled: boolean) {
   });
 }
 async function fixture() {
-  const f = await purchasedFixture(400);
+  // Amounts are santim: fund exactly the 100 ETB admission minimum.
+  // Keep stake/reward amounts unchanged so restriction and conversion edges stay identical.
+  const f = await purchasedFixture(10_000);
   const policy = await prisma.countryCasinoPolicy.findFirstOrThrow({
     where: { countryCode: f.country.code },
   });
@@ -71,9 +73,9 @@ describe('scheduled stakes preserve original Coin sources', () => {
   it('holds and refunds once; replay returns stored balances after a later change', async () => {
     const { buyer, args, purchaseLot } = await fixture();
     const hold = await prisma.$transaction((tx) => reserveScheduledStakeCoins(tx, buyer.id, args));
-    expect(hold.coinsBalance).toBe(320);
+    expect(hold.coinsBalance).toBe(9_920);
     expect(await prisma.coinProvenance.findUnique({ where: { id: purchaseLot.id } })).toMatchObject(
-      { availableAmount: 320, reservedAmount: 80 }
+      { availableAmount: 9_920, reservedAmount: 80 }
     );
     const held = await snapshot(buyer.id);
     expect(
@@ -83,9 +85,9 @@ describe('scheduled stakes preserve original Coin sources', () => {
     const refund = await prisma.$transaction((tx) =>
       refundScheduledStakeCoins(tx, buyer.id, args.holdId)
     );
-    expect(refund.coinsBalance).toBe(400);
+    expect(refund.coinsBalance).toBe(10_000);
     expect(await prisma.coinProvenance.findUnique({ where: { id: purchaseLot.id } })).toMatchObject(
-      { availableAmount: 400, reservedAmount: 0, lotClass: 'WITHDRAWABLE' }
+      { availableAmount: 10_000, reservedAmount: 0, lotClass: 'WITHDRAWABLE' }
     );
     const refunded = await snapshot(buyer.id);
     expect(
@@ -93,7 +95,7 @@ describe('scheduled stakes preserve original Coin sources', () => {
     ).toMatchObject({ ...refund, isReplay: true });
     expect(
       await prisma.$transaction((tx) => reserveScheduledStakeCoins(tx, buyer.id, args))
-    ).toMatchObject({ coinsBalance: 320, isReplay: true });
+    ).toMatchObject({ coinsBalance: 9_920, isReplay: true });
     expect(await snapshot(buyer.id)).toEqual(refunded);
   });
   it('preserves restricted lot, obligation, expiry and lineage across a refund', async () => {
@@ -206,14 +208,15 @@ describe('scheduled stakes preserve original Coin sources', () => {
       )
     );
     expect(refunds.filter((x) => !x.isReplay)).toHaveLength(1);
-    expect((await snapshot(buyer.id)).wallet?.coinsBalance).toBe(400);
+    expect((await snapshot(buyer.id)).wallet?.coinsBalance).toBe(10_000);
   });
   it('prevents concurrent different holds from overspending the wallet', async () => {
     const { buyer, args } = await fixture();
     const attempts = [args.holdId, uid('other-hold')].map((holdId) => ({
       ...args,
       holdId,
-      amount: 300,
+      // Each hold is affordable, but the pair exceeds the 10,000-santim wallet.
+      amount: 6_000,
     }));
     const results = await Promise.allSettled(
       attempts.map((terms) =>
@@ -222,10 +225,10 @@ describe('scheduled stakes preserve original Coin sources', () => {
     );
     expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
     expect(results.filter((r) => r.status === 'rejected')).toHaveLength(1);
-    expect((await snapshot(buyer.id)).wallet?.coinsBalance).toBe(100);
+    expect((await snapshot(buyer.id)).wallet?.coinsBalance).toBe(4_000);
     const held = await prisma.scheduledStakeHold.findFirstOrThrow({ where: { userId: buyer.id } });
     await prisma.$transaction((tx) => refundScheduledStakeCoins(tx, buyer.id, held.id));
-    expect((await snapshot(buyer.id)).wallet?.coinsBalance).toBe(400);
+    expect((await snapshot(buyer.id)).wallet?.coinsBalance).toBe(10_000);
   });
   it('rejects an unrelated reversal operation that would block the real refund', async () => {
     const { buyer, args } = await fixture();
@@ -248,7 +251,7 @@ describe('scheduled stakes preserve original Coin sources', () => {
     expect(
       (await prisma.$transaction((tx) => refundScheduledStakeCoins(tx, buyer.id, args.holdId)))
         .coinsBalance
-    ).toBe(400);
+    ).toBe(10_000);
   });
   it('holds and refunds through the documented restricted runtime role', async () => {
     const { buyer, args } = await fixture();
@@ -287,9 +290,9 @@ describe('scheduled stakes preserve original Coin sources', () => {
         reserveScheduledStakeCoins(tx, buyer.id, args)
       );
       expect(hold.holdId).toBe(args.holdId);
-      expect(hold.coinsBalance).toBe(320);
+      expect(hold.coinsBalance).toBe(9_920);
       expect((await prisma.wallet.findUniqueOrThrow({ where: { userId: buyer.id } })).coinsBalance)
-        .toBe(320);
+        .toBe(9_920);
       expect(await prisma.scheduledStakeHold.findUnique({ where: { id: args.holdId }, select: { userId: true } }))
         .toEqual({ userId: buyer.id });
       expect(await runtime.scheduledStakeHold.findUnique({ where: { id: args.holdId }, select: { userId: true } }))
@@ -299,7 +302,7 @@ describe('scheduled stakes preserve original Coin sources', () => {
       const refund = await runtime.$transaction((tx) =>
         refundScheduledStakeCoins(tx, buyer.id, args.holdId)
       );
-      expect(refund.coinsBalance).toBe(400);
+      expect(refund.coinsBalance).toBe(10_000);
     } finally {
       await runtime.$disconnect();
       if (created) {
@@ -406,15 +409,15 @@ describe('scheduled stakes preserve original Coin sources', () => {
       expect(
         (await runtime.$transaction((tx) => refundScheduledStakeCoins(tx, buyer.id, args.holdId)))
           .coinsBalance
-      ).toBe(360);
+      ).toBe(9_960);
       expect((await prisma.wallet.findUniqueOrThrow({ where: { userId: buyer.id } })).coinsBalance)
-        .toBe(360);
+        .toBe(9_960);
       expect(await runtime.scheduledStakeHold.findUnique({ where: { id: otherHold.holdId },
         select: { userId: true, state: true, refundOperationId: true } }))
         .toEqual({ userId: buyer.id, state: 'HELD', refundOperationId: null });
       const secondRefund = await runtime.$transaction((tx) =>
         refundScheduledStakeCoins(tx, buyer.id, otherHold.holdId));
-      expect(secondRefund).toMatchObject({ coinsBalance: 440, isReplay: false });
+      expect(secondRefund).toMatchObject({ coinsBalance: 10_040, isReplay: false });
       expect(
         (
           await runtime.$transaction((tx) =>
@@ -519,7 +522,7 @@ describe('scheduled stakes preserve original Coin sources', () => {
     expect(
       (await prisma.$transaction((tx) => refundScheduledStakeCoins(tx, buyer.id, args.holdId)))
         .coinsBalance
-    ).toBe(400);
+    ).toBe(10_000);
     expect(
       await prisma.$queryRawUnsafe('SELECT * FROM public.scheduled_stake_integrity_failures()')
     ).toEqual([]);
@@ -570,7 +573,7 @@ describe('scheduled stakes preserve original Coin sources', () => {
       expect(
         (await prisma.$transaction((tx) => refundScheduledStakeCoins(tx, buyer.id, args.holdId)))
           .coinsBalance
-      ).toBe(400);
+      ).toBe(10_000);
     } finally {
       await gate(true);
     }

@@ -88,7 +88,7 @@ beforeAll(async () => {
   // verify the runtime grants.
   setup = runtimeAccess({ DATABASE_URL: runtimeUrl });
   app = new PrismaClient({ datasourceUrl: runtimeUrl, log: [] });
-  f = await purchasedFixture(1000);
+  f = await purchasedFixture(10000);
   approvers = await makeApprovers('runtime-role');
   // Same supported Coin fixture as games.test.ts; never unpause Dice.
   originalSpin = await prisma.gameDefinition.findUniqueOrThrow({ where: { key: 'spin_win' } });

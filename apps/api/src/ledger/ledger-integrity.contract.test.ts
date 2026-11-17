@@ -312,8 +312,8 @@ describe('ledger integrity: gate, preflight, checker and database guards classif
   let f: () => Promise<PurchasedFixture>;
   let other: PurchasedFixture;
   beforeAll(async () => {
-    other = await purchasedFixture(500);
-    f = () => purchasedFixture(1000);
+    other = await purchasedFixture(10000);
+    f = () => purchasedFixture(10000);
   });
 
   for (const [name, fixture] of Object.entries(fixtures)) {
