@@ -6,6 +6,7 @@ export default defineConfig({
       'src/agents/payment-maintenance.test.ts',
       'src/workspaces/withdrawals.native.ts',
       'src/agents/payment-readiness.native.ts',
+      'src/agents/held-deposit-recovery.native.ts',
     ],
     fileParallelism: false,
     pool: 'forks',

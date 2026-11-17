@@ -1,5 +1,6 @@
-import { lockDepositReceivingAccount, depositEntryDeadline, depositClock, assertDepositReady, MAX_PENDING_DEPOSITS } from './order-lifecycle.js';
+import { lockDepositReceivingAccount, depositEntryDeadline, depositClock, assertDepositReady } from './order-lifecycle.js';
 import { assertPlatformAdmin } from './agent-service.js';
+import { heldAdmissionState } from './held-deposit-recovery-service.js';
 import { selectPaymentRate } from './usd-config-service.js';
 import { parseUsdPolicy, priceUsdPayment } from './usd-pricing.js';
 import { prisma } from '@socialplay/database';
@@ -164,8 +165,14 @@ export async function createAgentOrder(
           if (orderRequestFieldsMatch(replay, args)) return { order: replay, idempotent: true };
           throw ApiError.conflict('An order already exists for this idempotency key with different request data');
         }
-        if (await tx.agentOrder.count({ where: { userId: actorUserId, status: 'CREATED' } }) >= MAX_PENDING_DEPOSITS) {
-          throw ApiError.conflict('Finish or cancel your pending deposits before creating another (maximum 3)');
+        // Held unpaid orders keep counting towards the limit. Only an approved,
+        // bounded policy exception (default 0) can set some of them aside, so
+        // unresolved reserved exposure per member is always capped.
+        const admission = await heldAdmissionState(tx, actorUserId);
+        if (admission.blocked) {
+          throw ApiError.conflict(admission.held > 0
+            ? 'You have deposits on safety hold that count towards the maximum of 3 pending deposits. Open them to tell payment support whether you paid.'
+            : 'Finish or cancel your pending deposits before creating another (maximum 3)');
         }
         // Admission is revalidated under row locks. Preflight data alone can
         // become stale while an agent/account/country is being disabled.
