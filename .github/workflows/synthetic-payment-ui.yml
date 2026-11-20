@@ -30,7 +30,7 @@ jobs:
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '20.20.2'
-      - name: Acquire tooling and browser before isolation
+      - name: Acquire locked tools and store before isolation
         shell: bash
         run: |
           set -euo pipefail
@@ -45,31 +45,21 @@ jobs:
           npm ci --ignore-scripts --registry=https://registry.npmjs.org
           test "$(./node_modules/.bin/pnpm --version)" = 8.15.9
           test "$(node -p 'require("playwright/package.json").version')" = 1.58.2
-          export PLAYWRIGHT_BROWSERS_PATH="$RUNNER_TEMP/salem-browsers"
-          ./node_modules/.bin/playwright install --with-deps chromium
           cd "$GITHUB_WORKSPACE/baseline"
           test "$(git rev-parse HEAD)" = 9cf32da8bd7d8b9a5a0bbe6077210d0e1b79dc18
           test "$(git rev-parse 'HEAD^{tree}')" = 18cacd832ad2a3bfdac5b26a5be80db1ecdd5278
           echo 'ad42d49852ba70bad961cd109d881779a5986a944bcd30f04e3303c6c42e307a  pnpm-lock.yaml' | sha256sum -c -
-          "$H/node_modules/.bin/pnpm" fetch --ignore-scripts --registry=https://registry.npmjs.org --store-dir "$STORE"
-      - name: Prepare synthetic static fixture offline; run UI in loopback-only namespace
+          FETCH="$RUNNER_TEMP/salem-fetch"
+          mkdir -m 0700 "$FETCH"
+          cp pnpm-lock.yaml pnpm-workspace.yaml "$FETCH/"
+          # The exact lock may not require patch inputs. A patch/link needing omitted inputs fails closed.
+          (cd "$FETCH"; CI=1 "$H/node_modules/.bin/pnpm" fetch --ignore-scripts --registry=https://registry.npmjs.org --store-dir "$STORE")
+      - name: Resolve exact official Noble image, then execute by digest only
         shell: bash
         run: |
           set -euo pipefail
-          command -v unshare
-          command -v ip
-          # No sudo fallback, security-setting changes, or host-network fallback.
-          # Failure of unshare on hosted runner is a hard failure, not a skip.
-          HOST_NET="$(readlink /proc/self/ns/net)"
-          unshare --user --map-root-user --net --pid --fork --kill-child --mount-proc -- \
-            env -i PATH="$PATH" HOME="$RUNNER_TEMP/salem-home" \
-            BASELINE="$GITHUB_WORKSPACE/baseline" \
-            HARNESS="$GITHUB_WORKSPACE/harness/qa/synthetic-payment-ui" \
-            HOST_NET="$HOST_NET" STORE="$RUNNER_TEMP/salem-pnpm-store" \
-            OUTPUT="$RUNNER_TEMP/salem-ui" \
-            PLAYWRIGHT_BROWSERS_PATH="$RUNNER_TEMP/salem-browsers" \
-            CI=1 TZ=UTC LANG=C.UTF-8 \
-            bash "$GITHUB_WORKSPACE/harness/qa/synthetic-payment-ui/isolate.sh"
+          H="$GITHUB_WORKSPACE/harness/qa/synthetic-payment-ui"
+          bash "$H/docker-run.sh" "$GITHUB_WORKSPACE/baseline" "$H" "$RUNNER_TEMP/salem-pnpm-store"
       - name: Stage redacted synthetic summary only
         id: public_summary
         if: ${{ !cancelled() }}
