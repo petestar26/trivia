@@ -219,3 +219,12 @@ it('preserves previously read messages when a busy order rolls into another fift
   for (const n of [1, 2, 50, 51, 52, 101])
     expect(screen.getByText(`Payment note ${n}`, { exact: true })).toBeInTheDocument();
 });
+
+it('shows an independent safety hold without hiding the preserved destination or appeal', async () => {
+  room.safetyHold = true;
+  room.actions.markPaid = false;
+  room.actions.cancel = false;
+  mount();
+  expect(await screen.findByText('Safety hold — contact payment support. Do not send money.')).toBeInTheDocument();
+  expect(screen.getByText('TEST-12345')).toBeInTheDocument();
+});

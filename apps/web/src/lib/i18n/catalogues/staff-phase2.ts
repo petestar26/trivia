@@ -1,6 +1,15 @@
 import type { TranslationCatalog } from '../types';
 
 export default {
+  'Safety hold — contact payment support. Do not send money.': {
+    am: 'የደህንነት እገዳ — የክፍያ ድጋፍን ያግኙ። ገንዘብ አይላኩ።',
+    om: 'Sababa nageenyaatiin dhaabbate — deeggarsa kaffaltii qunnamaa. Maallaqa hin erginaa.',
+    ti: 'ናይ ድሕነት እገዳ — ናይ ክፍሊት ደገፍ ርኸቡ። ገንዘብ ኣይትስደዱ።',
+    so: 'Hakinta amniga — la xiriir taageerada lacag-bixinta. Lacag ha dirin.',
+    ar: 'تعليق أمني — تواصل مع دعم المدفوعات. لا ترسل أموالاً.',
+    sw: 'Imesitishwa kwa usalama — wasiliana na usaidizi wa malipo. Usitume pesa.',
+    fr: 'Blocage de sécurité — contactez l’assistance aux paiements. N’envoyez pas d’argent.',
+  },
   'Account name': {
     am: 'የመለያ ስም',
     om: 'Maqaa herregaa',

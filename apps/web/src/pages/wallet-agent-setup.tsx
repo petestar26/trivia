@@ -21,12 +21,13 @@ type Account = {
   id: string;
   countryId: string;
   status: string;
+  safetyHold?: boolean;
   methodDefId: string;
   accountDetails: Record<string, unknown>;
   updatedAt?: string;
 };
 const editableStates = ['APPROVED', 'PENDING_APPROVAL', 'REJECTED'];
-const disableableStates = ['APPROVED', 'PENDING_APPROVAL'];
+const canSafetyDisable = (account: Account) => !account.safetyHold && account.status !== 'DISABLED';
 const validEditVersion = (value: unknown): value is string => {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value))
     return false;
@@ -51,6 +52,7 @@ const accountVersion = (account: Account) =>
     account.id,
     account.countryId,
     account.status,
+    account.safetyHold,
     account.methodDefId,
     account.updatedAt,
     account.accountDetails,
@@ -199,6 +201,7 @@ function AgentSetup({ userId, workspace }: { userId: string; workspace: boolean 
     if (
       !accountsReady ||
       busy ||
+      account.safetyHold ||
       !editableStates.includes(account.status) ||
       !validEditVersion(account.updatedAt) ||
       account.countryId !== agent.data?.countryId
@@ -384,11 +387,11 @@ function AgentSetup({ userId, workspace }: { userId: string; workspace: boolean 
                     )}
                   </p>
                 )}
-                {a.status === 'DISABLED' && (
+                {(a.safetyHold || a.status === 'DISABLED') && (
                   <p>{translateUi('This account is disabled. Its history is preserved.')}</p>
                 )}
                 <div className="payment-actions">
-                  {editableStates.includes(a.status) && a.countryId === agent.data!.countryId && (
+                  {!a.safetyHold && editableStates.includes(a.status) && a.countryId === agent.data!.countryId && (
                     <button
                       type="button"
                       disabled={busy || !accountsReady || !validEditVersion(a.updatedAt)}
@@ -399,7 +402,7 @@ function AgentSetup({ userId, workspace }: { userId: string; workspace: boolean 
                         : translateUi('Edit account')}
                     </button>
                   )}
-                  {disableableStates.includes(a.status) && (
+                  {canSafetyDisable(a) && (
                     <button
                       type="button"
                       disabled={busy || !accountsVerified}
@@ -413,7 +416,7 @@ function AgentSetup({ userId, workspace }: { userId: string; workspace: boolean 
                     </button>
                   )}
                 </div>
-                {disabling === a.id && disableableStates.includes(a.status) && (
+                {disabling === a.id && canSafetyDisable(a) && (
                   <div
                     role="group"
                     aria-label={translateUi('Confirm account disabling')}
@@ -429,11 +432,11 @@ function AgentSetup({ userId, workspace }: { userId: string; workspace: boolean 
                         type="button"
                         disabled={busy || !accountsVerified}
                         onClick={() => {
-                          if (!accountsVerified || busy || !disableableStates.includes(a.status))
+                          if (!accountsVerified || busy || !canSafetyDisable(a))
                             return;
                           void submit(
                             `/agents/me/payment-accounts/${a.id}/disable`,
-                            undefined,
+                            { expectedUpdatedAt: a.updatedAt },
                             false,
                             'Receiving account disabled. Its history has been preserved.'
                           );

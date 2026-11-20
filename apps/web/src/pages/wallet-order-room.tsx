@@ -10,6 +10,7 @@ import { useLanguage } from '@/providers/language-provider';
 import { useWalletAction, walletError } from '@/hooks/use-wallet-action';
 import { interfaceCodeLabel } from '@/lib/i18n/labels';
 import { LatePaymentReport } from './wallet-late-payments';
+import { HeldDepositStatus, type HeldCaseView } from './wallet-held-deposits';
 import './wallet-payments.css';
 import './wallet-order-room.css';
 
@@ -26,6 +27,7 @@ export type PaymentRoom = {
   kind: 'deposit' | 'withdrawal';
   role: 'member' | 'agent' | 'support';
   number: string;
+  safetyHold?: boolean;
   status: string;
   coinAmount: number;
   fiatAmount: string;
@@ -54,6 +56,7 @@ export type PaymentRoom = {
     description: string;
     resolutionNote: string | null;
   } | null;
+  heldCase?: HeldCaseView | null;
   messages: Message[];
   nextCursor: string | null;
   actions: Record<
@@ -157,7 +160,7 @@ function OrderRoom({
   const expired = deadline !== null && deadline <= serverNow;
   const blocked = action.blocked || query.isError || !p || now - query.dataUpdatedAt > 20000;
   const can = (name: ActionName) => !!p?.actions[name] && !(name === 'markPaid' && expired);
-  const status = t(statuses[p?.status ?? ''] ?? 'Loading…');
+  const status = p?.safetyHold ? t('Safety hold — contact payment support. Do not send money.') : t(statuses[p?.status ?? ''] ?? 'Loading…');
   const terminal = !!p && ['COMPLETED', 'CANCELLED', 'EXPIRED'].includes(p.status);
   const activeAppeal = p?.appeals.find((d) => ['OPEN', 'ASSIGNED'].includes(d.status));
   const steps = [t('Order created'), t('Payment transfer'), t('Confirmation'), t('Completed')];
@@ -437,6 +440,9 @@ function OrderRoom({
                 )}
                 {p.actions.latePayment && (
                   <LatePaymentReport orderId={id} currency={p.fiatCurrency} />
+                )}
+                {p.heldCase && (
+                  <HeldDepositStatus orderId={id} held={p.heldCase} member={p.role === 'member'} />
                 )}
                 {p.role === 'support' && <Link to="/admin/disputes">{t('Open review desk')}</Link>}
               </div>

@@ -1,3 +1,4 @@
+import { PaymentRequirementsPage } from '@/pages/payment-requirements';
 import { SupportPage } from '@/pages/support';
 import { WalletRoutes } from '@/pages/wallet-routes';
 import { DogRacingPage } from '@/pages/games/dog-racing';
@@ -154,6 +155,7 @@ export function App() {
         <Route path="wallet/*" element={<WalletRoutes />} />
         <Route path="rewards" element={<MemberRewardsPage />} />
         <Route path="support" element={<SupportPage />} />
+        <Route path="payment-requirements" element={<PaymentRequirementsPage />} />
         <Route path="profile" element={<ProfilePage />} />
         <Route path="games" element={<PlayTogetherPage />} />
         <Route path="games/practice" element={<GamesPage />} />
