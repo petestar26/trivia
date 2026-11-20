@@ -5,6 +5,9 @@ import { JwtPayload } from '@socialplay/shared';
 import { createMessage, getGroupMembership } from '../realtime/chat-service.js';
 import { prisma } from '@socialplay/database';
 import { emitToGroup, setSocketServer } from '../realtime/broadcast.js';
+import { createWorkDrain, WorkLease } from './work-drain.js';
+import { WebSocketDrain } from './shutdown-adapter.js';
+import { createSocketTransportOwner } from './transport-owner.js';
 import { canWatchTogether } from '../games/play-together/events.js';
 
 const GROUP_ROOM_PREFIX = 'group:';
@@ -29,21 +32,29 @@ interface JoinGroupPayload {
   groupId: string;
 }
 
-export function registerWebSocket(server: FastifyInstance): void {
+export function registerWebSocket(server: FastifyInstance): WebSocketDrain {
+  // Socket.IO defaults to appending a slash to its configured transport path.
+  const transportPath = config.WS_PATH.replace(/\/$/, '') + '/';
+  const transport = createSocketTransportOwner(server.server, transportPath);
+  const work = createWorkDrain();
   const io = new Server(server.server, {
     path: config.WS_PATH,
+    allowRequest: (_request, done) => done(null, !transport.stopping),
     cors: {
       origin: config.CORS_ORIGIN,
       credentials: config.CORS_CREDENTIALS,
     },
   });
 
+  transport.attach(io);
   setSocketServer(io);
 
   // Authentication middleware — accept the access token from either
   // socket.handshake.auth.token (explicit) or the sp_access_token cookie
   // (sent automatically because the client uses withCredentials:true).
   io.use(async (socket, next) => {
+    const lease = work.acquire();
+    if (!lease) return next(new Error('SERVER_DRAINING'));
     try {
       let token: string | undefined =
         typeof socket.handshake.auth?.token === 'string'
@@ -83,28 +94,52 @@ export function registerWebSocket(server: FastifyInstance): void {
         role: Array.isArray(decoded.roles) ? decoded.roles.join(',') : 'USER',
       } as SocketUser;
 
+      if (!work.accepting) return next(new Error('SERVER_DRAINING'));
       next();
     } catch (err) {
       next(new Error('UNAUTHORIZED'));
-    }
+    } finally { lease.finish(); }
   });
 
   io.on('connection', (socket) => {
+    if (!work.accepting) { socket.disconnect(true); return; }
     const user = socket.data.user as SocketUser;
+    const queues = new Map<string, WorkLease[]>();
+    // Keep the lease across Socket.IO's nextTick middleware-to-handler gap.
+    function onWork(event: string, handler: (...args: any[]) => unknown) {
+      queues.set(event, []);
+      socket.on(event, (...args: any[]) => {
+        const lease = queues.get(event)?.shift();
+        if (!lease) return; // no authorized/admitted dispatch
+        void Promise.resolve().then(() => handler(...args)).then(
+          () => lease.finish(), () => lease.finish(true)
+        );
+      });
+    }
     const expiryTimer = setTimeout(() => socket.disconnect(true), Math.min(2147483647, Math.max(0, socket.data.expiresAt - Date.now())));
     expiryTimer.unref();
-    socket.use(async (_packet, next) => {
+    socket.use(async (packet, next) => {
+      const lease = work.acquire();
+      if (!lease) { next(new Error('SERVER_DRAINING')); return; }
+      let handedOff = false;
       try {
         const actor = await prisma.user.findUnique({ where: { id: user.id }, select: { status: true, tokenVersion: true } });
         if (socket.data.expiresAt <= Date.now() || actor?.status !== 'ACTIVE' || (actor.tokenVersion ?? 0) !== socket.data.tokenVersion) throw new Error('UNAUTHORIZED');
+        const queue = queues.get(packet[0]);
+        if (queue && socket.connected) { queue.push(lease); handedOff = true; }
         next();
       } catch { socket.disconnect(true); next(new Error('UNAUTHORIZED')); }
+      finally { if (!handedOff) lease.finish(); }
     });
 
     // Join user-specific room for private events (e.g. gift:received)
-    socket.join(`user:${user.id}`);
+    const roomLease = work.acquire();
+    if (!roomLease) { socket.disconnect(true); return; }
+    void Promise.resolve().then(() => socket.join(`user:${user.id}`)).then(
+      () => roomLease.finish(), () => roomLease.finish(true)
+    );
 
-    socket.on(
+    onWork(
       'together:watch',
       async (payload: { roundId: string }, ack?: (res: unknown) => void) => {
         try {
@@ -120,11 +155,11 @@ export function registerWebSocket(server: FastifyInstance): void {
         }
       }
     );
-    socket.on('together:leave', (payload: { roundId: string }) => {
-      if (typeof payload?.roundId === 'string') void socket.leave('together:' + payload.roundId);
+    onWork('together:leave', async (payload: { roundId: string }) => {
+      if (typeof payload?.roundId === 'string') await socket.leave('together:' + payload.roundId);
     });
 
-    socket.on('group:join', async (payload: JoinGroupPayload, ack?: (res: unknown) => void) => {
+    onWork('group:join', async (payload: JoinGroupPayload, ack?: (res: unknown) => void) => {
       try {
         if (socket.data.expiresAt <= Date.now()) { socket.disconnect(true); throw new Error('UNAUTHORIZED'); }
         await joinGroupRoom(socket, io, payload.groupId, user.id);
@@ -134,17 +169,17 @@ export function registerWebSocket(server: FastifyInstance): void {
       }
     });
 
-    socket.on('group:leave', (payload: JoinGroupPayload, ack?: (res: unknown) => void) => {
+    onWork('group:leave', async (payload: JoinGroupPayload, ack?: (res: unknown) => void) => {
       try {
         validateGroupId(payload.groupId);
-        socket.leave(groupRoom(payload.groupId));
+        await socket.leave(groupRoom(payload.groupId));
         ack?.({ success: true, groupId: payload.groupId });
       } catch (err) {
         ack?.(socketError(err));
       }
     });
 
-    socket.on('message:send', async (payload: SendMessagePayload, ack?: (res: unknown) => void) => {
+    onWork('message:send', async (payload: SendMessagePayload, ack?: (res: unknown) => void) => {
       try {
         if (!rateLimit(user.id, 'message', 30)) {
           throw new SocketError('RATE_LIMITED', 'Too many messages sent');
@@ -172,7 +207,7 @@ export function registerWebSocket(server: FastifyInstance): void {
       }
     });
 
-    socket.on('typing:start', async (payload: TypingPayload, ack?: (res: unknown) => void) => {
+    onWork('typing:start', async (payload: TypingPayload, ack?: (res: unknown) => void) => {
       try {
         if (!rateLimit(user.id, 'typing', 30)) {
           throw new SocketError('RATE_LIMITED', 'Too many typing events');
@@ -190,7 +225,7 @@ export function registerWebSocket(server: FastifyInstance): void {
       }
     });
 
-    socket.on('typing:stop', async (payload: TypingPayload, ack?: (res: unknown) => void) => {
+    onWork('typing:stop', async (payload: TypingPayload, ack?: (res: unknown) => void) => {
       try {
         if (!rateLimit(user.id, 'typing', 30)) {
           throw new SocketError('RATE_LIMITED', 'Too many typing events');
@@ -210,10 +245,21 @@ export function registerWebSocket(server: FastifyInstance): void {
 
     socket.on('disconnect', () => {
       clearTimeout(expiryTimer);
+      // Only undispatched leases are cancelled. Active handlers keep their lease.
+      for (const queue of queues.values()) for (const lease of queue.splice(0)) lease.finish();
     });
   });
 
-  return;
+  return {
+    stopAdmission: () => { work.stop(); transport.stopAdmission(); },
+    drain: deadlineMs => work.wait(deadlineMs),
+    closeTransports: async deadlineMs => {
+      if (work.accepting || work.pending) throw new Error('WEBSOCKET_NOT_DRAINED');
+      await transport.prepare(deadlineMs);
+      // Fastify closes HTTP after preClose; this is preparation, not final receipt.
+    },
+    finalizeTransports: deadlineMs => transport.finalize(deadlineMs),
+  };
 }
 
 // Simple in-memory sliding-window rate limiter.
@@ -252,7 +298,7 @@ async function joinGroupRoom(
     throw new SocketError('FORBIDDEN', 'You are not an active member of this group');
   }
 
-  socket.join(groupRoom(groupId));
+  await socket.join(groupRoom(groupId));
 }
 
 // Re-checks ACTIVE membership server-side before granting access to group events.

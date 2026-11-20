@@ -36,7 +36,8 @@ beforeAll(async () => {
   ({ prepareDormantSpinRandomness } = await import('./house-round-draw.js'));
   await prisma.$executeRawUnsafe('REVOKE CREATE ON SCHEMA public FROM PUBLIC');
   runId = await bootstrapLedgerTestGates();
-  const fixture = await purchasedFixture(1000);
+  // 100 ETB in santim; keep ticket stakes and house exposure unchanged.
+  const fixture = await purchasedFixture(10_000);
   buyerId = fixture.buyer.id;
   const method = await prisma.paymentMethodDefinition.findFirstOrThrow({
     where: { countryId: fixture.country.id, type: 'BANK_TRANSFER', isActive: true },
@@ -99,7 +100,7 @@ describe('dormant financial ticket atomic admission', () => {
     const holdId = uid('ticket');
     const input = { userId: buyerId, roundId, holdId, selections: bets };
     const accepted = await admitDormantSpinTicket(prisma, input);
-    expect(accepted).toMatchObject({ coinsBalance: 960, lossReserve: 1292n, isReplay: false });
+    expect(accepted).toMatchObject({ coinsBalance: 9960, lossReserve: 1292n, isReplay: false });
     const hold = await prisma.scheduledStakeHold.findUniqueOrThrow({ where: { id: holdId } });
     expect(hold).toMatchObject({ amount: 40, state: 'HELD' });
     const reserve = await prisma.houseRoundReservation.findUniqueOrThrow({ where: { roundId: `ticket:${holdId}` } });

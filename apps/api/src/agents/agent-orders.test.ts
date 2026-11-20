@@ -1,4 +1,4 @@
-import { fixtureUsdPolicy } from '../test/payment-policy-fixture.js';
+import { fixtureEtbPolicy } from '../test/payment-policy-fixture.js';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { prisma } from '@socialplay/database';
 import { submitAgentApplication, approveAgentApplication } from './agent-service.js';
@@ -81,8 +81,10 @@ async function createPaymentMethod(countryId: string, tag: string) {
   });
 }
 
-async function createExchangeRate(countryId: string, fiatCurrency: string, coinsPerUnit: number, adminId: string) {
-  return prisma.exchangeRateConfig.create({ data: { countryId, fiatCurrency, coinsPerUnit, isActive: true, setBy: adminId , pricingPolicy: fixtureUsdPolicy(coinsPerUnit)} });
+/** Native ETB terms: one wallet unit per santim. New deposit scenarios use
+ * at least 10,000 units; inventory-only authorization tests retain their amounts. */
+async function createExchangeRate(countryId: string, fiatCurrency: string, adminId: string) {
+  return prisma.exchangeRateConfig.create({ data: { countryId, fiatCurrency, coinsPerUnit: 1, isActive: true, setBy: adminId, pricingPolicy: fixtureEtbPolicy() } });
 }
 
 /**
@@ -178,7 +180,7 @@ describeIf('Agent order creation', () => {
     superAdmin = await createSuperAdmin('createsuper');
     country = await createCountry('create');
     method = await createPaymentMethod(country.id, 'create');
-    await createExchangeRate(country.id, country.currencyCode, 10, admin.id);
+    await createExchangeRate(country.id, country.currencyCode, admin.id);
     agentFixture = await setupActiveAgent('create1', country.id, method.id, admin, superAdmin, 100_000);
   });
 
@@ -187,7 +189,7 @@ describeIf('Agent order creation', () => {
       agentId: agentFixture.agent.id,
       countryId: country.id,
       paymentAccountId: agentFixture.account.id,
-      fiatAmount: 500,
+      fiatAmount: 10_000,
       idempotencyKey: `key-${Math.random()}`,
       ...overrides,
     };
@@ -198,7 +200,7 @@ describeIf('Agent order creation', () => {
     const result = await createAgentOrder(customer.id, args());
     expect(result.idempotent).toBe(false);
     expect(result.order.status).toBe('CREATED');
-    expect(result.order.coinAmount).toBe(5000); // floor(500 * 10)
+    expect(result.order.coinAmount).toBe(10_000); // ETB_V1: one unit per santim
     expect(result.order.fiatCurrency).toBe(country.currencyCode);
     expect(result.order.orderNumber).toMatch(/^AG-\d{6}$/);
   });
@@ -290,7 +292,7 @@ describeIf('Agent order creation', () => {
         agentId: boundedAgent.agent.id,
         countryId: country.id,
         paymentAccountId: boundedAgent.account.id,
-        fiatAmount: 5000,
+        fiatAmount: 10_000,
         idempotencyKey: `key-${Math.random()}`,
       })
     ).rejects.toThrow(/maximum order amount/i);
@@ -311,7 +313,7 @@ describeIf('Agent order creation', () => {
         agentId: pendingAgent!.id,
         countryId: country.id,
         paymentAccountId: agentFixture.account.id,
-        fiatAmount: 500,
+        fiatAmount: 10_000,
         idempotencyKey: `key-${Math.random()}`,
       })
     ).rejects.toThrow(/not currently accepting orders/i);
@@ -324,7 +326,7 @@ describeIf('Agent order creation', () => {
         agentId: selfAgent.agent.id,
         countryId: country.id,
         paymentAccountId: selfAgent.account.id,
-        fiatAmount: 500,
+        fiatAmount: 10_000,
         idempotencyKey: `key-${Math.random()}`,
       })
     ).rejects.toThrow(/cannot create an order against your own agent/i);
@@ -345,14 +347,14 @@ describeIf('Agent order creation', () => {
   it('10. same idempotency key with different payload conflicts, original unchanged', async () => {
     const customer = await createUser('cust10');
     const key = `key-${Math.random()}`;
-    const first = await createAgentOrder(customer.id, args({ idempotencyKey: key, fiatAmount: 500 }));
+    const first = await createAgentOrder(customer.id, args({ idempotencyKey: key, fiatAmount: 10_000 }));
 
     await expect(createAgentOrder(customer.id, args({ idempotencyKey: key, fiatAmount: 999 }))).rejects.toThrow(
       /different request data/i
     );
 
     const stillOriginal = await prisma.agentOrder.findUnique({ where: { id: first.order.id } });
-    expect(stillOriginal!.fiatAmount).toBe(500);
+    expect(stillOriginal!.fiatAmount).toBe(10_000);
   });
 
   it('CONCURRENCY Race A — two concurrent requests, same user + idempotency key: exactly one order', async () => {
@@ -394,29 +396,29 @@ describeIf('Agent inventory reservation', () => {
     superAdmin = await createSuperAdmin('invsuper');
     country = await createCountry('inv');
     method = await createPaymentMethod(country.id, 'inv');
-    await createExchangeRate(country.id, country.currencyCode, 1, admin.id);
+    await createExchangeRate(country.id, country.currencyCode, admin.id);
   });
 
   it('11-13. valid reservation succeeds; reservedBalance increases; totalBalance unchanged by reservation', async () => {
-    const fixture = await setupActiveAgent('res1', country.id, method.id, admin, superAdmin, 1000);
+    const fixture = await setupActiveAgent('res1', country.id, method.id, admin, superAdmin, 20_000);
     const customer = await createUser('rescust1');
 
     const before = await getAgentInventory(fixture.agent.id);
-    expect(before.totalBalance).toBe(1000);
+    expect(before.totalBalance).toBe(20_000);
     expect(before.reservedBalance).toBe(0);
 
     const result = await createAgentOrder(customer.id, {
       agentId: fixture.agent.id,
       countryId: country.id,
       paymentAccountId: fixture.account.id,
-      fiatAmount: 300,
+      fiatAmount: 10_000,
       idempotencyKey: `key-${Math.random()}`,
     });
 
     const after = await getAgentInventory(fixture.agent.id);
-    expect(after.totalBalance).toBe(1000); // unchanged by reservation
+    expect(after.totalBalance).toBe(20_000); // unchanged by reservation
     expect(after.reservedBalance).toBe(result.order.coinAmount);
-    expect(after.available).toBe(1000 - result.order.coinAmount);
+    expect(after.available).toBe(20_000 - result.order.coinAmount);
   });
 
   it('12. insufficient inventory is rejected', async () => {
@@ -428,7 +430,7 @@ describeIf('Agent inventory reservation', () => {
         agentId: fixture.agent.id,
         countryId: country.id,
         paymentAccountId: fixture.account.id,
-        fiatAmount: 1000, // coinAmount = 1000 at rate 1, exceeds 100 total
+        fiatAmount: 10_000, // Valid admission minimum, exceeds the 100-santim inventory
         idempotencyKey: `key-${Math.random()}`,
       })
     ).rejects.toThrow(/insufficient agent inventory/i);
@@ -439,13 +441,13 @@ describeIf('Agent inventory reservation', () => {
   });
 
   it('15. reservation creates the required ledger record', async () => {
-    const fixture = await setupActiveAgent('res3', country.id, method.id, admin, superAdmin, 1000);
+    const fixture = await setupActiveAgent('res3', country.id, method.id, admin, superAdmin, 20_000);
     const customer = await createUser('rescust3');
     const result = await createAgentOrder(customer.id, {
       agentId: fixture.agent.id,
       countryId: country.id,
       paymentAccountId: fixture.account.id,
-      fiatAmount: 200,
+      fiatAmount: 10_000,
       idempotencyKey: `key-${Math.random()}`,
     });
 
@@ -457,13 +459,13 @@ describeIf('Agent inventory reservation', () => {
   });
 
   it('16-17. duplicate reservation is prevented (reservation is 1:1 with order, never independently created)', async () => {
-    const fixture = await setupActiveAgent('res4', country.id, method.id, admin, superAdmin, 1000);
+    const fixture = await setupActiveAgent('res4', country.id, method.id, admin, superAdmin, 20_000);
     const customer = await createUser('rescust4');
     const result = await createAgentOrder(customer.id, {
       agentId: fixture.agent.id,
       countryId: country.id,
       paymentAccountId: fixture.account.id,
-      fiatAmount: 200,
+      fiatAmount: 10_000,
       idempotencyKey: `key-${Math.random()}`,
     });
 
@@ -472,7 +474,7 @@ describeIf('Agent inventory reservation', () => {
   });
 
   it('CONCURRENCY Race C — concurrent orders cannot oversubscribe inventory', async () => {
-    const fixture = await setupActiveAgent('res5', country.id, method.id, admin, superAdmin, 500); // two 300-Coin reservations cannot both fit
+    const fixture = await setupActiveAgent('res5', country.id, method.id, admin, superAdmin, 15_000); // two 10,000-santim reservations cannot both fit
     const custA = await createUser('rescustA');
     const custB = await createUser('rescustB');
 
@@ -481,14 +483,14 @@ describeIf('Agent inventory reservation', () => {
         agentId: fixture.agent.id,
         countryId: country.id,
         paymentAccountId: fixture.account.id,
-        fiatAmount: 300, // coinAmount 300
+        fiatAmount: 10_000, // coinAmount 10,000
         idempotencyKey: `key-${Math.random()}`,
       }),
       createAgentOrder(custB.id, {
         agentId: fixture.agent.id,
         countryId: country.id,
         paymentAccountId: fixture.account.id,
-        fiatAmount: 300, // coinAmount 300 — 60+60=120 > 100 total
+        fiatAmount: 10_000, // 10,000 + 10,000 > 15,000 inventory
         idempotencyKey: `key-${Math.random()}`,
       }),
     ]);
@@ -499,7 +501,7 @@ describeIf('Agent inventory reservation', () => {
 
     const inventory = await getAgentInventory(fixture.agent.id);
     expect(inventory.reservedBalance).toBeLessThanOrEqual(inventory.totalBalance);
-    expect(inventory.reservedBalance).toBe(300);
+    expect(inventory.reservedBalance).toBe(10_000);
   });
 });
 
@@ -519,7 +521,7 @@ describeIf('Agent order settlement', () => {
     superAdmin = await createSuperAdmin('setsuper');
     country = await createCountry('set');
     method = await createPaymentMethod(country.id, 'set');
-    await createExchangeRate(country.id, country.currencyCode, 10, admin.id);
+    await createExchangeRate(country.id, country.currencyCode, admin.id);
   });
 
   async function makeSubmittedOrder(tag: string) {
@@ -529,7 +531,7 @@ describeIf('Agent order settlement', () => {
       agentId: fixture.agent.id,
       countryId: country.id,
       paymentAccountId: fixture.account.id,
-      fiatAmount: 500,
+      fiatAmount: 10_000,
       idempotencyKey: `key-${Math.random()}`,
     });
     await submitOrderPayment(customer.id, created.order.id);
@@ -552,7 +554,7 @@ describeIf('Agent order settlement', () => {
       agentId: fixture.agent.id,
       countryId: country.id,
       paymentAccountId: fixture.account.id,
-      fiatAmount: 500,
+      fiatAmount: 10_000,
       idempotencyKey: `key-${Math.random()}`,
     });
     // never submitted payment — still CREATED
@@ -650,17 +652,17 @@ describeIf('Agent order cancellation (customer-initiated release)', () => {
     superAdmin = await createSuperAdmin('cancelsuper');
     country = await createCountry('cancel');
     method = await createPaymentMethod(country.id, 'cancel');
-    await createExchangeRate(country.id, country.currencyCode, 10, admin.id);
+    await createExchangeRate(country.id, country.currencyCode, admin.id);
   });
 
   it('cancellation releases the reservation and restores available inventory', async () => {
-    const fixture = await setupActiveAgent('cancel1', country.id, method.id, admin, superAdmin, 1000);
+    const fixture = await setupActiveAgent('cancel1', country.id, method.id, admin, superAdmin, 20_000);
     const customer = await createUser('cancelcust1');
     const created = await createAgentOrder(customer.id, {
       agentId: fixture.agent.id,
       countryId: country.id,
       paymentAccountId: fixture.account.id,
-      fiatAmount: 50,
+      fiatAmount: 10_000,
       idempotencyKey: `key-${Math.random()}`,
     });
 
@@ -672,7 +674,7 @@ describeIf('Agent order cancellation (customer-initiated release)', () => {
 
     const afterCancel = await getAgentInventory(fixture.agent.id);
     expect(afterCancel.reservedBalance).toBe(0);
-    expect(afterCancel.totalBalance).toBe(1000); // release never touches totalBalance
+    expect(afterCancel.totalBalance).toBe(20_000); // release never touches totalBalance
 
     const reservation = await prisma.agentReservation.findUnique({ where: { orderId: created.order.id } });
     expect(reservation!.status).toBe('RELEASED');
@@ -683,13 +685,13 @@ describeIf('Agent order cancellation (customer-initiated release)', () => {
   });
 
   it('cancellation is rejected once payment has been submitted', async () => {
-    const fixture = await setupActiveAgent('cancel2', country.id, method.id, admin, superAdmin, 1000);
+    const fixture = await setupActiveAgent('cancel2', country.id, method.id, admin, superAdmin, 20_000);
     const customer = await createUser('cancelcust2');
     const created = await createAgentOrder(customer.id, {
       agentId: fixture.agent.id,
       countryId: country.id,
       paymentAccountId: fixture.account.id,
-      fiatAmount: 50,
+      fiatAmount: 10_000,
       idempotencyKey: `key-${Math.random()}`,
     });
     await submitOrderPayment(customer.id, created.order.id);
@@ -700,14 +702,14 @@ describeIf('Agent order cancellation (customer-initiated release)', () => {
   });
 
   it('customer cannot cancel another customer\'s order', async () => {
-    const fixture = await setupActiveAgent('cancel3', country.id, method.id, admin, superAdmin, 1000);
+    const fixture = await setupActiveAgent('cancel3', country.id, method.id, admin, superAdmin, 20_000);
     const customer = await createUser('cancelcust3');
     const stranger = await createUser('cancelstranger3');
     const created = await createAgentOrder(customer.id, {
       agentId: fixture.agent.id,
       countryId: country.id,
       paymentAccountId: fixture.account.id,
-      fiatAmount: 50,
+      fiatAmount: 10_000,
       idempotencyKey: `key-${Math.random()}`,
     });
 
@@ -715,13 +717,13 @@ describeIf('Agent order cancellation (customer-initiated release)', () => {
   });
 
   it('CONCURRENCY Race F — concurrent cancels release inventory exactly once', async () => {
-    const fixture = await setupActiveAgent('cancel4', country.id, method.id, admin, superAdmin, 1000);
+    const fixture = await setupActiveAgent('cancel4', country.id, method.id, admin, superAdmin, 20_000);
     const customer = await createUser('cancelcust4');
     const created = await createAgentOrder(customer.id, {
       agentId: fixture.agent.id,
       countryId: country.id,
       paymentAccountId: fixture.account.id,
-      fiatAmount: 50,
+      fiatAmount: 10_000,
       idempotencyKey: `key-${Math.random()}`,
     });
 
@@ -737,13 +739,13 @@ describeIf('Agent order cancellation (customer-initiated release)', () => {
   });
 
   it('CONCURRENCY Race H — incompatible transitions (cancel vs submit-payment) from the same state: only one wins', async () => {
-    const fixture = await setupActiveAgent('cancel5', country.id, method.id, admin, superAdmin, 1000);
+    const fixture = await setupActiveAgent('cancel5', country.id, method.id, admin, superAdmin, 20_000);
     const customer = await createUser('cancelcust5');
     const created = await createAgentOrder(customer.id, {
       agentId: fixture.agent.id,
       countryId: country.id,
       paymentAccountId: fixture.account.id,
-      fiatAmount: 50,
+      fiatAmount: 10_000,
       idempotencyKey: `key-${Math.random()}`,
     });
 
@@ -849,11 +851,11 @@ describeIf('Admin inventory funding and adjustment', () => {
 
   it('37. adjustment cannot violate the inventory invariant (deduction below reservedBalance rejected)', async () => {
     const { agent, user } = await makeBareAgent('fund8');
-    await fundAgentInventory(admin.id, agent.id, 1000, `fund-key-${Math.random()}`);
+    await fundAgentInventory(admin.id, agent.id, 20_000, `fund-key-${Math.random()}`);
 
-    // Reserve 400 via a real order so reservedBalance is genuinely non-zero.
+    // Reserve 10_000 via a real order so reservedBalance is genuinely non-zero.
     const methodForFund8 = await createPaymentMethod(country.id, 'fund8');
-    await createExchangeRate(country.id, 'ETB', 1, admin.id);
+    await createExchangeRate(country.id, 'ETB', admin.id);
     const account = await createAgentPaymentAccount(user.id, {
       countryId: country.id,
       methodDefId: methodForFund8.id,
@@ -865,15 +867,15 @@ describeIf('Admin inventory funding and adjustment', () => {
       agentId: agent.id,
       countryId: country.id,
       paymentAccountId: account.id,
-      fiatAmount: 400,
+      fiatAmount: 10_000,
       idempotencyKey: `key-${Math.random()}`,
     });
 
     const inventory = await getAgentInventory(agent.id);
-    expect(inventory.reservedBalance).toBe(400);
+    expect(inventory.reservedBalance).toBe(10_000);
 
     await expect(
-      adjustAgentInventory(superAdmin.id, agent.id, -700, 'would violate invariant', `adj-key-${Math.random()}`)
+      adjustAgentInventory(superAdmin.id, agent.id, -15_000, 'would violate invariant', `adj-key-${Math.random()}`)
     ).rejects.toThrow(/below reservedBalance/i);
   });
 
@@ -918,18 +920,18 @@ describeIf('Agent order authorization / ownership', () => {
     superAdmin = await createSuperAdmin('authosuper');
     country = await createCountry('autho');
     method = await createPaymentMethod(country.id, 'autho');
-    await createExchangeRate(country.id, country.currencyCode, 10, admin.id);
+    await createExchangeRate(country.id, country.currencyCode, admin.id);
   });
 
   it('38. customer cannot access another customer\'s order', async () => {
-    const fixture = await setupActiveAgent('autho1', country.id, method.id, admin, superAdmin, 1000);
+    const fixture = await setupActiveAgent('autho1', country.id, method.id, admin, superAdmin, 20_000);
     const owner = await createUser('authoowner1');
     const stranger = await createUser('authostranger1');
     const created = await createAgentOrder(owner.id, {
       agentId: fixture.agent.id,
       countryId: country.id,
       paymentAccountId: fixture.account.id,
-      fiatAmount: 50,
+      fiatAmount: 10_000,
       idempotencyKey: `key-${Math.random()}`,
     });
 
@@ -941,14 +943,14 @@ describeIf('Agent order authorization / ownership', () => {
   });
 
   it('40. agent cannot manipulate another Agent\'s inventory via settlement', async () => {
-    const fixtureA = await setupActiveAgent('autho2a', country.id, method.id, admin, superAdmin, 1000);
-    const fixtureB = await setupActiveAgent('autho2b', country.id, method.id, admin, superAdmin, 1000);
+    const fixtureA = await setupActiveAgent('autho2a', country.id, method.id, admin, superAdmin, 20_000);
+    const fixtureB = await setupActiveAgent('autho2b', country.id, method.id, admin, superAdmin, 20_000);
     const customer = await createUser('authocust2');
     const created = await createAgentOrder(customer.id, {
       agentId: fixtureA.agent.id,
       countryId: country.id,
       paymentAccountId: fixtureA.account.id,
-      fiatAmount: 50,
+      fiatAmount: 10_000,
       idempotencyKey: `key-${Math.random()}`,
     });
     await submitOrderPayment(customer.id, created.order.id);
@@ -963,14 +965,14 @@ describeIf('Agent order authorization / ownership', () => {
     // settleAgentOrder resolves the acting Agent from actorUserId, never
     // from a client-supplied agentId — there is no parameter through which
     // a caller could claim to be a different agent.
-    const fixtureA = await setupActiveAgent('autho3a', country.id, method.id, admin, superAdmin, 1000);
-    const fixtureB = await setupActiveAgent('autho3b', country.id, method.id, admin, superAdmin, 1000);
+    const fixtureA = await setupActiveAgent('autho3a', country.id, method.id, admin, superAdmin, 20_000);
+    const fixtureB = await setupActiveAgent('autho3b', country.id, method.id, admin, superAdmin, 20_000);
     const customer = await createUser('authocust3');
     const created = await createAgentOrder(customer.id, {
       agentId: fixtureA.agent.id,
       countryId: country.id,
       paymentAccountId: fixtureA.account.id,
-      fiatAmount: 50,
+      fiatAmount: 10_000,
       idempotencyKey: `key-${Math.random()}`,
     });
     await submitOrderPayment(customer.id, created.order.id);
@@ -997,17 +999,17 @@ describeIf('Agent order notifications', () => {
     superAdmin = await createSuperAdmin('notifsuper2');
     country = await createCountry('notif2');
     method = await createPaymentMethod(country.id, 'notif2');
-    await createExchangeRate(country.id, country.currencyCode, 10, admin.id);
+    await createExchangeRate(country.id, country.currencyCode, admin.id);
   });
 
   it('43. AGENT_ORDER_CREATED is emitted to the agent exactly once', async () => {
-    const fixture = await setupActiveAgent('notifcreate', country.id, method.id, admin, superAdmin, 1000);
+    const fixture = await setupActiveAgent('notifcreate', country.id, method.id, admin, superAdmin, 20_000);
     const customer = await createUser('notifcust1');
     await createAgentOrder(customer.id, {
       agentId: fixture.agent.id,
       countryId: country.id,
       paymentAccountId: fixture.account.id,
-      fiatAmount: 50,
+      fiatAmount: 10_000,
       idempotencyKey: `key-${Math.random()}`,
     });
 
@@ -1018,13 +1020,13 @@ describeIf('Agent order notifications', () => {
   });
 
   it('AGENT_PAYMENT_SUBMITTED notifies the agent', async () => {
-    const fixture = await setupActiveAgent('notifsubmit', country.id, method.id, admin, superAdmin, 1000);
+    const fixture = await setupActiveAgent('notifsubmit', country.id, method.id, admin, superAdmin, 20_000);
     const customer = await createUser('notifcust2');
     const created = await createAgentOrder(customer.id, {
       agentId: fixture.agent.id,
       countryId: country.id,
       paymentAccountId: fixture.account.id,
-      fiatAmount: 50,
+      fiatAmount: 10_000,
       idempotencyKey: `key-${Math.random()}`,
     });
     await submitOrderPayment(customer.id, created.order.id);
@@ -1036,13 +1038,13 @@ describeIf('Agent order notifications', () => {
   });
 
   it('AGENT_COINS_RELEASED notifies the customer', async () => {
-    const fixture = await setupActiveAgent('notifrelease', country.id, method.id, admin, superAdmin, 1000);
+    const fixture = await setupActiveAgent('notifrelease', country.id, method.id, admin, superAdmin, 20_000);
     const customer = await createUser('notifcust3');
     const created = await createAgentOrder(customer.id, {
       agentId: fixture.agent.id,
       countryId: country.id,
       paymentAccountId: fixture.account.id,
-      fiatAmount: 50,
+      fiatAmount: 10_000,
       idempotencyKey: `key-${Math.random()}`,
     });
     await submitOrderPayment(customer.id, created.order.id);
@@ -1055,13 +1057,13 @@ describeIf('Agent order notifications', () => {
   });
 
   it('44. losing concurrent settlement does not emit a duplicate AGENT_COINS_RELEASED notification', async () => {
-    const fixture = await setupActiveAgent('notifrace', country.id, method.id, admin, superAdmin, 1000);
+    const fixture = await setupActiveAgent('notifrace', country.id, method.id, admin, superAdmin, 20_000);
     const customer = await createUser('notifcust4');
     const created = await createAgentOrder(customer.id, {
       agentId: fixture.agent.id,
       countryId: country.id,
       paymentAccountId: fixture.account.id,
-      fiatAmount: 50,
+      fiatAmount: 10_000,
       idempotencyKey: `key-${Math.random()}`,
     });
     await submitOrderPayment(customer.id, created.order.id);
@@ -1092,14 +1094,14 @@ describeIf('Phase E regression — unrelated systems untouched', () => {
     const superAdmin = await createSuperAdmin('regressionsuper');
     const country = await createCountry('regression2');
     const method = await createPaymentMethod(country.id, 'regression2');
-    await createExchangeRate(country.id, country.currencyCode, 10, admin.id);
-    const fixture = await setupActiveAgent('regression2', country.id, method.id, admin, superAdmin, 1000);
+    await createExchangeRate(country.id, country.currencyCode, admin.id);
+    const fixture = await setupActiveAgent('regression2', country.id, method.id, admin, superAdmin, 20_000);
     const customer = await createUser('regressioncust2');
     await createAgentOrder(customer.id, {
       agentId: fixture.agent.id,
       countryId: country.id,
       paymentAccountId: fixture.account.id,
-      fiatAmount: 50,
+      fiatAmount: 10_000,
       idempotencyKey: `key-${Math.random()}`,
     });
 
@@ -1115,21 +1117,24 @@ describeIf('USD-priced agent orders', () => {
     const admin = await createAdmin(tag), owner = await createSuperAdmin(tag + 'owner');
     const country = await createCountry(tag);
     const method = await createPaymentMethod(country.id, tag);
-    const fixture = await setupActiveAgent(tag, country.id, method.id, admin, owner, 1000);
+    const fixture = await setupActiveAgent(tag, country.id, method.id, admin, owner, 20_000);
     const customer = await createUser(tag + 'buyer');
-    const rate = await publishUsdRate(admin.id, country.id, {
+    // The native ETB wallet refuses USD_V1 terms (previously 1 local/USD, 200 minor -> 192 units).
+    await expect(publishUsdRate(admin.id, country.id, {
       version: 'USD_V1', coinsPerUsd: 96, localPerUsd: '1', minorDigits: 2,
       source: 'Native test USD reference', observedAt: new Date(Date.now() - 1000).toISOString(),
       expiresAt: new Date(Date.now() + 3600000).toISOString(), feeMinor: 0,
       p2pDepositMinUsdCents: 200, p2pWithdrawalAboveUsdCents: 400,
       cryptoDepositMinUsdCents: 1000, cryptoWithdrawalAboveUsdCents: 2000,
-    });
+    })).rejects.toThrow(/Only ETB wallet pricing is supported/);
+    const rate = await publishUsdRate(admin.id, country.id, fixtureEtbPolicy());
+    // The inclusive 100 ETB minimum is 10,000 santim, independent of USD FX.
     const args = { agentId: fixture.agent.id, countryId: country.id, paymentAccountId: fixture.account.id,
-      fiatAmount: 200, idempotencyKey: `usd-order-${tag}` };
-    await expect(createAgentOrder(customer.id, { ...args, fiatAmount: 199 })).rejects.toThrow(/Minimum P2P deposit/);
+      fiatAmount: 10_000, idempotencyKey: `usd-order-${tag}` };
+    await expect(createAgentOrder(customer.id, { ...args, fiatAmount: 9_999 })).rejects.toThrow(/Minimum P2P deposit/);
     const { order } = await createAgentOrder(customer.id, args);
-    expect(order.coinAmount).toBe(192);
-    expect(order.pricingSnapshot).toMatchObject({ coinsPerUsd: 96, fiatMinor: '200', coinAmount: 192 });
+    expect(order.coinAmount).toBe(10_000);
+    expect(order.pricingSnapshot).toMatchObject({ version: 'ETB_V1', fiatMinor: '10000', coinAmount: 10_000 });
     await prisma.exchangeRateConfig.update({ where: { id: rate.id }, data: { isActive: false } });
     expect((await createAgentOrder(customer.id, args)).order.id).toBe(order.id);
     await expect(createAgentOrder(customer.id, { ...args, idempotencyKey: args.idempotencyKey + '-new' })).rejects.toThrow(/No active exchange rate/);
@@ -1140,7 +1145,7 @@ describeIf('USD-priced agent orders', () => {
     await prisma.user.update({ where: { id: fixture.agentUser.id }, data: { status: 'ACTIVE' } });
     await settleAgentOrder(fixture.agentUser.id, order.id);
     await expect(settleAgentOrder(fixture.agentUser.id, order.id)).rejects.toThrow();
-    expect((await prisma.wallet.findUnique({ where: { userId: customer.id } }))!.coinsBalance).toBe(192);
+    expect((await prisma.wallet.findUnique({ where: { userId: customer.id } }))!.coinsBalance).toBe(10_000);
     expect((await getAgentInventory(fixture.agent.id)).reservedBalance).toBe(0);
   });
 });

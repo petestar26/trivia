@@ -1,4 +1,5 @@
-import { fixtureUsdPolicy } from '../test/payment-policy-fixture.js';
+// New quotes use at least 50,000 santim (500 ETB); lifecycle assertions retain their original meaning.
+import { fixtureEtbPolicy } from '../test/payment-policy-fixture.js';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { prisma } from '@socialplay/database';
@@ -105,7 +106,7 @@ async function createFundedUser(tag: string, coins: number) {
 const ACCOUNT_DETAILS = { bankName: 'Test Bank', accountNumber: '881122335' };
 const MASKED_ACCOUNT_NUMBER = '*****2335'; // 9 chars: 5 stars + last 4 ('881122335')
 
-async function createHeldWithdrawal(tag: string, coinAmount = 10_000) {
+async function createHeldWithdrawal(tag: string, coinAmount = 50_000) {
   const admin = await createAdmin(tag);
   const superAdmin = await createSuperAdmin(`${tag}-s`);
   const country = await createCountry(tag);
@@ -119,9 +120,9 @@ async function createHeldWithdrawal(tag: string, coinAmount = 10_000) {
       isActive: true,
     },
   });
-  await prisma.exchangeRateConfig.create({ data: { countryId: country.id, fiatCurrency: 'ETB', coinsPerUnit: 2, isActive: true, setBy: admin.id, effectiveAt: new Date(Date.now() - 1000) , pricingPolicy: fixtureUsdPolicy(2)} });
+  await prisma.exchangeRateConfig.create({ data: { countryId: country.id, fiatCurrency: 'ETB', coinsPerUnit: 1, isActive: true, setBy: admin.id, effectiveAt: new Date(Date.now() - 1000), pricingPolicy: fixtureEtbPolicy() } });
   const { agentUser, agent } = await createFundedAgent(tag, country.id, admin, superAdmin);
-  const user = await createFundedUser(tag, 50_000);
+  const user = await createFundedUser(tag, 250_000);
   const payoutAccount = await createUserPayoutAccount(user.id, {
     countryId: country.id,
     methodDefId: pm.id,
@@ -136,14 +137,14 @@ async function createHeldWithdrawal(tag: string, coinAmount = 10_000) {
   return { user, agentUser, agent, withdrawal: withdrawal as any, payoutAccount, country };
 }
 
-async function createPayoutInProgressWithdrawal(tag: string, coinAmount = 10_000) {
+async function createPayoutInProgressWithdrawal(tag: string, coinAmount = 50_000) {
   const fixture = await createHeldWithdrawal(tag, coinAmount);
   await claimPayout(fixture.agentUser.id, fixture.withdrawal.id, { idempotencyKey: `pip-${tag}` });
   const withdrawal = await prisma.withdrawal.findUnique({ where: { id: fixture.withdrawal.id } });
   return { ...fixture, withdrawal: withdrawal as any };
 }
 
-async function createPaymentSubmittedWithdrawal(tag: string, coinAmount = 10_000) {
+async function createPaymentSubmittedWithdrawal(tag: string, coinAmount = 50_000) {
   const fixture = await createPayoutInProgressWithdrawal(tag, coinAmount);
   await submitPayment(fixture.agentUser.id, fixture.withdrawal.id, {
     referenceNumber: `REF-${tag}`,

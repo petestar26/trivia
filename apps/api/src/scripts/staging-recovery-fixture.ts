@@ -8,7 +8,7 @@ import { assertUsdStagingTarget } from './staging-payment-target.js';
 export const FIXTURE = 'SYNTHETIC-RECOVERY-20261007';
 const ACTION = 'STAGING_SYNTHETIC_RECOVERY_FIXTURE';
 const id = (n: number) => `e5b06247-62bf-4935-bb93-${String(n).padStart(12, '0')}`;
-export const fixtureIds = { buyer: id(1), agentUser: id(2), country: id(3), agent: id(4), method: id(5), order: id(6), reservation: id(7), recovery: id(8) };
+export const fixtureIds = { buyer: id(1), agentUser: id(2), country: id(3), agent: id(4), method: id(5), order: id(6), reservation: id(7), recovery: id(8), receivingAccount: id(9) };
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 type Tx = Prisma.TransactionClient;
 
@@ -38,7 +38,7 @@ async function snapshot(tx: Tx) {
     inventoryLedger: await tx.agentInventoryLedger.count({ where: { agentId: ids.agent } }),
     settlement: await tx.agentOrderSettlement.count({ where: { orderId: ids.order } }),
     walletEntries: await tx.walletTransaction.count({ where: { referenceId: ids.order } }),
-    destinations: await tx.agentPaymentAccount.count({ where: { agentId: ids.agent } }),
+    destinations: await tx.agentPaymentAccount.findMany({ where: { agentId: ids.agent }, orderBy: { id: 'asc' } }),
     sessions: await tx.session.count({ where: { userId: { in: [ids.buyer, ids.agentUser] } } }),
   };
 }
@@ -62,11 +62,20 @@ export async function recoveryFixture(tx: Tx, apply: boolean) {
     await tx.country.create({ data: { id: fixtureIds.country, code: 'ZZ', name: FIXTURE, currencyCode: 'ETB', isActive: false, agentPaymentEnabled: false, usdPricingEnabled: false } });
     await tx.agent.create({ data: { id: fixtureIds.agent, userId: fixtureIds.agentUser, countryId: fixtureIds.country, status: 'DISABLED', displayName: FIXTURE, contactEmail: 'synthetic-recovery@example.invalid' } });
     await tx.paymentMethodDefinition.create({ data: { id: fixtureIds.method, countryId: fixtureIds.country, type: 'MOBILE_PAYMENT', name: FIXTURE, fieldSchema: {}, isActive: false } });
+    // A real synthetic destination satisfies the immutable receiving-account
+    // contract. The country, method, agent and users remain disabled/inactive;
+    // approval here is fixture provenance, not production activation.
+    const destination = { synthetic: true, warning: 'NO REAL PAYMENT OR DESTINATION' };
+    await tx.agentPaymentAccount.create({ data: {
+      id: fixtureIds.receivingAccount, agentId: fixtureIds.agent,
+      countryId: fixtureIds.country, methodDefId: fixtureIds.method,
+      status: 'APPROVED', accountDetails: destination,
+    } });
     await tx.agentOrder.create({ data: {
       id: fixtureIds.order, orderNumber: FIXTURE, userId: fixtureIds.buyer, agentId: fixtureIds.agent,
       countryId: fixtureIds.country, paymentMethodDefId: fixtureIds.method,
-      paymentAccountId: 'SYNTHETIC-NO-DESTINATION', exchangeRateConfigId: 'SYNTHETIC-NO-RATE',
-      paymentSnapshot: { synthetic: true, warning: 'NO REAL PAYMENT OR DESTINATION' },
+      paymentAccountId: fixtureIds.receivingAccount, exchangeRateConfigId: 'SYNTHETIC-NO-RATE',
+      paymentSnapshot: destination,
       fiatAmount: 100, fiatCurrency: 'ETB', exchangeRateValue: 1, coinAmount: 100,
       status: 'CANCELLED', idempotencyKey: FIXTURE, createdAt, cancelledAt: closedAt,
       paymentInstructionsShownAt: createdAt,

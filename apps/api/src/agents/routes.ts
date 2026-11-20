@@ -251,9 +251,12 @@ export async function agentRoutes(server: FastifyInstance): Promise<void> {
     '/me/payment-accounts/:id/disable',
     { preHandler: auth },
     async (request, reply) => {
+      const parsed = accountReviewSchema.safeParse(request.body);
+      if (!parsed.success) throw ApiError.badRequest('The displayed expectedUpdatedAt ISO timestamp is required');
       const result = await disableOwnPaymentAccount(
         request.user!.sub,
         request.params.id,
+        parsed.data.expectedUpdatedAt,
         requestContext(request)
       );
       return reply.send({ success: true, data: result });
@@ -304,9 +307,12 @@ export async function agentRoutes(server: FastifyInstance): Promise<void> {
     '/payment-accounts/:id/admin-disable',
     { preHandler: admin },
     async (request, reply) => {
+      const parsed = accountReviewSchema.safeParse(request.body);
+      if (!parsed.success) throw ApiError.badRequest('The displayed expectedUpdatedAt ISO timestamp is required');
       const result = await adminDisablePaymentAccount(
         request.user!.sub,
         request.params.id,
+        parsed.data.expectedUpdatedAt,
         requestContext(request)
       );
       return reply.send({ success: true, data: result });

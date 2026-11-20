@@ -42,11 +42,11 @@ describe('native ETB wallet quotes', () => {
       }
     }
   });
-  it('honors exact inclusive deposit and exclusive withdrawal thresholds', () => {
-    expect(() => priceUsdPayment(policy, 'deposit', 36432)).toThrow(/Minimum/);
-    expect(priceUsdPayment(policy, 'deposit', 36433).coinAmount).toBe(36433);
-    expect(() => priceUsdPayment(policy, 'withdrawal', 72865)).toThrow(/exceed/);
-    expect(priceUsdPayment(policy, 'withdrawal', 72866).coinAmount).toBe(72866);
+  it('honors inclusive fixed ETB deposit and withdrawal thresholds', () => {
+    expect(() => priceUsdPayment(policy, 'deposit', 9999)).toThrow(/Minimum/);
+    expect(priceUsdPayment(policy, 'deposit', 10000).coinAmount).toBe(10000);
+    expect(() => priceUsdPayment(policy, 'withdrawal', 49999)).toThrow(/Minimum/);
+    expect(priceUsdPayment(policy, 'withdrawal', 50000).coinAmount).toBe(50000);
   });
   it('refuses expired rates, token fields and inappropriate precision', () => {
     for (const p of [

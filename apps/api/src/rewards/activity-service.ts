@@ -1,8 +1,15 @@
+import { createDetachedWorkTracker } from '../detached-work-tracker.js';
+
 import { recordActivity as recordStreak, getStreak } from '../tasks/streak-service.js';
 import { recordTaskEvent } from '../tasks/task-service.js';
 import { unlockAchievement } from './achievement-service.js';
 import { getProgress } from '../progress/progress-service.js';
 import { processMemberActivity } from '../member-rewards/service.js';
+
+const detachedActivity = createDetachedWorkTracker();
+
+/** Call only after HTTP, socket and background producers have settled. */
+export const waitForActivityRecording = detachedActivity.wait;
 
 export type ActivityEventType =
   | 'LOGIN'
@@ -131,7 +138,7 @@ export function safeRecordActivity(
   userId: string,
   event: ActivityEvent
 ): Promise<void> {
-  return recordActivity(userId, event).catch(() => {
+  return detachedActivity.track(() => recordActivity(userId, event).catch(() => {
     // Activity/rewards are best-effort and non-critical to the primary action.
-  });
+  }));
 }

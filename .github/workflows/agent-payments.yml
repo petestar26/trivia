@@ -66,6 +66,8 @@ jobs:
           pnpm build:packages
           pnpm --filter @socialplay/database exec prisma migrate deploy
       - name: Actual payment, appeal, receipt and runtime permission checks
+        env:
+          ETB_NATIVE_DB_ACK: fresh-synthetic
         run: pnpm --filter api exec vitest run --config vitest.payments-native.config.ts
       - name: Member, agent, notification and retry screens
         if: matrix.postgres == '16'

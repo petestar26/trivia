@@ -7,6 +7,7 @@ const state = vi.hoisted(() => ({ tx: {
   dispute: { findFirst: vi.fn() },
   agentReservation: { findUnique: vi.fn() },
   agentOrderSettlement: { findUnique: vi.fn() },
+  heldDepositAdjudication: { findUnique: vi.fn() },
   auditLog: { create: vi.fn() },
 } }));
 vi.mock('@socialplay/database', async (original) => ({

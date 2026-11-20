@@ -276,22 +276,31 @@ export async function processMemberActivity(userId: string) {
 export function startRewardDelivery(report: () => void) {
   let stopped = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let active: Promise<void> = Promise.resolve();
   const tick = async () => {
+    if (stopped) return;
     try {
       await deliverPendingRewards();
     } catch {
       report();
     } finally {
       if (!stopped) {
-        timer = setTimeout(() => void tick(), 30_000);
+        timer = setTimeout(launch, 30_000);
         timer.unref();
       }
     }
   };
-  void tick();
-  return () => {
+  const launch = () => {
+    if (stopped) return;
+    active = tick();
+    // Observe reporting errors without allowing an unhandled rejection.
+    void active.catch(() => {});
+  };
+  launch();
+  return async () => {
     stopped = true;
     if (timer) clearTimeout(timer);
+    await active;
   };
 }
 

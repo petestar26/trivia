@@ -67,12 +67,21 @@ export async function etbRateView() {
 }
 
 export function startEtbRateRefresh(onError: () => void) {
+  let stopped = false;
+  const active = new Set<Promise<void>>();
   const refresh = () => {
-    void refreshEtbRate().catch(onError);
+    if (stopped) return;
+    const work = refreshEtbRate().catch(onError);
+    active.add(work);
+    void work.then(() => active.delete(work), () => active.delete(work));
   };
   refresh();
   // Check the lease each minute so scheduling drift cannot skip a whole refresh.
   const timer = setInterval(refresh, Math.min(60_000, ETB_REFRESH_MS));
   timer.unref();
-  return () => clearInterval(timer);
+  return async () => {
+    stopped = true;
+    clearInterval(timer);
+    await Promise.allSettled([...active]);
+  };
 }

@@ -1,5 +1,6 @@
-import { depositEntryDeadline, depositClock, assertDepositReady, MAX_PENDING_DEPOSITS } from './order-lifecycle.js';
+import { lockDepositReceivingAccount, depositEntryDeadline, depositClock, assertDepositReady } from './order-lifecycle.js';
 import { assertPlatformAdmin } from './agent-service.js';
+import { heldAdmissionState } from './held-deposit-recovery-service.js';
 import { selectPaymentRate } from './usd-config-service.js';
 import { parseUsdPolicy, priceUsdPayment } from './usd-pricing.js';
 import { prisma } from '@socialplay/database';
@@ -129,7 +130,7 @@ export async function createAgentOrder(
   if (paymentAccount.agentId !== agent.id) {
     throw ApiError.badRequest('This payment account does not belong to the selected agent');
   }
-  if (paymentAccount.status !== 'APPROVED') {
+  if (paymentAccount.status !== 'APPROVED' || paymentAccount.safetyHold) {
     throw ApiError.badRequest('This payment account is not currently approved for use');
   }
   // Phase C correction C: countryId == methodDef.countryId, and the order's
@@ -164,8 +165,14 @@ export async function createAgentOrder(
           if (orderRequestFieldsMatch(replay, args)) return { order: replay, idempotent: true };
           throw ApiError.conflict('An order already exists for this idempotency key with different request data');
         }
-        if (await tx.agentOrder.count({ where: { userId: actorUserId, status: 'CREATED' } }) >= MAX_PENDING_DEPOSITS) {
-          throw ApiError.conflict('Finish or cancel your pending deposits before creating another (maximum 3)');
+        // Held unpaid orders keep counting towards the limit. Only an approved,
+        // bounded policy exception (default 0) can set some of them aside, so
+        // unresolved reserved exposure per member is always capped.
+        const admission = await heldAdmissionState(tx, actorUserId);
+        if (admission.blocked) {
+          throw ApiError.conflict(admission.held > 0
+            ? 'You have deposits on safety hold that count towards the maximum of 3 pending deposits. Open them to tell payment support whether you paid.'
+            : 'Finish or cancel your pending deposits before creating another (maximum 3)');
         }
         // Admission is revalidated under row locks. Preflight data alone can
         // become stale while an agent/account/country is being disabled.
@@ -186,9 +193,9 @@ export async function createAgentOrder(
         if (!currentCountry?.isActive || !currentCountry.agentPaymentEnabled || currentCountry.currencyCode !== fiatCurrency) {
           throw ApiError.conflict('Country payment availability changed');
         }
-        const [currentAccount] = await tx.$queryRaw<Array<{status:string;agentId:string;countryId:string;methodDefId:string;accountDetails:unknown}>>`
-          SELECT status::text, "agentId", "countryId", "methodDefId", "accountDetails" FROM agent_payment_accounts WHERE id=${args.paymentAccountId} FOR SHARE`;
-        if (!currentAccount || currentAccount.status !== 'APPROVED' || currentAccount.agentId !== agent.id ||
+        const [currentAccount] = await tx.$queryRaw<Array<{status:string;safetyHold:boolean;agentId:string;countryId:string;methodDefId:string;accountDetails:unknown}>>`
+          SELECT status::text, "safetyHold", "agentId", "countryId", "methodDefId", "accountDetails" FROM agent_payment_accounts WHERE id=${args.paymentAccountId} FOR SHARE`;
+        if (!currentAccount || currentAccount.safetyHold || currentAccount.status !== 'APPROVED' || currentAccount.agentId !== agent.id ||
             currentAccount.countryId !== args.countryId || currentAccount.methodDefId !== paymentAccount.methodDefId) {
           throw ApiError.conflict('Payment account changed; review the order again');
         }
@@ -332,6 +339,7 @@ export async function submitOrderPayment(
   return prisma.$transaction(async (tx) => {
     const [actor] = await tx.$queryRaw<{ status: string }[]>`SELECT status::text FROM users WHERE id=${actorUserId} FOR SHARE`;
     if (actor?.status !== 'ACTIVE') throw ApiError.forbidden('An active account is required');
+    await lockDepositReceivingAccount(tx, orderId);
     await tx.$queryRaw`SELECT id FROM agent_orders WHERE id=${orderId} FOR UPDATE`;
     const before = await tx.agentOrder.findUnique({ where: { id: orderId } });
     if (!before) throw ApiError.notFound('Order not found');
@@ -404,15 +412,17 @@ export async function cancelAgentOrder(
       const [admin] = await tx.$queryRaw<{ role: string; status: string }[]>`SELECT role::text, status::text FROM users WHERE id=${actorUserId} FOR SHARE`;
       if (admin?.status !== 'ACTIVE' || !['ADMIN', 'SUPER_ADMIN'].includes(admin.role)) throw ApiError.forbidden('Active admin privileges required');
     }
+    await lockDepositReceivingAccount(tx, orderId);
     await tx.$queryRaw`SELECT id FROM agent_orders WHERE id=${orderId} FOR UPDATE`;
     const before = await tx.agentOrder.findUnique({ where: { id: orderId } });
     if (!before) throw ApiError.notFound('Order not found');
+    if (before.safetyHold) throw ApiError.conflict('Order is on safety hold; contact payment support');
     if (mode === 'customer' && before.userId !== actorUserId) throw ApiError.forbidden('Not your order');
     const operationNow = await depositClock(tx);
     if (mode === 'expiry' && depositEntryDeadline(before) > operationNow) return null;
 
     const claim = await tx.agentOrder.updateMany({
-      where: { id: orderId, status: 'CREATED' },
+      where: { id: orderId, status: 'CREATED', safetyHold: false },
       data: mode === 'expiry' ? { status: 'EXPIRED', expiredAt: operationNow } : { status: 'CANCELLED', cancelledAt: operationNow },
     });
     if (claim.count === 0) {
@@ -576,7 +586,7 @@ export async function settleAgentOrder(
 
 /** Expires only unsubmitted reservations; paid/disputed orders remain held for review. */
 export async function sweepExpiredAgentOrders() {
-  const candidates = await prisma.agentOrder.findMany({ where: { status: 'CREATED' }, orderBy: { createdAt: 'asc' }, take: 200 });
+  const candidates = await prisma.agentOrder.findMany({ where: { status: 'CREATED', safetyHold: false }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], take: 200 });
   let expired = 0, failed = 0;
   for (const order of candidates) {
     try {

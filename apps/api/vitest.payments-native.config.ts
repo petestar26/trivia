@@ -2,10 +2,14 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     include: [
+      'src/agents/etb-requirements.native.ts',
       'src/agents/payment-room.native.ts',
       'src/agents/payment-maintenance.test.ts',
+      'src/agents/p2p-admission-pause.native.ts',
       'src/workspaces/withdrawals.native.ts',
       'src/agents/payment-readiness.native.ts',
+      'src/agents/held-deposit-recovery.native.ts',
+      'src/scripts/held-recovery-capabilities.native.ts',
     ],
     fileParallelism: false,
     pool: 'forks',

@@ -44,6 +44,7 @@ import { basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PrismaClient } from '@prisma/client';
 import type { Prisma } from '@prisma/client';
+import { verifyHeldRecoveryCapabilities } from './held-recovery-capabilities.js';
 import { redactSecrets } from '../economy/ledger-upgrade-preflight.js';
 
 const USAGE = 'usage: ledger-runtime-access [--json]  (reads LEDGER_OWNER_DATABASE_URL, LEDGER_RUNTIME_ROLE, '
@@ -145,6 +146,7 @@ async function requiredPrivileges(tx: Tx, role: string, requirePractice: boolean
   const [schema] = await tx.$queryRaw<{ granted: boolean }[]>`
     SELECT has_schema_privilege(${role}, 'public', 'USAGE') AS granted`;
   if (!schema?.granted) failures.push(`${role} lacks USAGE on schema public, which the API needs`);
+  failures.push(...await verifyHeldRecoveryCapabilities(tx, role, requirePractice));
   return failures;
 }
 
