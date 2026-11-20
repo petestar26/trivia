@@ -1,0 +1,73 @@
+{
+  "sourceCommit": "9cf32da8bd7d8b9a5a0bbe6077210d0e1b79dc18",
+  "hashes": {
+    "scripts/review-payments-preview.mjs": {
+      "gitBlob": "fd9b99e7aa59107c84182cf29af8d084835c0bee",
+      "sha256": "5bd85c538bc3b2f868a062ef580ccde17fdae9c84fda1649ff98d0769c8f42c4"
+    },
+    "apps/web/src/App.tsx": {
+      "gitBlob": "8d9fa8118d072b28216b7a910a21786fd9122a98",
+      "sha256": "e377b25f51ed8e42609b7b23a27bb584b1d0cf7ae0be2c9e23c0f48da7928716"
+    },
+    "apps/web/src/pages/payment-requirements.tsx": {
+      "gitBlob": "0aac6e6add46cd78c571d7722c178b0af492048c",
+      "sha256": "85e0196d45b4b981ae2b79ee3be528bf0577de87f49287d9252987466ba1b925"
+    },
+    "apps/web/src/pages/wallet-payments.tsx": {
+      "gitBlob": "a738732b03e2687f3ded5d845ba6d5bca5b5961a",
+      "sha256": "fa2cfcb5f6e8d67b9bc689157b7816a54b5322a692a7ce85f5906c2785878b3f"
+    },
+    "apps/web/src/pages/wallet-payments.test.tsx": {
+      "gitBlob": "7c77e62ee87a9f17534d055475411da3a79fbbb6",
+      "sha256": "958d1a3d73c12fb0f79a5cc526b2eb5853672fb84421ee67729311977fa46152"
+    },
+    "apps/web/src/pages/wallet-pricing-admin.tsx": {
+      "gitBlob": "853b9450cf9c5a2510b1310f893d5402f8cc44da",
+      "sha256": "9bfb1c0f2d2e89a90829394ba8b1271c474ca7030d8998f26d6a27aec2449a50"
+    },
+    "apps/web/src/pages/wallet-pricing-admin.test.tsx": {
+      "gitBlob": "0ec39ba120a5e02a0c752d1e704e2e9c3622841c",
+      "sha256": "909113d5c9a59586763ff3ef58e935397e84973ed8d9e1a400ec4e0276f587e3"
+    },
+    "apps/web/src/pages/wallet-order-room.tsx": {
+      "gitBlob": "0fe6ef15f3ef0659479a24b483b343c22dbc33d1",
+      "sha256": "c3a9b7ec706c6a5cb399a0f8be04c91f184e5926f4db99bd42dc299d722ac286"
+    },
+    "apps/web/src/pages/workspaces/index.tsx": {
+      "gitBlob": "4dcfdfbc3e46c9ce56360dfb476b599faba5fef8",
+      "sha256": "82cdd8f627e79dba2f44a8166e86042392845289f67f2d7dd15083b7e9762696"
+    },
+    "apps/web/src/providers/auth-provider.tsx": {
+      "gitBlob": "39c5c2cd8ccbe313f27a813f070e6964a1a9acdb",
+      "sha256": "58e2a555b916d7b4438524648d9f26fcb0de7c5a6df088180ffc63ee83037ecb"
+    },
+    "apps/web/src/providers/language-provider.tsx": {
+      "gitBlob": "ddbdeb9538fd658043a5b0bfc1e4f6fc8082c48c",
+      "sha256": "3269a81be658982504c3985ac8a9064a1ef71f329d450f6ff198548006f77568"
+    },
+    "apps/web/src/components/layout/language-select.tsx": {
+      "gitBlob": "d0e9ad17d0ceb1149faf2d668b73ec47b5e39e70",
+      "sha256": "a69387d3d8910db07228ae1d3179940d6324b8ab1ecb6a40619ea135a3c89347"
+    },
+    "apps/web/src/lib/api-config.ts": {
+      "gitBlob": "7d4e90bb376754133208177fe7347791059a193a",
+      "sha256": "3ea7156149afd82e5082d2d72bd26577c62250903ba121dee39cb94b1415e9cf"
+    },
+    "apps/web/src/lib/use-automatic-rewards.ts": {
+      "gitBlob": "d8528e8c02fe60c3bbe813360d1589e3fd4c9c78",
+      "sha256": "4613cccb39e01a132445ef2cdd90decafa9ab5978a77fff1dcbc59b841a8df9c"
+    },
+    "apps/web/src/lib/payment-money.ts": {
+      "gitBlob": "1cbfa133a0abd029e61afaaf17396901fc812082",
+      "sha256": "d81b7ab3a575cff0d175ed82f73c4019cac27592b7348364fc3812b24cac3666"
+    },
+    "apps/web/src/lib/i18n/catalogues/payment-requirements.ts": {
+      "gitBlob": "e1bb6e75f5013865d2cfd4fed9e6565856390862",
+      "sha256": "65ce6acbfd3ce84aa7a001f82dade6157f8e98e0ad76ee0023a9e550050c5946"
+    },
+    "pnpm-lock.yaml": {
+      "gitBlob": "0141f65a0b8de14fac5cc78249e73101b2be6256",
+      "sha256": "ad42d49852ba70bad961cd109d881779a5986a944bcd30f04e3303c6c42e307a"
+    }
+  }
+}

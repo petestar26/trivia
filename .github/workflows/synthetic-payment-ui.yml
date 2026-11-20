@@ -1,0 +1,116 @@
+# SOURCE DRAFT ONLY. Harness contract in README.md must be satisfied before use.
+name: PR90 supplemental synthetic payment UI
+on:
+  push:
+    branches: ['qa/pr90-synthetic-payment-ui']
+permissions:
+  contents: read
+concurrency:
+  group: pr90-synthetic-payment-ui
+  cancel-in-progress: true
+jobs:
+  synthetic-ui:
+    if: github.ref == 'refs/heads/qa/pr90-synthetic-payment-ui'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout reviewed harness without stored credentials
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          path: harness
+      - name: Checkout exact public baseline without stored credentials
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: petestar26/trivia
+          ref: 9cf32da8bd7d8b9a5a0bbe6077210d0e1b79dc18
+          persist-credentials: false
+          path: baseline
+      - name: Set exact Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20.20.2'
+      - name: Acquire tooling and browser before isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(node --version)" = v20.20.2
+          # Provisional lock must match exact official registry metadata before install.
+          H="$GITHUB_WORKSPACE/harness/qa/synthetic-payment-ui"
+          STORE="$RUNNER_TEMP/salem-pnpm-store"
+          test ! -e "$STORE"
+          cd "$H"
+          test -f package.json && test -f package-lock.json
+          node verify-tool-lock.mjs
+          npm ci --ignore-scripts --registry=https://registry.npmjs.org
+          test "$(./node_modules/.bin/pnpm --version)" = 8.15.9
+          test "$(node -p 'require("playwright/package.json").version')" = 1.58.2
+          export PLAYWRIGHT_BROWSERS_PATH="$RUNNER_TEMP/salem-browsers"
+          ./node_modules/.bin/playwright install --with-deps chromium
+          cd "$GITHUB_WORKSPACE/baseline"
+          test "$(git rev-parse HEAD)" = 9cf32da8bd7d8b9a5a0bbe6077210d0e1b79dc18
+          test "$(git rev-parse 'HEAD^{tree}')" = 18cacd832ad2a3bfdac5b26a5be80db1ecdd5278
+          echo 'ad42d49852ba70bad961cd109d881779a5986a944bcd30f04e3303c6c42e307a  pnpm-lock.yaml' | sha256sum -c -
+          "$H/node_modules/.bin/pnpm" fetch --ignore-scripts --registry=https://registry.npmjs.org --store-dir "$STORE"
+      - name: Prepare synthetic static fixture offline; run UI in loopback-only namespace
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v unshare
+          command -v ip
+          # No sudo fallback, security-setting changes, or host-network fallback.
+          # Failure of unshare on hosted runner is a hard failure, not a skip.
+          HOST_NET="$(readlink /proc/self/ns/net)"
+          unshare --user --map-root-user --net --pid --fork --kill-child --mount-proc -- \
+            env -i PATH="$PATH" HOME="$RUNNER_TEMP/salem-home" \
+            BASELINE="$GITHUB_WORKSPACE/baseline" \
+            HARNESS="$GITHUB_WORKSPACE/harness/qa/synthetic-payment-ui" \
+            HOST_NET="$HOST_NET" STORE="$RUNNER_TEMP/salem-pnpm-store" \
+            OUTPUT="$RUNNER_TEMP/salem-ui" \
+            PLAYWRIGHT_BROWSERS_PATH="$RUNNER_TEMP/salem-browsers" \
+            CI=1 TZ=UTC LANG=C.UTF-8 \
+            bash "$GITHUB_WORKSPACE/harness/qa/synthetic-payment-ui/isolate.sh"
+      - name: Stage redacted synthetic summary only
+        id: public_summary
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, stat
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP'])
+          parent = root / 'salem-ui' / 'results'
+          source = parent / 'synthetic-payment-ui.json'
+          if not source.exists():
+              raise SystemExit(0)
+          if parent.resolve() != parent:
+              raise SystemExit('refuse symlinked browser output')
+          fd = os.open(source, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+          with os.fdopen(fd, 'rb') as f:
+              s = os.fstat(f.fileno())
+              assert stat.S_ISREG(s.st_mode) and s.st_nlink == 1 and s.st_size <= 65536
+              payload = f.read(65537)
+              assert len(payload) == s.st_size
+          original = json.loads(payload)
+          rows = original['reports']
+          assert original.get('synthetic') is True and isinstance(rows, list) and len(rows) <= 15
+          assert all(isinstance(row, dict) and row.get('status') in ('passed', 'failed') for row in rows)
+          summary = {'synthetic': True, 'expected': 15, 'reported': len(rows),
+                     'caseStatusInExecutionOrder': [row['status'] for row in rows]}
+          release = root / 'salem-ui-retain'
+          release.mkdir(mode=0o700)
+          with (release / 'synthetic-summary.json').open('x', encoding='utf-8') as f:
+              json.dump(summary, f, indent=2)
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as f:
+              f.write('ready=true\n')
+          PY
+      - name: Retain redacted synthetic summary
+        if: ${{ !cancelled() && steps.public_summary.outputs.ready == 'true' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: pr90-synthetic-payment-ui-summary
+          path: ${{ runner.temp }}/salem-ui-retain/synthetic-summary.json
+          if-no-files-found: error
+          retention-days: 7
+          include-hidden-files: false
