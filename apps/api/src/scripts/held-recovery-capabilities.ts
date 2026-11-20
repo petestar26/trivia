@@ -3,6 +3,8 @@ import type { Prisma } from '@prisma/client';
 /** Required even while financial outcomes are disabled: deposit admission reads
  * the policy, and the nonfinancial case workflow remains available. */
 export const HELD_TABLE_CAPABILITIES = [
+  // Order settlement reads the revision; approved destinations write it in a trigger.
+  ['agent_payment_account_revisions', 'SELECT'], ['agent_payment_account_revisions', 'INSERT'],
   ['held_deposit_recovery_policy', 'SELECT'],
   ['held_deposit_cases', 'SELECT'], ['held_deposit_cases', 'INSERT'],
   ['held_deposit_case_events', 'SELECT'], ['held_deposit_case_events', 'INSERT'],
@@ -29,7 +31,7 @@ export async function verifyHeldRecoveryCapabilities(
         has_table_privilege(${role}, to_regclass(${'public.' + table}), ${privilege}) AS granted`;
     if (!row || (requireInstalled && row.installed !== true)
       || ((requireInstalled || row.installed) && row.granted !== true)) {
-      failures.push(`${role} lacks ${privilege} on ${table}, which held-deposit recovery needs`);
+      failures.push(`${role} lacks ${privilege} on ${table}, which ${table === 'agent_payment_account_revisions' ? 'receiving-account revision history' : 'held-deposit recovery'} needs`);
     }
   }
   for (const column of HELD_CASE_UPDATE_COLUMNS) {

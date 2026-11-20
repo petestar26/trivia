@@ -54,6 +54,19 @@ it('requires post-migration grants, then verifies canonical restricted-runtime p
   expect(identity).toEqual({ current_user: role, rolsuper: false, rolcreaterole: false, rolcreatedb: false, rolbypassrls: false });
 });
 
+it('fails closed when either receiving-account revision privilege is revoked', async () => {
+  expect(await setup()).toEqual([]);
+  for (const privilege of ['SELECT', 'INSERT'] as const) {
+    await owner.$executeRawUnsafe(`REVOKE ${privilege} ON public.agent_payment_account_revisions FROM "${role}"`);
+    try {
+      expect(await verifyRuntimeAccessReadOnly(runtime, role)).toContain(
+        `${role} lacks ${privilege} on agent_payment_account_revisions, which receiving-account revision history needs`
+      );
+    } finally { expect(await setup()).toEqual([]); }
+  }
+  expect(await verifyRuntimeAccessReadOnly(runtime, role)).toEqual([]);
+});
+
 it('admits a synthetic deposit as runtime; missing policy SELECT blocks readiness and rolls admission back', async () => {
   expect(await setup()).toEqual([]);
   selected.client = owner;
@@ -112,7 +125,7 @@ it('detects each missing effective table and mutable-column capability in Postgr
   expect(await setup()).toEqual([]);
   for (const [table, privilege] of HELD_TABLE_CAPABILITIES) {
     await owner.$executeRawUnsafe(`REVOKE ${privilege} ON public."${table}" FROM "${role}"`);
-    try { expect(await verifyHeldRecoveryCapabilities(runtime, role, true)).toContain(`${role} lacks ${privilege} on ${table}, which held-deposit recovery needs`); }
+    try { expect(await verifyHeldRecoveryCapabilities(runtime, role, true)).toContain(`${role} lacks ${privilege} on ${table}, which ${table === 'agent_payment_account_revisions' ? 'receiving-account revision history' : 'held-deposit recovery'} needs`); }
     finally { expect(await setup()).toEqual([]); }
   }
   for (const column of HELD_CASE_UPDATE_COLUMNS) {

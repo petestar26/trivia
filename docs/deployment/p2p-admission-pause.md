@@ -106,6 +106,17 @@ by the retained database triggers, but accepted-record processing compatibility
 must still be independently established. If it is not, stay paused and use a
 compatible roll-forward or another reviewed recovery plan.
 
+Treat reopening admission on the new API as a separate go/no-go decision.
+Once an order has been admitted under the new pricing rules, the historical
+API is not a supported settlement writer: it can recompute its older USD
+minimum and reject a valid new ETB order. Keeping the switch paused only
+stops new admissions; it does not repair settlement. After reopening, pause
+new admissions if needed but retain a compatible settlement writer or roll
+forward. Do not restore the historical API as the sole writer. Before reopening,
+a rollback still requires a confirmed pause and evidence that all outstanding
+records are compatible. If the new web is live, account for its new API routes
+and clients with cached bundles.
+
 There is no production migration-removal recipe here. The prior destructive
 removal/reapply helper and its native test were removed. The replacement native
 test checks the normal rollback contract: retained paused control, refusal of
@@ -129,6 +140,20 @@ a read-only Prisma probe through the same proposed connection, without
 independently injecting session settings. Preserve required existing
 connection options and never log the URL. No statement-time budget at live
 data volume has been established.
+
+Before allowing the replacement API to take traffic, run the built
+`ledger-runtime-identity-check.js` against the exact restricted runtime role,
+not the owner connection. The check must confirm the held-deposit policy,
+case-table privileges, and SELECT/INSERT on receiving-account revisions.
+Migrations alone do not establish those grants. If the receipt fails, stop;
+any canonical owner-run grants operation must be explicitly authorized and
+followed by the same restricted-runtime check. Do not make the API an owner.
+
+Before the DDL, enforce the approved writer-quiescence plan separately:
+the admission control table does not exist before the migration. After the
+DDL, commit the pause and verify it in a fresh read before treating admissions
+as fenced. Confirm platform SIGTERM grace exceeds the app's 20-second outer
+deadline and plan for the uploads-volume handover interruption.
 
 Before migration, validate target identity and migration checksums, verify
 backup and restore evidence for any future live run, and arrange the approved
@@ -166,3 +191,8 @@ the hosted database; the Railway rolling deploy with real old/new replicas;
 the member and agent UI for the 503 (new) and 5xx (old) refusals; PostgreSQL
 13/18 (CI matrix); and that pausing under real traffic causes no lock queue
 longer than the chosen `lock_timeout`.
+
+A `wallet_ledger_tail_ambiguous` row is indeterminate, not a confirmed
+balance mismatch or an all-clear. Multiple COINS ledger writes can share
+one timestamp and random IDs are not chronological. Resolve such rows with
+an independently verified balance reconciliation before resuming.

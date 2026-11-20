@@ -19,6 +19,8 @@ describe('held-deposit runtime capabilities (synthetic metadata only)', () => {
     expect(await verifyHeldRecoveryCapabilities(reader(), 'runtime', true)).toEqual([]);
     expect(HELD_CASE_UPDATE_COLUMNS).not.toContain('orderId');
     expect(HELD_TABLE_CAPABILITIES).toContainEqual(['held_deposit_recovery_policy', 'SELECT']);
+    expect(HELD_TABLE_CAPABILITIES).toContainEqual(['agent_payment_account_revisions', 'SELECT']);
+    expect(HELD_TABLE_CAPABILITIES).toContainEqual(['agent_payment_account_revisions', 'INSERT']);
   });
   for (let i = 0; i < count; i++) {
     it(`fails closed when required capability ${i} is absent or ungranted`, async () => {

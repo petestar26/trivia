@@ -1,9 +1,29 @@
+export const P2P_WALLET_TAIL_SQL = `
+-- A tied newest timestamp can contain multiple ledger writes from one
+-- transaction. Random UUID order is not a sequence; surface ambiguity.
+SELECT CASE WHEN last.min_balance IS DISTINCT FROM last.max_balance
+       THEN 'wallet_ledger_tail_ambiguous' ELSE 'wallet_balance_vs_ledger' END AS rule,
+       wl."userId" AS id
+  FROM wallets wl
+  JOIN LATERAL (
+    SELECT min(tail."balanceAfter") AS min_balance, max(tail."balanceAfter") AS max_balance
+    FROM (
+      SELECT t."balanceAfter" FROM wallet_transactions t
+      WHERE t."walletId"=wl.id AND t.currency='COINS'
+      ORDER BY t."createdAt" DESC FETCH FIRST 1 ROW WITH TIES
+    ) tail
+  ) last ON last.min_balance IS NOT NULL
+  WHERE wl."userId" IN (SELECT "userId" FROM agent_orders UNION SELECT "userId" FROM withdrawals)
+    AND (last.min_balance IS DISTINCT FROM last.max_balance
+      OR wl."coinsBalance" IS DISTINCT FROM last.min_balance)
+`
+
 /**
  * P2P admission-pause operator SQL (docs/runbooks/p2p-admission-pause.md).
  *
  * P2P_RECONCILIATION_SQL is a single read-only SELECT: run it in a
  * READ ONLY transaction before the pause, after the drain, after resume and
- * after any rollback. Every returned row is a mismatch (rule name + id);
+ * after any rollback. Returned rows are mismatches or indeterminate tails (rule name + id);
  * zero rows means the covered P2P consistency checks found no mismatch.
  * This is not a complete wallet reconciliation. Plain SELECT only.
  */
@@ -75,10 +95,5 @@ SELECT 'agent_liquidity_reserved', l."agentId" || ':' || l."fiatCurrency" FROM a
   LEFT JOIN active_liq a ON a."agentId"=l."agentId" AND a."fiatCurrency"=l."fiatCurrency"
   WHERE l."reservedBalance"::numeric<>COALESCE(a.amt,0) OR l."reservedBalance"<0 OR l."reservedBalance">l."totalBalance"
 UNION ALL
--- Wallets touched by P2P: the stored coin balance equals the latest coin ledger balanceAfter.
-SELECT 'wallet_balance_vs_ledger', wl."userId" FROM wallets wl
-  JOIN LATERAL (SELECT t."balanceAfter" FROM wallet_transactions t
-    WHERE t."walletId"=wl.id AND t.currency='COINS' ORDER BY t."createdAt" DESC, t.id DESC LIMIT 1) last ON true
-  WHERE wl."userId" IN (SELECT "userId" FROM agent_orders UNION SELECT "userId" FROM withdrawals)
-    AND wl."coinsBalance"<>last."balanceAfter"
+${P2P_WALLET_TAIL_SQL}
 ORDER BY 1, 2`;

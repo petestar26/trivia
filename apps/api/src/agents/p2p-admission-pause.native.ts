@@ -28,7 +28,7 @@ import { confirmWithdrawalReceipt } from '../withdrawals/dispute-service.js';
 import { runLedgerInvariantCheck } from '../economy/ledger-invariant-checker.js';
 import { applyRuntimeAccess, verifyRuntimeAccessReadOnly } from '../scripts/ledger-runtime-access.js';
 import { errorHandler } from '../middleware/error-handler.js';
-import { P2P_RECONCILIATION_SQL } from './p2p-reconciliation.js';
+import { P2P_RECONCILIATION_SQL, P2P_WALLET_TAIL_SQL } from './p2p-reconciliation.js';
 
 const u = new URL(process.env.DATABASE_URL ?? 'http://invalid');
 if (u.hostname !== '127.0.0.1' || u.pathname !== '/playqube_scheduled_throwaway' || process.env.ETB_NATIVE_DB_ACK !== 'fresh-synthetic')
@@ -312,4 +312,28 @@ it('application rollback keeps the pause and migration intact while accepted ord
   expect(await verifyRuntimeAccessReadOnly(runtime, role)).toEqual([]);
   expect((await runLedgerInvariantCheck()).violations).toEqual([]);
   expect(await reconcile()).toEqual([]);
+});
+
+
+it('does not use a random row ID to break a tied wallet ledger timestamp', async () => {
+  const rows = await owner.$queryRawUnsafe<{ rule: string; id: string }[]>(`
+    WITH wallets(id, "userId", "coinsBalance") AS (
+      VALUES ('wa', 'ambiguous-matches-a', 50), ('wb', 'ambiguous-matches-b', 70),
+             ('wc', 'mismatch', 51), ('wd', 'equal-ties', 40), ('we', 'unique-match', 12)
+    ), wallet_transactions(id, "walletId", currency, "createdAt", "balanceAfter") AS (
+      VALUES ('a1', 'wa', 'COINS', 2, 50), ('a9', 'wa', 'COINS', 2, 70),
+             ('b9', 'wb', 'COINS', 2, 50), ('b1', 'wb', 'COINS', 2, 70),
+             ('c1', 'wc', 'COINS', 2, 50),
+             ('d1', 'wd', 'COINS', 2, 40), ('d9', 'wd', 'COINS', 2, 40),
+             ('e1', 'we', 'COINS', 1, 10), ('e2', 'we', 'COINS', 2, 12),
+             ('e3', 'we', 'OTHER', 3, 15)
+    ), agent_orders("userId") AS (SELECT "userId" FROM wallets),
+       withdrawals("userId") AS (SELECT NULL::text WHERE false)
+    ${P2P_WALLET_TAIL_SQL} ORDER BY 2
+  `);
+  expect(rows).toEqual([
+    {id: 'ambiguous-matches-a', rule: 'wallet_ledger_tail_ambiguous'},
+    {id: 'ambiguous-matches-b', rule: 'wallet_ledger_tail_ambiguous'},
+    {id: 'mismatch', rule: 'wallet_balance_vs_ledger'},
+  ]);
 });
