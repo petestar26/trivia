@@ -27,7 +27,8 @@ async function dbClock() {
 }
 
 async function fixture(ticketCount = 1, prepare = true) {
-  const bought = await purchasedFixture(240);
+  // 100 ETB in santim; recovery continues to use the original 40-unit tickets.
+  const bought = await purchasedFixture(10_000);
   const method = await owner.paymentMethodDefinition.findFirstOrThrow({
     where: { countryId: bought.country.id, type: 'BANK_TRANSFER', isActive: true },
   });
@@ -179,7 +180,7 @@ describe('bounded dormant financial recovery', () => {
       .toMatchObject({ state: 'CANCELLED', refunded: 1, pending: 1 });
     expect(await recoverDormantSpinRound(owner, { roundId: f.roundId }))
       .toMatchObject({ state: 'CANCELLED', phase: 'COMPLETE', refunded: 2, grossPayout: '80' });
-    expect((await owner.wallet.findUniqueOrThrow({ where: { userId: f.buyer.id } })).coinsBalance).toBe(240);
+    expect((await owner.wallet.findUniqueOrThrow({ where: { userId: f.buyer.id } })).coinsBalance).toBe(10_000);
     expect((await owner.scheduledGameRound.findUniqueOrThrow({ where: { id: f.roundId } })).outcome).toBeNull();
   });
 
