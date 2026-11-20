@@ -10,7 +10,9 @@ export function startGroupPvpRuntime(options: {
   let stopped = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let lastReport = 0;
+  let active: Promise<void> = Promise.resolve();
   const run = async () => {
+    if (stopped) return;
     let failed = false;
     try {
       await options.tick(() => {
@@ -27,13 +29,20 @@ export function startGroupPvpRuntime(options: {
         options.report();
       }
     } else healthyAt = Date.now();
-    timer = setTimeout(() => void run(), 1000);
+    timer = setTimeout(launch, 1000);
     timer.unref?.();
   };
-  if (options.enabled) void run();
-  return () => {
+  const launch = () => {
+    if (stopped) return;
+    active = run();
+    // Observe reporting errors without allowing an unhandled rejection.
+    void active.catch(() => {});
+  };
+  if (options.enabled) launch();
+  return async () => {
     stopped = true;
     healthyAt = 0;
     if (timer) clearTimeout(timer);
+    await active;
   };
 }

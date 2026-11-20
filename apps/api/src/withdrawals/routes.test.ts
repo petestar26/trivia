@@ -1,4 +1,4 @@
-import { fixtureUsdPolicy } from '../test/payment-policy-fixture.js';
+import { fixtureEtbPolicy } from '../test/payment-policy-fixture.js';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { prisma } from '@socialplay/database';
@@ -101,15 +101,15 @@ async function createPaymentMethod(countryId: string, tag: string) {
   });
 }
 
-async function createExchangeRate(countryId: string, fiatCurrency: string, coinsPerUnit: number, adminId: string) {
+async function createExchangeRate(countryId: string, fiatCurrency: string, adminId: string) {
   return prisma.exchangeRateConfig.create({ data: {
       countryId,
       fiatCurrency,
-      coinsPerUnit,
+      coinsPerUnit: 1,
       isActive: true,
       setBy: adminId,
       effectiveAt: new Date(Date.now() - 1_000),
-      pricingPolicy: fixtureUsdPolicy(coinsPerUnit)} });
+      pricingPolicy: fixtureEtbPolicy() } });
 }
 
 async function createFundedAgent(
@@ -248,15 +248,15 @@ async function cleanRouteFixtures() {
   await prisma.country.deleteMany({ where: { name: { startsWith: 'Withdrawal Route Test Country' } } });
 }
 
-async function setupHappyPath(tag: string, opts: { coins?: number; liquidityUsd?: bigint; coinsPerUnit?: number } = {}) {
+async function setupHappyPath(tag: string, opts: { coins?: number; liquidityUsd?: bigint } = {}) {
   const admin = await createAdmin(tag);
   const superAdmin = await createSuperAdmin(`${tag}-super`);
   const country = await createCountry(tag);
   const method = await createPaymentMethod(country.id, tag);
   await activateTestWithdrawalPolicy(country.id, admin.id);
-  await createExchangeRate(country.id, 'ETB', opts.coinsPerUnit ?? 2, admin.id);
+  await createExchangeRate(country.id, 'ETB', admin.id);
   const agent = await createFundedAgent(tag, country.id, admin, superAdmin, opts.liquidityUsd ?? 100_000n);
-  const user = await createFundedUser(tag, opts.coins ?? 10_000);
+  const user = await createFundedUser(tag, opts.coins ?? 100_000);
   const payoutAccount = await createActivePayoutAccount(user.id, country.id, method.id);
   const { token, iat } = await mintToken(user);
   return { admin, superAdmin, country, method, agent, user, payoutAccount, token, iat };
@@ -297,14 +297,14 @@ describeIf('withdrawals/routes', () => {
     const admin = await createAdmin(tag);
     const user = await createUser(tag);
     const country = await createCountry(tag);
-    await createExchangeRate(country.id, 'ETB', 2, admin.id);
+    await createExchangeRate(country.id, 'ETB', admin.id);
     const { token } = await mintToken(user);
 
     const response = await server.inject({
       method: 'POST',
       url: `${PREFIX}/quotes`,
       headers: authHeader(token),
-      payload: { countryId: country.id, coinAmount: 1000 },
+      payload: { countryId: country.id, coinAmount: 50_000 },
     });
 
     expect(response.statusCode).toBe(201);
@@ -314,7 +314,8 @@ describeIf('withdrawals/routes', () => {
     const body = JSON.parse(response.body);
     expect(body.success).toBe(true);
     expect(typeof body.data.fiatAmount).toBe('string');
-    expect(body.data.fiatAmount).toBe('500');
+    // ETB_V1 pays one santim per wallet unit (was 500 under the retired 2-per-unit rate).
+    expect(body.data.fiatAmount).toBe('50000');
     expect(typeof body.data.exchangeRateValue).toBe('string');
     expect(body.data.userId).toBe(user.id);
   });
@@ -328,8 +329,8 @@ describeIf('withdrawals/routes', () => {
     const user = await createUser(tag);
     const otherUser = await createUser(`${tag}-other`);
     const country = await createCountry(tag);
-    await createExchangeRate(country.id, 'ETB', 2, admin.id);
-    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 });
+    await createExchangeRate(country.id, 'ETB', admin.id);
+    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 50_000 });
     const { token } = await mintToken(user);
     const { token: otherToken } = await mintToken(otherUser);
 
@@ -454,7 +455,7 @@ describeIf('withdrawals/routes', () => {
     await cleanRouteFixtures();
     const tag = `withdrawal-create-${randomUUID()}`;
     const { user, country, payoutAccount, token } = await setupHappyPath(tag);
-    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 });
+    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 50_000 });
 
     const response = await server.inject({
       method: 'POST',
@@ -467,7 +468,8 @@ describeIf('withdrawals/routes', () => {
     const body = JSON.parse(response.body);
     expect(body.data.status).toBe('HELD');
     expect(typeof body.data.fiatAmount).toBe('string');
-    expect(body.data.fiatAmount).toBe('500');
+    // ETB_V1 pays one santim per wallet unit (was 500 under the retired 2-per-unit rate).
+    expect(body.data.fiatAmount).toBe('50000');
     expect(typeof body.data.exchangeRateValue).toBe('string');
   });
 
@@ -477,10 +479,10 @@ describeIf('withdrawals/routes', () => {
     await cleanRouteFixtures();
     const tag = `withdrawal-idem-${randomUUID()}`;
     const { user, country, method, payoutAccount, token } = await setupHappyPath(tag, {
-      coins: 20_000,
+      coins: 200_000,
       liquidityUsd: 200_000n,
     });
-    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 });
+    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 50_000 });
     const key = `key-${tag}`;
 
     const first = await server.inject({
@@ -504,7 +506,7 @@ describeIf('withdrawals/routes', () => {
     // A genuinely different request (new quote — the first is already
     // consumed — and a different payout account) reusing the SAME key.
     const secondAccount = await createActivePayoutAccount(user.id, country.id, method.id);
-    const anotherQuote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 });
+    const anotherQuote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 50_000 });
     const third = await server.inject({
       method: 'POST',
       url: PREFIX,
@@ -522,7 +524,7 @@ describeIf('withdrawals/routes', () => {
     await cleanRouteFixtures();
     const tag = `withdrawal-list-${randomUUID()}`;
     const { user, country, payoutAccount, token } = await setupHappyPath(tag);
-    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 });
+    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 50_000 });
     const { withdrawal } = await createWithdrawal(
       user.id,
       { quoteId: quote.id, payoutAccountId: payoutAccount.id, idempotencyKey: `key-${tag}` },
@@ -551,7 +553,7 @@ describeIf('withdrawals/routes', () => {
     const tag = `withdrawal-cross-${randomUUID()}`;
     const { user, country, payoutAccount } = await setupHappyPath(tag);
     const otherUser = await createUser(`${tag}-other`);
-    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 });
+    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 50_000 });
     const { withdrawal } = await createWithdrawal(
       user.id,
       { quoteId: quote.id, payoutAccountId: payoutAccount.id, idempotencyKey: `key-${tag}` },
@@ -576,14 +578,14 @@ describeIf('withdrawals/routes', () => {
     const user = await createUser(tag);
     const otherUser = await createUser(`${tag}-other`);
     const country = await createCountry(tag);
-    await createExchangeRate(country.id, 'ETB', 2, admin.id);
+    await createExchangeRate(country.id, 'ETB', admin.id);
     const { token } = await mintToken(user);
 
     const response = await server.inject({
       method: 'POST',
       url: `${PREFIX}/quotes`,
       headers: authHeader(token),
-      payload: { countryId: country.id, coinAmount: 1000, userId: otherUser.id },
+      payload: { countryId: country.id, coinAmount: 50_000, userId: otherUser.id },
     });
 
     expect(response.statusCode).toBe(201);
@@ -672,7 +674,7 @@ describeIf('withdrawals/routes', () => {
     const { user, country, payoutAccount } = await setupHappyPath(tag);
     await enableStepUpPolicy(user.id);
     const { token } = await mintToken(user); // fresh token — no step-up minted for its iat
-    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 });
+    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 50_000 });
 
     const response = await server.inject({
       method: 'POST',
@@ -692,7 +694,7 @@ describeIf('withdrawals/routes', () => {
     await enableStepUpPolicy(user.id);
     const { token, iat } = await mintToken(user);
     await mintWithdrawalStepUp(user.id, iat);
-    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 });
+    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 50_000 });
 
     const response = await server.inject({
       method: 'POST',
@@ -712,7 +714,7 @@ describeIf('withdrawals/routes', () => {
     await enableStepUpPolicy(user.id);
     const { token, iat } = await mintToken(user);
     await mintWithdrawalStepUp(user.id, iat, 'SOME_OTHER_PURPOSE');
-    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 });
+    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 50_000 });
 
     const response = await server.inject({
       method: 'POST',

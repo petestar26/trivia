@@ -1,3 +1,4 @@
+import { assertDepositSafetyClear } from './order-lifecycle.js';
 import { prisma, type Prisma } from '@socialplay/database';
 import { z } from 'zod';
 import { ApiError } from '../middleware/index.js';
@@ -120,6 +121,9 @@ export async function reportLatePayment(userId: string, raw: unknown) {
     }
     if (await tx.dispute.findFirst({where: {orderId: order.id, status: 'RESOLVED'}, select: {id: true}}))
       throw ApiError.conflict('This deposit already has a resolved dispute. Contact support about that decision; do not open a separate recovery case.');
+    // A held-deposit adjudication is the order's final answer (also enforced in the database).
+    if (await tx.heldDepositAdjudication.findUnique({where: {orderId: order.id}, select: {id: true}}))
+      throw ApiError.conflict('This deposit was already decided by payment support. Contact support about that decision.');
     if (!['EXPIRED', 'CANCELLED'].includes(order.status))
       throw ApiError.conflict('Recovery requires an expired or cancelled deposit order');
     const reservation = await tx.agentReservation.findUnique({ where: { orderId: order.id } });
@@ -209,6 +213,7 @@ export async function recordLatePaymentRefund(
       throw ApiError.conflict('This deposit has a resolved dispute. Review that decision before any external refund.');
     if (args.refundReference === args.verifiedPaymentReference)
       throw ApiError.badRequest('Refund and incoming payment must be different transfers');
+    await assertDepositSafetyClear(tx, order.id);
     // Mandatory, case-specific single-use verification; successful retries above
     // return the existing record without consuming a second verification.
     await requireStepUp({ userId, tokenIat }, `LATE_PAYMENT_REFUND:${id}`, tx);
@@ -276,6 +281,7 @@ export async function superviseLatePayment(userId: string, id: string, operation
     if (row.status !== 'ASSIGNED') throw ApiError.conflict('Only an assigned investigation can be released or rejected');
     if (operation === 'reject' && row.assignedAdminId !== userId)
       throw ApiError.forbidden('Release and claim the investigation before rejecting it');
+    if (operation === 'reject') await assertDepositSafetyClear(tx, row.orderId);
     const result = await tx.latePaymentCase.update({where: {id}, data: operation === 'release'
       ? {status: 'OPEN', assignedAdminId: null, assignedAt: null}
       : {status: 'REJECTED', resolutionKey: args.idempotencyKey, resolutionNote: args.reason, resolvedAt: new Date()},

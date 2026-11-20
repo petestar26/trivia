@@ -11,6 +11,7 @@ afterEach(async()=>{await server.close();});
 it('uses current database role and discloses no payout destinations in the directory',async()=>{
  const r=await server.inject('/wallet/payment-options');expect(r.statusCode).toBe(200);expect(r.headers['cache-control']).toBe('private, no-store');expect(r.json().data).toMatchObject({isAgent:false,isAdmin:false});
  const query=db.agent.findMany.mock.calls[0][0];expect(query.where).toMatchObject({status:'ACTIVE',userId:{not:'customer'},user:{status:'ACTIVE'},country:{isActive:true,agentPaymentEnabled:true}});
+ expect(query.select.paymentAccounts.where).toMatchObject({status:'APPROVED',safetyHold:false});
  expect(JSON.stringify(query.select)).not.toContain('accountDetails');expect(JSON.stringify(query.select)).not.toContain('contactEmail');
 });
 it('filters mismatched payment methods even if a legacy row has inconsistent countries',async()=>{

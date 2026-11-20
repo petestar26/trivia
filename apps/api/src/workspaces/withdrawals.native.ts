@@ -83,13 +83,13 @@ async function fixture() {
   });
   await publishUsdRate(admin.id, country.id, fixtureEtbPolicy());
   await activateTestWithdrawalPolicy(country.id, admin.id);
-  await fundAgentInventory(admin.id, approved.agentId, 5000, randomUUID());
-  await fundAgentFiatLiquidity(admin.id, approved.agentId, 'ETB', 10000n, randomUUID());
+  await fundAgentInventory(admin.id, approved.agentId, 250000, randomUUID());
+  await fundAgentFiatLiquidity(admin.id, approved.agentId, 'ETB', 500000n, randomUUID());
   const { order } = await createAgentOrder(member.id, {
     agentId: approved.agentId,
     countryId: country.id,
     paymentAccountId: receiving.id,
-    fiatAmount: 5000,
+    fiatAmount: 250000,
     idempotencyKey: randomUUID(),
   });
   await submitOrderPayment(member.id, order.id);
@@ -99,7 +99,7 @@ async function fixture() {
     methodDefId: method.id,
     accountDetails: { accountNumber: 'MEMBER-TEST-ONLY' },
   });
-  const quote = await createWithdrawalQuote(member.id, { countryId: country.id, coinAmount: 1000 });
+  const quote = await createWithdrawalQuote(member.id, { countryId: country.id, coinAmount: 50000 });
   const args = { quoteId: quote.id, payoutAccountId: destination.id, idempotencyKey: randomUUID() };
   await createWithdrawal(member.id, args, 1000);
   const withdrawal = await prisma.withdrawal.findFirstOrThrow({ where: { userId: member.id, idempotencyKey: args.idempotencyKey } });
@@ -108,12 +108,12 @@ async function fixture() {
 it('completes a native Birr deposit and withdrawal once through separate member and agent actions', async () => {
   const f = await fixture();
   const id = f.withdrawal.id;
-  expect(f.withdrawal.fiatAmount).toBe(1000n);
-  expect(f.withdrawal.coinAmount).toBe(1000);
+  expect(f.withdrawal.fiatAmount).toBe(50000n);
+  expect(f.withdrawal.coinAmount).toBe(50000);
   expect((await createWithdrawal(f.member.id, f.args, 1000)).idempotent).toBe(true);
   expect(
     (await prisma.wallet.findUniqueOrThrow({ where: { userId: f.member.id } })).coinsBalance
-  ).toBe(4000);
+  ).toBe(200000);
   await expect(getAssignedWithdrawal(f.admin.id, id)).rejects.toMatchObject({ statusCode: 403 });
   await expect(
     claimPayout(f.member.id, id, { idempotencyKey: randomUUID() })
@@ -140,7 +140,7 @@ it('completes a native Birr deposit and withdrawal once through separate member 
     await prisma.agentFiatLiquidity.findUniqueOrThrow({
       where: { agentId_fiatCurrency: { agentId: f.agentId, fiatCurrency: 'ETB' } },
     })
-  ).toMatchObject({ totalBalance: 9000n, reservedBalance: 0n });
+  ).toMatchObject({ totalBalance: 450000n, reservedBalance: 0n });
 });
 it('cancels a held payout once and returns the member balance without releasing twice', async () => {
   const f = await fixture();
@@ -151,7 +151,7 @@ it('cancels a held payout once and returns the member balance without releasing 
   ]);
   expect(
     (await prisma.wallet.findUniqueOrThrow({ where: { userId: f.member.id } })).coinsBalance
-  ).toBe(5000);
+  ).toBe(250000);
   expect(
     (await prisma.withdrawal.findUniqueOrThrow({ where: { id: f.withdrawal.id } })).status
   ).toBe('CANCELLED');
@@ -159,7 +159,7 @@ it('cancels a held payout once and returns the member balance without releasing 
     await prisma.agentFiatLiquidity.findUniqueOrThrow({
       where: { agentId_fiatCurrency: { agentId: f.agentId, fiatCurrency: 'ETB' } },
     })
-  ).toMatchObject({ totalBalance: 10000n, reservedBalance: 0n });
+  ).toMatchObject({ totalBalance: 500000n, reservedBalance: 0n });
 });
 it('routes a contested payout to an administrator and preserves an exact refund on replay', async () => {
   const f = await fixture(),
@@ -191,6 +191,6 @@ it('routes a contested payout to an administrator and preserves an exact refund 
   );
   expect(
     (await prisma.wallet.findUniqueOrThrow({ where: { userId: f.member.id } })).coinsBalance
-  ).toBe(5000);
+  ).toBe(250000);
   expect((await prisma.withdrawal.findUniqueOrThrow({ where: { id } })).status).toBe('CANCELLED');
 });

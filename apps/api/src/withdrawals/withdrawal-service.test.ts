@@ -1,4 +1,4 @@
-import { fixtureUsdPolicy } from '../test/payment-policy-fixture.js';
+import { fixtureEtbPolicy } from '../test/payment-policy-fixture.js';
 import { describe, it, expect, afterAll } from 'vitest';
 import { prisma } from '@socialplay/database';
 import { submitAgentApplication, approveAgentApplication } from '../agents/agent-service.js';
@@ -82,18 +82,18 @@ async function createPaymentMethod(countryId: string, tag: string) {
   });
 }
 
-async function createExchangeRate(countryId: string, fiatCurrency: string, coinsPerUnit: number, adminId: string) {
+async function createExchangeRate(countryId: string, fiatCurrency: string, adminId: string) {
   return prisma.exchangeRateConfig.create({ data: {
       countryId,
       fiatCurrency,
-      coinsPerUnit,
+      coinsPerUnit: 1,
       isActive: true,
       setBy: adminId,
       effectiveAt: new Date(Date.now() - 1_000),
-      pricingPolicy: fixtureUsdPolicy(coinsPerUnit)} });
+      pricingPolicy: fixtureEtbPolicy() } });
 }
 
-/** ACTIVE agent with a funded USD fiat liquidity bucket. No AgentInventory
+/** ACTIVE agent with a funded ETB fiat liquidity bucket. No AgentInventory
  * is ever created here — withdrawal creation must never touch it. */
 async function createFundedAgent(
   tag: string,
@@ -217,15 +217,15 @@ async function cleanWithdrawalFixtures() {
 
 /** Full happy-path setup: funded agent, funded user, active payout
  * account. Returns everything a creation test typically needs. */
-async function setupHappyPath(tag: string, opts: { coins?: number; liquidityUsd?: bigint; coinsPerUnit?: number } = {}) {
+async function setupHappyPath(tag: string, opts: { coins?: number; liquidityUsd?: bigint } = {}) {
   const admin = await createAdmin(tag);
   const superAdmin = await createSuperAdmin(`${tag}-super`);
   const country = await createCountry(tag);
   const method = await createPaymentMethod(country.id, tag);
   await activateTestWithdrawalPolicy(country.id, admin.id);
-  await createExchangeRate(country.id, 'ETB', opts.coinsPerUnit ?? 2, admin.id);
+  await createExchangeRate(country.id, 'ETB', admin.id);
   const agent = await createFundedAgent(tag, country.id, admin, superAdmin, opts.liquidityUsd ?? 100_000n);
-  const user = await createFundedUser(tag, opts.coins ?? 10_000);
+  const user = await createFundedUser(tag, opts.coins ?? 100_000);
   const payoutAccount = await createActivePayoutAccount(user.id, country.id, method.id);
   return { admin, superAdmin, country, method, agent, user, payoutAccount };
 }
@@ -236,7 +236,7 @@ describeIf('withdrawals/withdrawal-service', () => {
     const tag = `single-effects-${Date.now()}`;
     const { user, country, payoutAccount } = await setupHappyPath(tag);
 
-    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 });
+    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 50_000 });
     const { withdrawal } = await createWithdrawal(
       user.id,
       { quoteId: quote.id, payoutAccountId: payoutAccount.id, idempotencyKey: `key-${tag}` },
@@ -250,7 +250,7 @@ describeIf('withdrawals/withdrawal-service', () => {
     });
     expect(debits).toHaveLength(1);
     expect(debits[0].ledgerType).toBe('DEBIT');
-    expect(debits[0].amount).toBe(1000);
+    expect(debits[0].amount).toBe(50_000);
 
     const holds = await prisma.withdrawalHold.findMany({ where: { withdrawalId: (withdrawal as any).id } });
     expect(holds).toHaveLength(1);
@@ -273,7 +273,7 @@ describeIf('withdrawals/withdrawal-service', () => {
     const tag = `quote-link-${Date.now()}`;
     const { user, country, payoutAccount } = await setupHappyPath(tag);
 
-    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 });
+    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 50_000 });
     const { withdrawal } = await createWithdrawal(
       user.id,
       { quoteId: quote.id, payoutAccountId: payoutAccount.id, idempotencyKey: `key-${tag}` },
@@ -291,7 +291,7 @@ describeIf('withdrawals/withdrawal-service', () => {
     const tag = `hash-separation-${Date.now()}`;
     const { user, country, payoutAccount } = await setupHappyPath(tag);
 
-    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 });
+    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 50_000 });
     const { withdrawal } = await createWithdrawal(
       user.id,
       { quoteId: quote.id, payoutAccountId: payoutAccount.id, idempotencyKey: `key-${tag}` },
@@ -309,7 +309,7 @@ describeIf('withdrawals/withdrawal-service', () => {
     const tag = `snapshot-${Date.now()}`;
     const { user, country, payoutAccount } = await setupHappyPath(tag);
 
-    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 });
+    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 50_000 });
     const { withdrawal } = await createWithdrawal(
       user.id,
       { quoteId: quote.id, payoutAccountId: payoutAccount.id, idempotencyKey: `key-${tag}` },
@@ -328,7 +328,7 @@ describeIf('withdrawals/withdrawal-service', () => {
     const tag = `expired-quote-${Date.now()}`;
     const { user, country, payoutAccount } = await setupHappyPath(tag);
 
-    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 });
+    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 50_000 });
     await prisma.withdrawalQuote.update({ where: { id: quote.id }, data: { expiresAt: new Date(Date.now() - 1000) } });
 
     await expect(
@@ -354,7 +354,7 @@ describeIf('withdrawals/withdrawal-service', () => {
     const methodB = await createPaymentMethod(countryB.id, `${tag}-b`);
     const accountInCountryB = await createActivePayoutAccount(user.id, countryB.id, methodB.id);
 
-    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 });
+    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 50_000 });
 
     await expect(
       createWithdrawal(
@@ -387,9 +387,9 @@ describeIf('withdrawals/withdrawal-service', () => {
   it('rejects reusing an already-consumed quote for a second withdrawal', async () => {
     await cleanWithdrawalFixtures();
     const tag = `reuse-quote-${Date.now()}`;
-    const { user, country, payoutAccount } = await setupHappyPath(tag, { coins: 20_000, liquidityUsd: 200_000n });
+    const { user, country, payoutAccount } = await setupHappyPath(tag, { coins: 200_000, liquidityUsd: 200_000n });
 
-    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 });
+    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 50_000 });
     const first = await createWithdrawal(
       user.id,
       { quoteId: quote.id, payoutAccountId: payoutAccount.id, idempotencyKey: `key-a-${tag}` },
@@ -418,7 +418,7 @@ describeIf('withdrawals/withdrawal-service', () => {
     const tag = `idem-same-${Date.now()}`;
     const { user, country, payoutAccount } = await setupHappyPath(tag);
 
-    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 });
+    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 50_000 });
     const key = `key-${tag}`;
     const first = await createWithdrawal(user.id, { quoteId: quote.id, payoutAccountId: payoutAccount.id, idempotencyKey: key }, 1000);
     const second = await createWithdrawal(user.id, { quoteId: quote.id, payoutAccountId: payoutAccount.id, idempotencyKey: key }, 1000);
@@ -436,11 +436,11 @@ describeIf('withdrawals/withdrawal-service', () => {
     const { user, country, method, payoutAccount } = await setupHappyPath(tag);
     const secondAccount = await createActivePayoutAccount(user.id, country.id, method.id);
 
-    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 });
+    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 50_000 });
     const key = `key-${tag}`;
     await createWithdrawal(user.id, { quoteId: quote.id, payoutAccountId: payoutAccount.id, idempotencyKey: key }, 1000);
 
-    const quote2 = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 });
+    const quote2 = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 50_000 });
     await expect(
       createWithdrawal(user.id, { quoteId: quote2.id, payoutAccountId: secondAccount.id, idempotencyKey: key }, 1000)
     ).rejects.toThrow(/different request data/);
@@ -452,14 +452,14 @@ describeIf('withdrawals/withdrawal-service', () => {
   it('a new idempotency key allows a repeated same-shaped withdrawal (once any live withdrawal is terminal)', async () => {
     await cleanWithdrawalFixtures();
     const tag = `repeat-shape-${Date.now()}`;
-    const { user, country, payoutAccount } = await setupHappyPath(tag, { coins: 20_000, liquidityUsd: 200_000n });
+    const { user, country, payoutAccount } = await setupHappyPath(tag, { coins: 200_000, liquidityUsd: 200_000n });
 
-    const quoteA = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 });
+    const quoteA = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 50_000 });
     const a = await createWithdrawal(user.id, { quoteId: quoteA.id, payoutAccountId: payoutAccount.id, idempotencyKey: `key-a-${tag}` }, 1000);
 
     // W-1D2A: a second LIVE withdrawal (different key) while the first is HELD
     // is now rejected by the one-live-withdrawal rule.
-    const quoteLive = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 });
+    const quoteLive = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 50_000 });
     await expect(
       createWithdrawal(user.id, { quoteId: quoteLive.id, payoutAccountId: payoutAccount.id, idempotencyKey: `key-b-${tag}` }, 1000)
     ).rejects.toMatchObject({ details: { code: 'ACTIVE_WITHDRAWAL_EXISTS' } });
@@ -469,7 +469,7 @@ describeIf('withdrawals/withdrawal-service', () => {
     // not per user.
     await cancelHeldWithdrawal(user.id, (a.withdrawal as any).id, { idempotencyKey: `cancel-${tag}` });
 
-    const quoteB = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 });
+    const quoteB = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 50_000 });
     const b = await createWithdrawal(user.id, { quoteId: quoteB.id, payoutAccountId: payoutAccount.id, idempotencyKey: `key-b-${tag}` }, 1000);
 
     expect((b.withdrawal as any).id).not.toBe((a.withdrawal as any).id);
@@ -480,9 +480,9 @@ describeIf('withdrawals/withdrawal-service', () => {
   it('insufficient wallet balance leaves no withdrawal, hold, reservation, or liquidity ledger row behind', async () => {
     await cleanWithdrawalFixtures();
     const tag = `insufficient-wallet-${Date.now()}`;
-    const { user, country, agent, payoutAccount } = await setupHappyPath(tag, { coins: 500 }); // less than the 1000 the quote will need
+    const { user, country, agent, payoutAccount } = await setupHappyPath(tag, { coins: 500 }); // less than the 50,000 santim the quote will need
 
-    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 });
+    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 50_000 });
     await expect(
       createWithdrawal(user.id, { quoteId: quote.id, payoutAccountId: payoutAccount.id, idempotencyKey: `key-${tag}` }, 1000)
     ).rejects.toThrow(/Insufficient/);
@@ -508,10 +508,10 @@ describeIf('withdrawals/withdrawal-service', () => {
     await cleanWithdrawalFixtures();
     const tag = `insufficient-liquidity-${Date.now()}`;
     // Fund the agent with far less USD than the withdrawal will need.
-    const { user, country, payoutAccount } = await setupHappyPath(tag, { coins: 10_000, liquidityUsd: 10n });
+    const { user, country, payoutAccount } = await setupHappyPath(tag, { coins: 100_000, liquidityUsd: 10n });
 
     const balanceBefore = await getWalletBalance(user.id);
-    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 }); // needs 500 USD minor units, only 10 available
+    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 50_000 }); // needs 50,000 santim, only 10 available
 
     await expect(
       createWithdrawal(user.id, { quoteId: quote.id, payoutAccountId: payoutAccount.id, idempotencyKey: `key-${tag}` }, 1000)
@@ -530,7 +530,7 @@ describeIf('withdrawals/withdrawal-service', () => {
     const tag = `no-inventory-${Date.now()}`;
     const { user, country, agent, payoutAccount } = await setupHappyPath(tag);
 
-    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 });
+    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 50_000 });
     await createWithdrawal(user.id, { quoteId: quote.id, payoutAccountId: payoutAccount.id, idempotencyKey: `key-${tag}` }, 1000);
 
     const inventory = await prisma.agentInventory.findUnique({ where: { agentId: agent.id } });
@@ -545,13 +545,13 @@ describeIf('withdrawals/withdrawal-service', () => {
     // live withdrawals for one user. This test only cares about withdrawal
     // number uniqueness across two withdrawals, so it uses two different
     // users (option b).
-    const { user: userA, country: countryA, payoutAccount: accountA } = await setupHappyPath(tag, { coins: 20_000, liquidityUsd: 200_000n });
-    const { user: userB, country: countryB, payoutAccount: accountB } = await setupHappyPath(`${tag}-b`, { coins: 20_000, liquidityUsd: 200_000n });
+    const { user: userA, country: countryA, payoutAccount: accountA } = await setupHappyPath(tag, { coins: 200_000, liquidityUsd: 200_000n });
+    const { user: userB, country: countryB, payoutAccount: accountB } = await setupHappyPath(`${tag}-b`, { coins: 200_000, liquidityUsd: 200_000n });
 
-    const quoteA = await createWithdrawalQuote(userA.id, { countryId: countryA.id, coinAmount: 1000 });
+    const quoteA = await createWithdrawalQuote(userA.id, { countryId: countryA.id, coinAmount: 50_000 });
     const a = await createWithdrawal(userA.id, { quoteId: quoteA.id, payoutAccountId: accountA.id, idempotencyKey: `key-a-${tag}` }, 1000);
 
-    const quoteB = await createWithdrawalQuote(userB.id, { countryId: countryB.id, coinAmount: 1000 });
+    const quoteB = await createWithdrawalQuote(userB.id, { countryId: countryB.id, coinAmount: 50_000 });
     const b = await createWithdrawal(userB.id, { quoteId: quoteB.id, payoutAccountId: accountB.id, idempotencyKey: `key-b-${tag}` }, 1000);
 
     expect((a.withdrawal as any).withdrawalNumber).toMatch(/^WD-\d{6}$/);
@@ -564,13 +564,14 @@ describeIf('withdrawals/withdrawal-service', () => {
     const tag = `bigint-dto-${Date.now()}`;
     const { user, country, payoutAccount } = await setupHappyPath(tag);
 
-    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 });
+    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 50_000 });
     const { withdrawal } = await createWithdrawal(user.id, { quoteId: quote.id, payoutAccountId: payoutAccount.id, idempotencyKey: `key-${tag}` }, 1000);
 
     expect(typeof (withdrawal as any).fiatAmount).toBe('bigint');
     const dto = { ...(withdrawal as any), fiatAmount: (withdrawal as any).fiatAmount.toString() };
     expect(() => JSON.stringify(dto)).not.toThrow();
-    expect(JSON.parse(JSON.stringify(dto)).fiatAmount).toBe('500');
+    // ETB_V1 pays one santim per wallet unit (was 500 under the retired 2-per-unit rate).
+    expect(JSON.parse(JSON.stringify(dto)).fiatAmount).toBe('50000');
   });
 
   it('getOwnWithdrawalById returns the withdrawal for its owner and rejects everyone else', async () => {
@@ -579,7 +580,7 @@ describeIf('withdrawals/withdrawal-service', () => {
     const { user, country, payoutAccount } = await setupHappyPath(tag);
     const otherUser = await createUser(`${tag}-other`);
 
-    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 });
+    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 50_000 });
     const { withdrawal } = await createWithdrawal(
       user.id,
       { quoteId: quote.id, payoutAccountId: payoutAccount.id, idempotencyKey: `key-${tag}` },
@@ -598,17 +599,17 @@ describeIf('withdrawals/withdrawal-service', () => {
   it('listOwnWithdrawals returns only the caller\'s own withdrawals', async () => {
     await cleanWithdrawalFixtures();
     const tag = `list-own-${Date.now()}`;
-    const { user, country, payoutAccount } = await setupHappyPath(tag, { coins: 20_000, liquidityUsd: 200_000n });
-    const otherUser = await createFundedUser(`${tag}-other`, 10_000);
+    const { user, country, payoutAccount } = await setupHappyPath(tag, { coins: 200_000, liquidityUsd: 200_000n });
+    const otherUser = await createFundedUser(`${tag}-other`, 100_000);
     const otherAccount = await createActivePayoutAccount(otherUser.id, country.id, payoutAccount.methodDefId);
 
-    const quoteA = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 });
+    const quoteA = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 50_000 });
     const { withdrawal: ownWithdrawal } = await createWithdrawal(
       user.id,
       { quoteId: quoteA.id, payoutAccountId: payoutAccount.id, idempotencyKey: `key-a-${tag}` },
       1000
     );
-    const quoteB = await createWithdrawalQuote(otherUser.id, { countryId: country.id, coinAmount: 1000 });
+    const quoteB = await createWithdrawalQuote(otherUser.id, { countryId: country.id, coinAmount: 50_000 });
     await createWithdrawal(
       otherUser.id,
       { quoteId: quoteB.id, payoutAccountId: otherAccount.id, idempotencyKey: `key-b-${tag}` },
@@ -625,7 +626,7 @@ describeIf('withdrawals/withdrawal-service', () => {
     const tag = `concurrent-idem-${Date.now()}`;
     const { user, country, payoutAccount } = await setupHappyPath(tag);
 
-    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 });
+    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 50_000 });
     const key = `key-${tag}`;
     const args = { quoteId: quote.id, payoutAccountId: payoutAccount.id, idempotencyKey: key };
 
@@ -652,11 +653,11 @@ describeIf('withdrawals/withdrawal-service', () => {
   it('two concurrent withdrawals against a wallet that can only afford one: exactly one succeeds', async () => {
     await cleanWithdrawalFixtures();
     const tag = `concurrent-wallet-${Date.now()}`;
-    // Enough coins for exactly ONE 1000-coin withdrawal, plenty of liquidity.
-    const { user, country, payoutAccount } = await setupHappyPath(tag, { coins: 1000, liquidityUsd: 1_000_000n });
+    // Enough coins for exactly ONE 50,000-santim withdrawal, plenty of liquidity.
+    const { user, country, payoutAccount } = await setupHappyPath(tag, { coins: 50_000, liquidityUsd: 1_000_000n });
 
-    const quoteA = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 });
-    const quoteB = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 });
+    const quoteA = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 50_000 });
+    const quoteB = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 50_000 });
 
     const results = await Promise.allSettled([
       createWithdrawal(user.id, { quoteId: quoteA.id, payoutAccountId: payoutAccount.id, idempotencyKey: `key-a-${tag}` }, 1000),
@@ -676,11 +677,12 @@ describeIf('withdrawals/withdrawal-service', () => {
   it('two concurrent withdrawals against liquidity that can only cover one: exactly one succeeds, none over-reserved', async () => {
     await cleanWithdrawalFixtures();
     const tag = `concurrent-liquidity-${Date.now()}`;
-    // Plenty of coins, but liquidity only covers ONE 500-minor-unit payout.
-    const { user, country, agent, payoutAccount } = await setupHappyPath(tag, { coins: 20_000, liquidityUsd: 500n });
+    // Plenty of coins, but liquidity only covers ONE 50,000-santim payout.
+    const { user, country, agent, payoutAccount } = await setupHappyPath(tag, { coins: 200_000, liquidityUsd: 50_000n });
 
-    const quoteA = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 }); // needs 500
-    const quoteB = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 }); // needs 500
+    // ETB_V1 pays one santim per wallet unit, so 50,000 units need 50,000 minor units.
+    const quoteA = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 50_000 }); // needs 50,000 santim
+    const quoteB = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 50_000 }); // needs 50,000 santim
 
     const results = await Promise.allSettled([
       createWithdrawal(user.id, { quoteId: quoteA.id, payoutAccountId: payoutAccount.id, idempotencyKey: `key-a-${tag}` }, 1000),
@@ -693,21 +695,21 @@ describeIf('withdrawals/withdrawal-service', () => {
     const liquidity = await prisma.agentFiatLiquidity.findUnique({
       where: { agentId_fiatCurrency: { agentId: agent.id, fiatCurrency: 'ETB' } },
     });
-    expect(liquidity!.reservedBalance).toBe(500n);
+    expect(liquidity!.reservedBalance).toBe(50_000n);
     expect(liquidity!.reservedBalance).toBeLessThanOrEqual(liquidity!.totalBalance);
   });
 
   it('requires step-up when the caller\'s policy demands it, and consumes it exactly once under concurrency', async () => {
     await cleanWithdrawalFixtures();
     const tag = `stepup-concurrent-${Date.now()}`;
-    const { user, country, payoutAccount } = await setupHappyPath(tag, { coins: 20_000, liquidityUsd: 200_000n });
+    const { user, country, payoutAccount } = await setupHappyPath(tag, { coins: 200_000, liquidityUsd: 200_000n });
 
     await enableStepUpPolicy(user.id);
     const tokenIat = 1000;
     await mintWithdrawalStepUp(user.id, tokenIat);
 
-    const quoteA = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 });
-    const quoteB = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 });
+    const quoteA = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 50_000 });
+    const quoteB = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 50_000 });
 
     const results = await Promise.allSettled([
       createWithdrawal(user.id, { quoteId: quoteA.id, payoutAccountId: payoutAccount.id, idempotencyKey: `key-a-${tag}` }, tokenIat),
@@ -734,7 +736,7 @@ describeIf('withdrawals/withdrawal-service', () => {
     const { user, country, payoutAccount } = await setupHappyPath(tag);
     await enableStepUpPolicy(user.id);
 
-    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 });
+    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 50_000 });
     await expect(
       createWithdrawal(user.id, { quoteId: quote.id, payoutAccountId: payoutAccount.id, idempotencyKey: `key-${tag}` }, 1000)
     ).rejects.toThrow(/[Ss]tep-up/);
@@ -746,13 +748,13 @@ describeIf('withdrawals/withdrawal-service', () => {
     await cleanWithdrawalFixtures();
     const tag = `stepup-rollback-${Date.now()}`;
     // Liquidity insufficient on the FIRST attempt; fund it before retrying.
-    const { user, country, agent, payoutAccount } = await setupHappyPath(tag, { coins: 20_000, liquidityUsd: 10n });
+    const { user, country, agent, payoutAccount } = await setupHappyPath(tag, { coins: 200_000, liquidityUsd: 10n });
 
     await enableStepUpPolicy(user.id);
     const tokenIat = 1000;
     await mintWithdrawalStepUp(user.id, tokenIat);
 
-    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 }); // needs 500, only 10 available
+    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 50_000 }); // needs 50,000 santim, only 10 available
 
     await expect(
       createWithdrawal(user.id, { quoteId: quote.id, payoutAccountId: payoutAccount.id, idempotencyKey: `key-1-${tag}` }, tokenIat)
@@ -775,7 +777,7 @@ describeIf('withdrawals/withdrawal-service', () => {
       'test top-up for retry',
       `topup-${tag}`
     );
-    const quote2 = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 });
+    const quote2 = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 50_000 });
     const retried = await createWithdrawal(
       user.id,
       { quoteId: quote2.id, payoutAccountId: payoutAccount.id, idempotencyKey: `key-2-${tag}` },
@@ -794,13 +796,13 @@ describeIf('withdrawals/withdrawal-service', () => {
     const country = await createCountry(tag);
     const method = await createPaymentMethod(country.id, tag);
     await activateTestWithdrawalPolicy(country.id, admin.id);
-    await createExchangeRate(country.id, 'ETB', 2, admin.id);
+    await createExchangeRate(country.id, 'ETB', admin.id);
 
     // The withdrawing user is ALSO this country's only funded agent.
     // Distinct tag from `admin`'s — createUser() dedupes by email, so
     // reusing `tag` here would resolve to the SAME row as `admin` and
     // make approveAgentApplication legitimately reject it as self-review.
-    const selfUser = await createFundedUser(`${tag}-self`, 10_000);
+    const selfUser = await createFundedUser(`${tag}-self`, 100_000);
     const { application } = await submitAgentApplication(selfUser.id, {
       countryId: country.id,
       displayName: `Self Assign Agent ${tag}`,
@@ -811,7 +813,7 @@ describeIf('withdrawals/withdrawal-service', () => {
     await fundAgentFiatLiquidity(superAdmin.id, selfAgent!.id, 'ETB', 100_000n, `fund-self-${tag}`);
 
     const payoutAccount = await createActivePayoutAccount(selfUser.id, country.id, method.id);
-    const quote = await createWithdrawalQuote(selfUser.id, { countryId: country.id, coinAmount: 1000 });
+    const quote = await createWithdrawalQuote(selfUser.id, { countryId: country.id, coinAmount: 50_000 });
 
     // No OTHER agent has liquidity, so this must fail as if no liquidity
     // existed at all — never fall back to assigning the user's own agent.
@@ -839,12 +841,12 @@ describeIf('withdrawals/withdrawal-service', () => {
     const country = await createCountry(tag);
     const method = await createPaymentMethod(country.id, tag);
     await activateTestWithdrawalPolicy(country.id, admin.id);
-    await createExchangeRate(country.id, 'ETB', 2, admin.id);
+    await createExchangeRate(country.id, 'ETB', admin.id);
 
     // Distinct tag from `admin`'s — createUser() dedupes by email, so
     // reusing `tag` here would resolve to the SAME row as `admin` and
     // make approveAgentApplication legitimately reject it as self-review.
-    const selfUser = await createFundedUser(`${tag}-self`, 10_000);
+    const selfUser = await createFundedUser(`${tag}-self`, 100_000);
     const { application } = await submitAgentApplication(selfUser.id, {
       countryId: country.id,
       displayName: `Self Assign Agent ${tag}`,
@@ -859,7 +861,7 @@ describeIf('withdrawals/withdrawal-service', () => {
     const otherAgent = await createFundedAgent(`${tag}-other`, country.id, admin, superAdmin, 100_000n);
 
     const payoutAccount = await createActivePayoutAccount(selfUser.id, country.id, method.id);
-    const quote = await createWithdrawalQuote(selfUser.id, { countryId: country.id, coinAmount: 1000 });
+    const quote = await createWithdrawalQuote(selfUser.id, { countryId: country.id, coinAmount: 50_000 });
 
     const { withdrawal } = await createWithdrawal(
       selfUser.id,
@@ -883,7 +885,7 @@ describeIf('withdrawals/withdrawal-service', () => {
     const tag = `payment-deadline-${Date.now()}`;
     const { user, country, payoutAccount } = await setupHappyPath(tag);
 
-    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 });
+    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 50_000 });
     const before = Date.now();
     const { withdrawal } = await createWithdrawal(
       user.id,

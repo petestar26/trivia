@@ -1,3 +1,4 @@
+import { assertDepositSafetyClear } from './order-lifecycle.js';
 import { prisma } from '@socialplay/database';
 import { ApiError } from '../middleware/index.js';
 import { creditCoins, lockUserEconomicScope } from '../economy/coin-ledger-service.js';
@@ -323,6 +324,7 @@ export async function resolveDispute(
       throw ApiError.forbidden('Active platform administrator required');
     }
 
+    await assertDepositSafetyClear(tx, before.orderId);
     const claim = await tx.dispute.updateMany({
       where: { id: disputeId, status: 'ASSIGNED' },
       data: { status: 'RESOLVED', resolution, resolutionNote: resolutionNote.trim(), resolvedBy: adminId, resolvedAt: new Date() },

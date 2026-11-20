@@ -13,6 +13,11 @@ import { registerPlugins } from './plugins/index.js';
 import { registerRoutes } from './routes/index.js';
 import { healthRoutes } from './routes/health.js';
 import { registerWebSocket } from './ws/index.js';
+import { createWebSocketShutdownHook } from './ws/shutdown-adapter.js';
+import { createSignalCloseCoordinator, type ShutdownSignal } from './signal-close.js';
+import { closeOwnedApiResources } from './close-owned-api-resources.js';
+import { waitForActivityRecording } from './rewards/activity-service.js';
+import { createWorkDrain, type WorkLease } from './ws/work-drain.js';
 import { errorHandler, sendMalformedUrlResponse } from './middleware/error-handler.js';
 import { requestLogger } from './middleware/request-logger.js';
 import { redactedRequestSerializer, redactUrl } from './middleware/log-redaction.js';
@@ -28,7 +33,83 @@ import { startOperationsMonitor } from './monitoring/runtime.js';
  * gets exactly the configured logger; these exist so a test can observe what
  * the REAL server writes to its log, rather than a reconstruction of it.
  */
+// Candidate-only limits; a hosted rehearsal must establish a larger platform grace period.
+const API_SHUTDOWN_DEADLINE_MS = 20_000;
+const WEBSOCKET_DRAIN_DEADLINE_MS = 15_000;
+
+interface SocketShutdownControl {
+  stopAdmission(): void;
+  prepareShutdown(): Promise<void>;
+  finalizeTransports(deadlineMs: number): Promise<unknown>;
+}
+const TRANSPORT_RECEIPT_DEADLINE_MS = 3_000;
+// Handlers can outlive their connection after a client abort. Bounded by the outer deadline.
+const HTTP_HANDLER_DRAIN_DEADLINE_MS = 15_000;
+
+type HttpWorkDrain = ReturnType<typeof createWorkDrain>;
+
+/** A lease spans onRequest until the response has closed AND the lifecycle has finished
+ * (a reply was produced, or the route handler settled). A client abort only closes the
+ * response; preHandler and handler work that is still running keeps its lease. */
+function trackHttpHandlerWork(server: FastifyInstance, work: HttpWorkDrain): void {
+  type State = { lease: WorkLease | undefined; running: number; closed: boolean; finished: boolean };
+  const states = new WeakMap<object, State>();
+  const release = (state: State) => {
+    if (state.running || !state.closed || !state.finished) return;
+    state.lease?.finish();
+    state.lease = undefined;
+  };
+  server.addHook('onRequest', async (request, reply) => {
+    const state: State = { lease: work.acquire(), running: 0, closed: false, finished: false };
+    states.set(request, state);
+    reply.raw.once('close', () => { state.closed = true; release(state); });
+  });
+  // Callback style on purpose: an async onSend makes every send asynchronous, which
+  // breaks handlers that call reply.send() without returning reply.
+  server.addHook('onSend', (request, _reply, payload, done) => {
+    const state = states.get(request);
+    if (state) { state.finished = true; release(state); }
+    done(null, payload);
+  });
+  server.addHook('onRoute', (route) => {
+    const handler = route.handler;
+    route.handler = function (this: FastifyInstance, request, reply) {
+      const state = states.get(request);
+      if (state) {
+        state.running++;
+        if (!state.lease) state.lease = work.acquire();
+        if (!state.lease) {
+          // Client already gone and shutdown has begun: do not start untracked work.
+          state.running--;
+          return reply.code(503).send({ success: false, error: {
+            code: 'SERVICE_UNAVAILABLE', message: 'Server is shutting down',
+          } });
+        }
+      }
+      const leave = () => { if (state) { state.running--; state.finished = true; release(state); } };
+      let result: unknown;
+      try {
+        result = handler.call(this, request, reply);
+      } catch (error) {
+        leave();
+        throw error;
+      }
+      // Preserve the handler's own return value so Fastify semantics are unchanged.
+      if (result && typeof (result as Promise<unknown>).then === 'function') {
+        (result as Promise<unknown>).then(leave, leave);
+      } else {
+        leave();
+      }
+      return result as ReturnType<typeof handler>;
+    };
+  });
+}
+
 interface BuildServerOptions {
+  /** Shutdown-only: track route handler work independently of transport completion. */
+  httpWork?: HttpWorkDrain;
+  isDraining?: () => boolean;
+  receiveSocketShutdownControl?: (control: SocketShutdownControl) => void;
   /** Receive every serialized log line instead of writing to stdout. */
   logStream?: NodeJS.WritableStream;
   /** Override config.LOG_LEVEL (e.g. 'trace' to capture every line). */
@@ -87,6 +168,17 @@ async function buildServer(options: BuildServerOptions = {}): Promise<FastifyIns
     },
   });
 
+  if (options.isDraining) {
+    server.addHook('onRequest', async (_request, reply) => {
+      if (options.isDraining?.()) {
+        return reply.code(503).send({ success: false, error: {
+          code: 'SERVICE_UNAVAILABLE', message: 'Server is shutting down',
+        } });
+      }
+    });
+  }
+  // Before any route registration so onRoute wraps every handler.
+  if (options.httpWork) trackHttpHandlerWork(server, options.httpWork);
   server.setErrorHandler(errorHandler);
   server.addHook('onRequest', requestLogger);
   registerMonitorSignals(server, process.env.SALEM_MONITOR_ENABLED === 'true');
@@ -140,62 +232,135 @@ async function buildServer(options: BuildServerOptions = {}): Promise<FastifyIns
     { prefix: config.API_PREFIX }
   );
 
-  registerWebSocket(server);
+  const ws = registerWebSocket(server);
+  // Share one idempotent preparation promise between CLI and generic Fastify close.
+  const prepareShutdown = createWebSocketShutdownHook(ws, WEBSOCKET_DRAIN_DEADLINE_MS);
+  options.receiveSocketShutdownControl?.({
+    stopAdmission: () => ws.stopAdmission(),
+    prepareShutdown,
+    finalizeTransports: (deadlineMs) => ws.finalizeTransports(deadlineMs),
+  });
+  server.addHook('preClose', prepareShutdown);
 
   return server;
 }
 
 async function start(): Promise<void> {
+  let server: FastifyInstance | undefined;
+  let draining = false;
+  let socketShutdown: SocketShutdownControl | undefined;
+  const httpWork = createWorkDrain();
+  const stopBackground: Array<() => void | Promise<unknown>> = [];
+  let releaseStartup!: () => void;
+  const startupSettled = new Promise<void>(resolve => { releaseStartup = resolve; });
+  const close = createSignalCloseCoordinator({
+    deadlineMs: API_SHUTDOWN_DEADLINE_MS,
+    schedule: (callback, milliseconds) => setTimeout(callback, milliseconds),
+    cancel: handle => clearTimeout(handle as ReturnType<typeof setTimeout>),
+    close: async () => {
+      // If a signal arrived during listen/build, avoid overlapping close with
+      // unresolved startup. The outer deadline still bounds this wait.
+      await startupSettled;
+      await closeOwnedApiResources(
+        async () => {
+          if (!server) return;
+          if (!socketShutdown) throw new Error('Socket shutdown control not available');
+          // Await outside Fastify's preClose timeout/error handling. Fastify still
+          // owns the actual HTTP close, and its hook reuses the settled promise.
+          await socketShutdown.prepareShutdown();
+          await server.close();
+          await socketShutdown.finalizeTransports(TRANSPORT_RECEIPT_DEADLINE_MS);
+          // Transport completion is not handler completion (client aborts). Never
+          // disconnect the shared DB client while a route handler is still running.
+          const handlers = await httpWork.wait(HTTP_HANDLER_DRAIN_DEADLINE_MS);
+          if (handlers !== 'drained') throw new Error(`HTTP_HANDLER_DRAIN_${handlers.toUpperCase()}`);
+        },
+        stopBackground,
+        async () => {
+          // closeOwnedApiResources has settled all ingress/background producers.
+          // Activity stays detached from requests, but must finish before Prisma closes.
+          // The enclosing signal coordinator supplies the overall shutdown deadline.
+          await waitForActivityRecording();
+          await prisma.$disconnect();
+        },
+      );
+    },
+  });
+
+  const handleSignal = (signal: ShutdownSignal) => {
+    if (draining) return;
+    draining = true;
+    httpWork.stop();
+    socketShutdown?.stopAdmission();
+    void close.request(signal).then(outcome => {
+      // Bounded timeout/failure is not a clean-host drain.
+      if (outcome.status !== 'closed') {
+        console.error('API shutdown did not complete:', outcome.status);
+        process.exit(1);
+      }
+      // Exit naturally when non-owned handles close. If any keep this process
+      // alive, a short unref'd check fails the shutdown instead of hanging.
+      setTimeout(() => {
+        console.error('API shutdown left an active process handle');
+        process.exit(1);
+      }, 1000).unref();
+    });
+  };
+  process.on('SIGTERM', () => handleSignal('SIGTERM'));
+  process.on('SIGINT', () => handleSignal('SIGINT'));
+
   try {
     await assertUploadPersistence(config.STORAGE_LOCAL_PATH);
-    const server = await buildServer();
-    const stopRewards = startRewardDelivery(() =>
-      server.log.warn('Automatic reward delivery is temporarily unavailable; credits will retry')
-    );
-    server.addHook('onClose', async () => {
-      stopRewards();
+    if (draining) return;
+    const app = await buildServer({
+      httpWork,
+      isDraining: () => draining,
+      receiveSocketShutdownControl(control) {
+        socketShutdown = control;
+        if (draining) control.stopAdmission();
+      },
     });
-    const stopGroupPvp = startGroupPvpRuntime({
+    server = app;
+    if (draining) return;
+
+    stopBackground.push(startRewardDelivery(() =>
+      app.log.warn('Automatic reward delivery is temporarily unavailable; credits will retry')
+    ));
+    stopBackground.push(startGroupPvpRuntime({
       enabled: process.env.GROUP_PVP_GAME_POINTS_ENABLED === 'true',
       tick: createGroupPvpService(prisma).tick,
-      report: () => server.log.warn('Group game processing is unavailable; new entries are paused'),
-    });
+      report: () => app.log.warn('Group game processing is unavailable; new entries are paused'),
+    }));
     const togetherService = createTogetherService(prisma);
-    const stopTogether = startTogetherRuntime(
+    stopBackground.push(startTogetherRuntime(
       async () => {
         if (process.env.PLAY_TOGETHER_WORKER_MODE !== 'external') await togetherService.tick();
         await dispatchTogetherEvents(prisma);
       },
-      () => server.log.warn('Group rounds are recovering; new entries are paused')
-    );
-    server.addHook('onClose', async () => {
-      stopTogether();
-    });
-    server.addHook('onClose', async () => {
-      stopGroupPvp();
-    });
-    const stopPayments = startPaymentMaintenance(() =>
-      server.log.warn('Payment deadline checks need attention; held funds remain protected')
-    );
-    server.addHook('onClose', stopPayments);
-    const stopRates = startEtbRateRefresh(() =>
-      server.log.warn('ETB reference refresh is unavailable')
-    );
-    server.addHook('onClose', async () => {
-      stopRates();
-    });
+      () => app.log.warn('Group rounds are recovering; new entries are paused')
+    ));
+    stopBackground.push(startPaymentMaintenance(() =>
+      app.log.warn('Payment deadline checks need attention; held funds remain protected')
+    ));
+    stopBackground.push(startEtbRateRefresh(() =>
+      app.log.warn('ETB reference refresh is unavailable')
+    ));
     if (process.env.SALEM_MONITOR_ENABLED === 'true') {
-      const stopMonitor = startOperationsMonitor(prisma, server);
-      server.addHook('onClose', stopMonitor);
+      stopBackground.push(startOperationsMonitor(prisma, app));
     }
-    await server.listen({ port: config.PORT, host: config.HOST });
-    server.log.info(`🚀 Server running at http://${config.HOST}:${config.PORT}`);
-    server.log.info(
+    await app.listen({ port: config.PORT, host: config.HOST });
+    if (draining) return;
+    app.log.info(`🚀 Server running at http://${config.HOST}:${config.PORT}`);
+    app.log.info(
       `📚 API docs available at http://${config.HOST}:${config.PORT}${config.API_PREFIX}/docs`
     );
   } catch (err) {
-    console.error('Failed to start server:', err);
-    process.exit(1);
+    if (!draining) {
+      console.error('Failed to start server:', err);
+      process.exit(1);
+    }
+  } finally {
+    releaseStartup();
   }
 }
 

@@ -95,12 +95,12 @@ async function fixture(withdraw = false) {
     },
   });
   await publishUsdRate(admin.id, country.id, fixtureEtbPolicy());
-  await fundAgentInventory(admin.id, agent.agentId, 50000, randomUUID());
+  await fundAgentInventory(admin.id, agent.agentId, 2500000, randomUUID());
   const orderArgs = {
     agentId: agent.agentId,
     countryId: country.id,
     paymentAccountId: account.id,
-    fiatAmount: 5000,
+    fiatAmount: 250000,
     idempotencyKey: randomUUID(),
   };
   const { order } = await createAgentOrder(member.id, orderArgs);
@@ -119,13 +119,13 @@ async function fixture(withdraw = false) {
   await submitOrderPayment(member.id, order.id);
   await settleAgentOrder(agentUser.id, order.id);
   await activateTestWithdrawalPolicy(country.id, admin.id);
-  await fundAgentFiatLiquidity(admin.id, agent.agentId, 'ETB', 10000n, randomUUID());
+  await fundAgentFiatLiquidity(admin.id, agent.agentId, 'ETB', 500000n, randomUUID());
   const destination = await createUserPayoutAccount(member.id, {
     countryId: country.id,
     methodDefId: method.id,
     accountDetails: { accountNumber: 'MEMBER-TEST-98765' },
   });
-  const quote = await createWithdrawalQuote(member.id, { countryId: country.id, coinAmount: 1000 });
+  const quote = await createWithdrawalQuote(member.id, { countryId: country.id, coinAmount: 50000 });
   await createWithdrawal(
     member.id,
     { quoteId: quote.id, payoutAccountId: destination.id, idempotencyKey: randomUUID() },
@@ -143,8 +143,8 @@ it('shows private immutable order terms only to the two parties or support', asy
   const f = await fixture();
   expect(await getPaymentRoom(f.member.id, 'deposit', f.order.id)).toMatchObject({
     role: 'member',
-    coinAmount: 5000,
-    fiatAmount: '5000',
+    coinAmount: 250000,
+    fiatAmount: '250000',
     hold: { status: 'ACTIVE' },
     actions: { appeal: true, markPaid: true, release: false },
   });
@@ -230,7 +230,7 @@ it('allows either deposit party to appeal before marking paid and preserves rese
     await resolveDispute(f.admin.id, dispute.id, 'RELEASE', 'Synthetic evidence reviewed');
     expect(
       (await prisma.wallet.findUniqueOrThrow({ where: { userId: f.member.id } })).coinsBalance
-    ).toBe(5000);
+    ).toBe(250000);
     await expect(
       resolveDispute(f.admin.id, dispute.id, 'RELEASE', 'Duplicate')
     ).rejects.toMatchObject({ statusCode: 409 });
@@ -244,7 +244,7 @@ it('shows agent-reported late payments to both parties without crediting a walle
     orderId: f.order.id,
     idempotencyKey: randomUUID(),
     paymentReference: `SYNTHETIC-${randomUUID()}`,
-    paidAmount: 5000,
+    paidAmount: 250000,
     paidAt: new Date().toISOString(),
     description: 'Synthetic late transfer report',
   });
@@ -285,7 +285,7 @@ it('supports both withdrawal parties in every held phase and refunds once throug
       await resolveWithdrawalDispute(f.admin.id, dispute.id, resolution);
       expect(
         (await prisma.wallet.findUniqueOrThrow({ where: { userId: f.member.id } })).coinsBalance
-      ).toBe(5000);
+      ).toBe(250000);
       expect(await prisma.withdrawalSettlement.count({ where: { withdrawalId: id } })).toBe(1);
     }
 });
@@ -314,7 +314,7 @@ it('requires verified transfer details before completing a pre-payment withdrawa
   });
   expect(
     (await prisma.wallet.findUniqueOrThrow({ where: { userId: f.member.id } })).coinsBalance
-  ).toBe(4000);
+  ).toBe(200000);
   expect(
     (await prisma.withdrawalHold.findUniqueOrThrow({ where: { withdrawalId: id } })).status
   ).toBe('CONSUMED');
@@ -345,7 +345,7 @@ it('blocks suspended agents on new deposits and withdrawals without reserving or
   ).rejects.toMatchObject({ statusCode: 409 });
   const quote = await createWithdrawalQuote(f.member.id, {
     countryId: f.country.id,
-    coinAmount: 1000,
+    coinAmount: 50000,
   });
   await expect(
     createWithdrawal(
@@ -356,7 +356,7 @@ it('blocks suspended agents on new deposits and withdrawals without reserving or
   ).rejects.toThrow(/agent|liquidity/i);
   expect(
     (await prisma.wallet.findUniqueOrThrow({ where: { userId: f.member.id } })).coinsBalance
-  ).toBe(5000);
+  ).toBe(250000);
   expect(await prisma.withdrawal.count({ where: { userId: f.member.id } })).toBe(1);
   expect(await prisma.agentInventory.findUniqueOrThrow({ where: { agentId: f.agentId } })).toEqual(
     before
@@ -545,7 +545,7 @@ it('automatically expires only unpaid deposits and escalates overdue payouts onc
   ).toBe('ACTIVE');
   expect(
     (await prisma.wallet.findUniqueOrThrow({ where: { userId: f.member.id } })).coinsBalance
-  ).toBe(4000);
+  ).toBe(200000);
   expect(await prisma.withdrawalDispute.count({ where: { withdrawalId: id } })).toBe(1);
   expect(
     await prisma.notification.count({

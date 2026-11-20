@@ -112,6 +112,11 @@ export function errorHandler(
       : 'This group has closed. Its conversation and results are read-only.';
     return reply.status(409).send({success:false,error:{code:ErrorCode.CONFLICT,message},meta:{requestId}});
   }
+  // Database-enforced P2P admission pause (migration 20261119000000). Nothing was admitted.
+  if (error.name.startsWith('PrismaClient') && databaseMessage.includes('P2P_ADMISSION_PAUSED')) {
+    return reply.status(503).send({success:false,error:{code:ErrorCode.SERVICE_UNAVAILABLE,
+      message:'New deposits and withdrawals are briefly paused. Existing orders are not affected; please try again shortly.'},meta:{requestId}});
+  }
 
   if (error.code === 'P2003') {
     return reply.status(400).send({

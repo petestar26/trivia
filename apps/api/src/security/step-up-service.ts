@@ -109,6 +109,19 @@ export async function requireStepUp(
   purpose: string,
   tx?: Parameters<Parameters<typeof prisma.$transaction>[0]>[0]
 ): Promise<void> {
+  await consumeStepUp(ctx, purpose, tx);
+}
+
+/**
+ * Identical single-use consumption, additionally returning the consumed
+ * record's id so a caller can bind exactly one decision to exactly one
+ * confirmation (a unique column on the decision makes reuse impossible).
+ */
+export async function consumeStepUp(
+  ctx: StepUpContext,
+  purpose: string,
+  tx?: Parameters<Parameters<typeof prisma.$transaction>[0]>[0]
+): Promise<string> {
   const db = tx ?? prisma;
   const now = new Date();
 
@@ -142,6 +155,7 @@ export async function requireStepUp(
       code: 'STEP_UP_REQUIRED',
     });
   }
+  return candidate.id;
 }
 
 /**

@@ -19,7 +19,7 @@ import { ApiError } from '../middleware/index.js';
 // report for the reasoning: no WithdrawalConfig table exists yet, and a
 // hardcoded, documented bound is a safe, easily-revisited service-layer
 // decision, not a structural gap).
-const MIN_WITHDRAWAL_COINS = 100;
+// Currency-specific floors are enforced by priceUsdPayment after selecting the policy.
 const MAX_WITHDRAWAL_COINS = 1_000_000_000; // matches wallet-service.ts's MAX_BALANCE ceiling
 const QUOTE_TTL_SECONDS = 300; // matches the SecurityChallenge/StepUpVerification precedent (W-0)
 
@@ -34,11 +34,6 @@ function validateArgs(args: CreateWithdrawalQuoteArgs) {
   }
   if (!Number.isInteger(args.coinAmount) || args.coinAmount <= 0) {
     throw ApiError.badRequest('coinAmount must be a positive integer');
-  }
-  if (args.coinAmount < MIN_WITHDRAWAL_COINS) {
-    throw ApiError.badRequest(
-      `coinAmount is below the minimum withdrawal amount (${MIN_WITHDRAWAL_COINS})`
-    );
   }
   if (args.coinAmount > MAX_WITHDRAWAL_COINS) {
     throw ApiError.badRequest(

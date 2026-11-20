@@ -80,10 +80,19 @@ export async function mintTestPurchasedCoins(userId: string, amount: number, sco
       displayName: 'Test purchase agent', contactEmail: `tpa-${tag}@test.local`,
       status: 'ACTIVE',
     } });
+    const method = await tx.paymentMethodDefinition.create({ data: {
+      // Unique per call: (countryId, type, name) is unique and every call shares ZLP.
+      id: `method-${tag}`, countryId: country.id, name: `Synthetic receiving method ${tag}`,
+      type: 'BANK_TRANSFER', fieldSchema: { requiredFields: [] },
+    } });
+    const account = await tx.agentPaymentAccount.create({ data: {
+      id: `account-${tag}`, agentId: agent.id, countryId: country.id,
+      methodDefId: method.id, accountDetails: {}, status: 'APPROVED',
+    } });
     await tx.agentOrder.create({ data: {
       id: scopeId, orderNumber: `TP-${tag}`, userId, agentId: agent.id,
-      countryId: country.id, paymentMethodDefId: `method-${tag}`,
-      paymentAccountId: `account-${tag}`, paymentSnapshot: {},
+      countryId: country.id, paymentMethodDefId: method.id,
+      paymentAccountId: account.id, paymentSnapshot: {},
       fiatAmount: amount, fiatCurrency: 'USD', exchangeRateConfigId: `rate-${tag}`,
       exchangeRateValue: 1, coinAmount: amount, status: 'COMPLETED',
       idempotencyKey: scopeId,
