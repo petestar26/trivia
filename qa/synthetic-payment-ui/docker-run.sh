@@ -40,7 +40,7 @@ cid=$(docker create --pull=never --platform linux/amd64 --network=none \
   --read-only --init --user "$(id -u):$(id -g)" --cap-drop=ALL \
   --security-opt=no-new-privileges --pids-limit=256 --shm-size=768m --memory=6g --cpus=2 \
   --tmpfs /tmp:rw,nosuid,nodev,size=512m,mode=1777 \
-  --tmpfs /work:rw,nosuid,nodev,size=5g,mode=1777 \
+  --tmpfs /work:rw,exec,nosuid,nodev,size=5g,mode=1777 \
   --mount "type=bind,source=$baseline,target=/in-baseline,readonly" \
   --mount "type=bind,source=$harness,target=/in-qa,readonly" \
   --mount "type=bind,source=$store,target=/in-store,readonly" \
