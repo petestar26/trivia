@@ -31,6 +31,7 @@ function account(id = 'own-account', status = 'APPROVED') {
     countryId: 'et',
     methodDefId: 'mobile',
     status,
+    safetyHold: status === 'DISABLED',
     accountDetails: { accountName: `${id} owner`, accountNumber: `${id} number` },
     updatedAt: '2026-10-05T00:00:00.000Z',
   };
@@ -92,7 +93,7 @@ it('identifies owner destinations with readable labels and meaningful review sta
   expect(rejected.getByText('rejected-account number')).toBeInTheDocument();
   expect(rejected.getByText(/Check the administrator’s feedback/)).toBeInTheDocument();
   expect(rejected.getByRole('button', { name: 'Correct and resubmit' })).toBeEnabled();
-  expect(rejected.queryByRole('button', { name: 'Disable account' })).not.toBeInTheDocument();
+  expect(rejected.getByRole('button', { name: 'Disable account' })).toBeEnabled();
   expect(
     within(screen.getByRole('article', { name: 'Receiving account disabled-account' })).queryByRole(
       'button'
@@ -227,7 +228,7 @@ it('requires explicit confirmation to disable the selected account and preserves
   await screen.findByText(/Receiving account disabled/);
   expect(transport.post).toHaveBeenCalledTimes(1);
   expect(transport.post.mock.calls[0][0]).toBe('/agents/me/payment-accounts/own-account/disable');
-  expect(transport.post.mock.calls[0][1]).toBeUndefined();
+  expect(transport.post.mock.calls[0][1]).toEqual({ expectedUpdatedAt: '2026-10-05T00:00:00.000Z' });
   await waitFor(() =>
     expect(screen.queryByRole('button', { name: 'Disable account' })).not.toBeInTheDocument()
   );
@@ -355,3 +356,21 @@ it.each(['accounts', 'methods'])(
     expect(transport.post).not.toHaveBeenCalled();
   }
 );
+
+it('lets the owner safety-disable a rejected revision without changing its review status', async () => {
+  currentAccounts = [account('rejected-own', 'REJECTED')];
+  transport.post.mockImplementation(async () => {
+    currentAccounts = [{ ...account('rejected-own', 'REJECTED'), safetyHold: true }];
+    return { success: true, data: { status: 'REJECTED', safetyHold: true } };
+  });
+  mount();
+  await loaded();
+  fireEvent.click(screen.getByRole('button', { name: 'Disable account' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm disable' }));
+  await screen.findByText('This account is disabled. Its history is preserved.');
+  expect(transport.post).toHaveBeenCalledWith('/agents/me/payment-accounts/rejected-own/disable',
+    { expectedUpdatedAt: '2026-10-05T00:00:00.000Z' }, undefined, expect.anything());
+  expect(screen.queryByRole('button', { name: 'Disable account' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Correct and resubmit' })).not.toBeInTheDocument();
+  expect(currentAccounts[0].status).toBe('REJECTED');
+});

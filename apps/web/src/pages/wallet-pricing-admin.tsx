@@ -90,15 +90,11 @@ export function WalletPricingAdmin() {
         <dl>
           <dt>{translateUi('Agent deposit minimum')}</dt>
           <dd>
-            {translateUi('USD {value} equivalent in ETB', {
-              value: (rate.data!.p2pDepositMinUsdCents! / 100).toFixed(2),
-            })}
+            {translateUi('Minimum P2P deposit is 100 ETB')}
           </dd>
           <dt>{translateUi('Agent withdrawals')}</dt>
           <dd>
-            {translateUi('More than USD {value} equivalent in ETB', {
-              value: (rate.data!.p2pWithdrawalAboveUsdCents! / 100).toFixed(2),
-            })}
+            {translateUi('Minimum P2P withdrawal is 500 ETB')}
           </dd>
           <dt>{translateUi('Crypto deposit minimum')}</dt>
           <dd>

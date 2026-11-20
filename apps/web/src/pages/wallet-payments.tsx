@@ -1,3 +1,4 @@
+import { ETB_P2P_REQUIREMENTS, PAYMENT_REQUIREMENTS_PATH } from '@socialplay/shared';
 import { paymentFieldLabel } from '@/lib/payment-field-label';
 import { LatePaymentReport, LatePaymentCases } from './wallet-late-payments';
 import {
@@ -156,6 +157,10 @@ function Payments({ userId }: { userId: string }) {
   const minorDigits = country ? currencyMinorDigits(country.currencyCode) : 2;
   const depositMinor = inputToMinor(amount, minorDigits);
   const withdrawalMinor = inputToMinor(amount, 2);
+  const isEtbPayment = country?.currencyCode === 'ETB';
+  const belowEtbMinimum = isEtbPayment && (section === 'deposit'
+    ? depositMinor !== null && depositMinor < ETB_P2P_REQUIREMENTS.depositMinMinor
+    : section === 'withdraw' && withdrawalMinor !== null && withdrawalMinor < ETB_P2P_REQUIREMENTS.withdrawalMinMinor);
   const validAmount =
     depositMinor !== null &&
     (section === 'deposit' || (withdrawalMinor !== null && withdrawalMinor <= 1_000_000_000));
@@ -172,14 +177,14 @@ function Payments({ userId }: { userId: string }) {
         };
         preview: { coinAmount: number } | null;
       }>(
-        `/agent-config/countries/${countryId}/deposit-preview${section === 'deposit' && depositMinor ? `?fiatAmount=${depositMinor}` : ''}`
+        `/agent-config/countries/${countryId}/deposit-preview${section === 'deposit' && depositMinor && !belowEtbMinimum ? `?fiatAmount=${depositMinor}` : ''}`
       ),
     enabled: !!country?.usdPricingEnabled && country.agentPaymentEnabled !== false,
     retry: false,
     refetchInterval: 30000,
   });
   const withdrawalPolicy = pricing.data?.policy;
-  const withdrawalMinimum = withdrawalPolicy
+  const withdrawalMinimum = isEtbPayment ? ETB_P2P_REQUIREMENTS.withdrawalMinMinor : withdrawalPolicy
     ? etbMinimumMinor(
         withdrawalPolicy.localPerUsd,
         withdrawalPolicy.p2pWithdrawalAboveUsdCents,
@@ -191,9 +196,10 @@ function Payments({ userId }: { userId: string }) {
     country?.agentPaymentEnabled !== false &&
     (!country?.usdPricingEnabled ||
       (!pricing.isError &&
+        !!withdrawalPolicy &&
         withdrawalMinimum !== null &&
         Number.isSafeInteger(withdrawalMinimum) &&
-        Date.parse(withdrawalPolicy!.expiresAt) > now &&
+        Date.parse(withdrawalPolicy.expiresAt) > now &&
         (withdrawalMinor ?? 0) >= withdrawalMinimum));
   function changeCountry(value: string) {
     setCountry(value);
@@ -458,7 +464,7 @@ function Payments({ userId }: { userId: string }) {
                               })}
                             </p>
                             <p>
-                              {translateUi(
+                              {isEtbPayment ? translateUi('Minimum P2P deposit is 100 ETB') + '. ' + translateUi('Minimum P2P withdrawal is 500 ETB') + '.' : translateUi(
                                 'Deposit minimum: USD {value}. Withdrawal must exceed USD {value2}.',
                                 {
                                   value: (pricing.data.policy.p2pDepositMinUsdCents / 100).toFixed(
@@ -515,6 +521,10 @@ function Payments({ userId }: { userId: string }) {
                       {translateUi('Enter a positive ETB amount with up to two decimal places.')}
                     </p>
                   )}
+                  {belowEtbMinimum && (
+                    <p role="alert">{translateUi(section === 'deposit' ? 'Minimum P2P deposit is 100 ETB' : 'Minimum P2P withdrawal is 500 ETB')}</p>
+                  )}
+                  <p><Link to={PAYMENT_REQUIREMENTS_PATH}>{translateUi('Payment requirements')}</Link></p>
                   {section === 'deposit' ? (
                     <>
                       <label>
@@ -593,6 +603,7 @@ function Payments({ userId }: { userId: string }) {
                         disabled={
                           busy ||
                           !validAmount ||
+                          belowEtbMinimum ||
                           !agent ||
                           !paymentAccountId ||
                           !confirm ||
@@ -717,6 +728,7 @@ function Payments({ userId }: { userId: string }) {
                         disabled={
                           busy ||
                           !validAmount ||
+                          belowEtbMinimum ||
                           !withdrawalPricingReady ||
                           !countryId ||
                           !accountId
