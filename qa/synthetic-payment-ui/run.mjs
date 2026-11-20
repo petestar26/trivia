@@ -61,7 +61,13 @@ async function state(l, enabled) {
   assert.equal(await l.isEnabled(),enabled,'button enablement');
 }
 async function select(p, name, value) {
-  const target = p.getByLabel(name,{exact:true});
+  assert.match(value,/^synthetic-[a-z-]+$/);
+  const target = p.locator('.payment-panel select').filter({has:p.locator('option[value="'+value+'"]')});
+  await target.waitFor({state:'visible'});
+  assert.equal(await target.count(),1,'exactly one fixture-backed payment select');
+  const label = await target.evaluate(el => Array.from(el.closest('label').childNodes)
+    .filter(node => node.nodeType === Node.TEXT_NODE).map(node => node.textContent).join('').trim());
+  assert.equal(label,name,'visible payment field label');
   await target.selectOption(value);
   assert.equal(await target.inputValue(),value);
 }
@@ -113,11 +119,13 @@ async function run(name,role,width,work) {
       await p.screenshot({path:resolve(output,name),fullPage:true});
       result.screenshots.push(name);
     };
-    await work({p,go,capture});
+    const stage = name => { result.stage = name; };
+    await work({p,go,capture,stage});
     assert.deepEqual(result.unexpected,[]);
     assert.deepEqual(result.errors,[]);
     result.status='passed';
   } catch(e) {
+    console.log('Synthetic case failed:', name, 'at', result.stage ?? 'case assertions');
     result.error=String(e.message).slice(0,400); // no response bodies, identities or secrets
   } finally { await c.close(); }
 }
@@ -150,13 +158,16 @@ try {
   for(const [kind,floor,below,amountLabel,action] of [
     ['deposit','100.00','99.99','Amount to pay · ETB','Create deposit request'],
     ['withdraw','500.00','499.99','Amount to withdraw · ETB','Get withdrawal quote'],
-  ]) await run(`threshold-${kind}`,'member',390,async({p,go,capture})=>{
+  ]) await run(`threshold-${kind}`,'member',390,async({p,go,capture,stage})=>{
     const alert=kind==='deposit'?'Minimum P2P deposit is 100 ETB':'Minimum P2P withdrawal is 500 ETB';
+    stage('country selector');
     await go('/wallet/'+kind);await select(p,'Country','synthetic-etb');
+    stage('below minimum');
     const a=p.getByLabel(amountLabel,{exact:true});
     await a.fill(below);
     await p.getByRole('alert').filter({hasText:alert}).waitFor();
     await state(button(p,action),false);
+    stage('translated below-minimum alert');
     await lang(p,'en','am');
     const translatedAmount=kind==='deposit'
       ? t('am','Amount to pay{value}',{value:' · ETB'})
@@ -165,10 +176,12 @@ try {
     await p.getByRole('alert').filter({hasText:t('am',alert)}).waitFor();
     await state(button(p,t('am',action)),false);
     await layout(p);await capture('below-floor-am');
+    stage('exact minimum, prerequisites not met');
     await lang(p,'am','en');
     assert.equal(await a.inputValue(),below);
     await a.fill(floor);
     await state(button(p,action),false);
+    stage('exact minimum, eligible prerequisites');
     if(kind==='deposit'){
       await select(p,'Agent','synthetic-agent');
       await select(p,'Payment method','synthetic-method-account');
