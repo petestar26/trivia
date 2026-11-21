@@ -10,6 +10,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
+import { LoadingState } from '@/components/ui/loading-state';
 
 const NAME_MIN = 2;
 const NAME_MAX = 100;
@@ -265,11 +266,7 @@ export function GroupsPage() {
   });
 
   if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <div className="animate-spin rounded-full h-8 w-8 border-4 border-primary-500 border-t-transparent" />
-      </div>
-    );
+    return <LoadingState />;
   }
 
   if (isError) {

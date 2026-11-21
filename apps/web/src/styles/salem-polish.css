@@ -1,0 +1,280 @@
+/* Salem polish: small, mobile-first refinements layered on Salem Emerald.
+   Presentation only. Rules are scoped to the existing member/guest shell or to
+   the salem-loading, salem-session-alert and salem-app-error hooks, use logical
+   properties so Arabic mirrors correctly, and add motion only when the visitor
+   has not asked for reduced motion. No selector depends on translated text. */
+
+/* ---------- Loading ---------- */
+.salem-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  min-height: 220px;
+  padding: 48px 16px;
+  color: hsl(var(--muted-foreground));
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: center;
+}
+.salem-loading.is-fullscreen {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+.salem-loading.is-inline {
+  flex-direction: row;
+  justify-content: flex-start;
+  gap: 10px;
+  min-height: 0;
+  padding: 20px 2px;
+}
+.salem-loading-mark {
+  position: relative;
+  flex-shrink: 0;
+  width: 38px;
+  height: 38px;
+  border: 2px solid hsl(var(--primary) / 0.2);
+  border-block-start-color: hsl(var(--primary));
+  border-radius: 50%;
+}
+.salem-loading-mark::after {
+  content: '';
+  position: absolute;
+  inset: 12px;
+  border-radius: 50%;
+  background: var(--casino-gold, hsl(var(--primary)));
+  opacity: 0.85;
+}
+.salem-loading.is-inline .salem-loading-mark {
+  width: 20px;
+  height: 20px;
+}
+.salem-loading.is-inline .salem-loading-mark::after {
+  inset: 6px;
+}
+@keyframes salem-loading-turn {
+  to {
+    transform: rotate(1turn);
+  }
+}
+@keyframes salem-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .salem-loading-mark {
+    animation: salem-loading-turn 0.9s linear infinite;
+  }
+  /* A short delay keeps fast responses from flashing an indicator. */
+  .salem-loading {
+    animation: salem-fade-in 0.24s ease-out 0.12s backwards;
+  }
+}
+
+/* ---------- Session check and crash fallbacks (theme-adaptive tokens) ---------- */
+.salem-session-alert {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px 16px;
+  width: min(640px, calc(100% - 32px));
+  margin: 12px auto 0;
+  padding: 14px 18px;
+  border: 1px solid hsl(var(--border));
+  border-inline-start: 3px solid #dfbd76;
+  border-radius: 14px;
+  background: hsl(var(--card));
+  color: hsl(var(--card-foreground));
+  font-size: 14px;
+  line-height: 1.5;
+  text-align: start;
+  box-shadow: 0 10px 28px rgb(0 0 0 / 0.14);
+}
+.salem-session-alert > p {
+  flex: 1 1 220px;
+  margin: 0;
+}
+:is(.salem-session-alert, .salem-app-error) button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding-inline: 18px;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  font-size: 14px;
+  font-weight: 650;
+}
+:is(.salem-session-alert, .salem-app-error) button:focus-visible,
+.salem-app-error a:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 3px;
+}
+.salem-app-error {
+  display: grid;
+  justify-items: start;
+  gap: 14px;
+  width: min(520px, calc(100% - 32px));
+  margin: max(48px, 12vh) auto;
+  padding: 28px 24px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 18px;
+  background: hsl(var(--card));
+  color: hsl(var(--card-foreground));
+  box-shadow: 0 18px 44px rgb(0 0 0 / 0.16);
+}
+.salem-app-error h1 {
+  font-size: 24px;
+  font-weight: 650;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+.salem-app-error p {
+  color: hsl(var(--muted-foreground));
+  line-height: 1.65;
+}
+.salem-app-error a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  color: hsl(var(--primary));
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* ---------- Typography ---------- */
+html.qube-member.dark .qube-main :is(p, li) {
+  text-wrap: pretty;
+}
+html.qube-member.dark .qube-shell .salem-guest-category h2 {
+  font-weight: 650;
+  line-height: 1.25;
+}
+
+/* ---------- Page entrance: opacity only, so no containing block or lasting
+   stacking context is created for fixed overlays inside a page. ---------- */
+@media (prefers-reduced-motion: no-preference) {
+  html.qube-member.dark .qube-shell .qube-main > * {
+    animation: salem-fade-in 0.22s ease-out;
+  }
+}
+
+/* ---------- Focus visible inside clipped tiles and the bottom bar ---------- */
+html.qube-member.dark .qube-shell .salem-own-tile > a:focus-visible {
+  outline-offset: -3px;
+  border-radius: inherit;
+}
+
+/* ---------- Mobile bottom navigation ---------- */
+@media (max-width: 1023px) {
+  html.qube-member.dark .qube-shell .salem-mobile-nav {
+    gap: 2px;
+    padding-inline: max(6px, env(safe-area-inset-left)) max(6px, env(safe-area-inset-right));
+  }
+  /* Icons share one line even when a label wraps to two. */
+  html.qube-member.dark .qube-shell .salem-mobile-nav a {
+    position: relative;
+    justify-content: flex-start;
+    gap: 5px;
+    padding-block: 8px 6px;
+    border-radius: 12px;
+    text-align: center;
+    font-size: 10px;
+    font-weight: 550;
+  }
+  html.qube-member.dark .qube-shell .salem-mobile-nav a > svg {
+    flex-shrink: 0;
+  }
+  html.qube-member.dark .qube-shell .salem-mobile-nav a span {
+    line-height: 1.25;
+  }
+  html.qube-member.dark:is(:lang(am), :lang(ti), :lang(ar)) .qube-shell .salem-mobile-nav a span {
+    line-height: 1.45;
+  }
+  /* Same weight as inactive items, so the active label never reflows. */
+  html.qube-member.dark .qube-shell .salem-mobile-nav a.is-active {
+    background: linear-gradient(180deg, #34d39924, #34d3990a);
+    box-shadow: inset 0 0 0 1px #34d39938;
+    color: #fff;
+    font-weight: 550;
+  }
+  html.qube-member.dark .qube-shell .salem-mobile-nav a.is-active > svg {
+    color: #8ff0bd;
+  }
+  html.qube-member.dark .qube-shell .salem-mobile-nav a.is-active::before {
+    content: '';
+    position: absolute;
+    inset-block-start: -1px;
+    inset-inline: 26%;
+    height: 3px;
+    border-radius: 0 0 3px 3px;
+    background: var(--casino-emerald);
+    box-shadow: 0 0 10px #34d39970;
+  }
+  /* The bar sits at the screen edge; draw the focus ring inside each item. */
+  html.qube-member.dark .qube-shell .salem-mobile-nav a:focus-visible {
+    outline-offset: -3px;
+  }
+}
+@media (min-width: 360px) and (max-width: 1023px) {
+  html.qube-member.dark .qube-shell .salem-mobile-nav a {
+    font-size: 10.5px;
+  }
+}
+
+/* ---------- Collection controls on narrow phones ---------- */
+@media (max-width: 520px) {
+  html.qube-member.dark .qube-shell .salem-collection-controls {
+    flex-wrap: wrap;
+    align-items: stretch;
+  }
+  html.qube-member.dark .qube-shell .salem-collection-controls > .salem-tabs {
+    flex: 1 1 100%;
+    flex-wrap: nowrap;
+  }
+  html.qube-member.dark .qube-shell .salem-collection-controls > .salem-tabs > button {
+    flex: 1 1 0;
+    justify-content: center;
+    min-width: 0;
+  }
+  html.qube-member.dark .qube-shell .salem-collection-controls > .salem-search {
+    flex: 1 1 100%;
+    width: auto;
+    max-width: none;
+  }
+}
+
+/* ---------- Tactile feedback on touch screens ---------- */
+@media (hover: none) and (prefers-reduced-motion: no-preference) {
+  html.qube-member.dark .qube-shell .salem-mobile-nav a {
+    transition:
+      background-color 0.18s ease,
+      color 0.18s ease,
+      transform 0.12s ease;
+  }
+  html.qube-member.dark .qube-shell .salem-mobile-nav a:active {
+    transform: scale(0.96);
+  }
+  html.qube-member.dark
+    .qube-shell
+    :is(.salem-launchpad a, .qube-quick-card, .salem-own-tile, .salem-guest-category) {
+    transition:
+      transform 0.14s ease,
+      border-color 0.18s ease;
+  }
+  html.qube-member.dark
+    .qube-shell
+    :is(.salem-launchpad a, .qube-quick-card, .salem-own-tile, .salem-guest-category):active {
+    transform: scale(0.985);
+  }
+}
