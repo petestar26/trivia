@@ -158,6 +158,8 @@ function Payments({ userId }: { userId: string }) {
   const depositMinor = inputToMinor(amount, minorDigits);
   const withdrawalMinor = inputToMinor(amount, 2);
   const isEtbPayment = country?.currencyCode === 'ETB';
+  const showEtbMinimum =
+    isEtbPayment || (!country && options.data?.countries.some((c) => c.currencyCode === 'ETB'));
   const belowEtbMinimum = isEtbPayment && (section === 'deposit'
     ? depositMinor !== null && depositMinor < ETB_P2P_REQUIREMENTS.depositMinMinor
     : section === 'withdraw' && withdrawalMinor !== null && withdrawalMinor < ETB_P2P_REQUIREMENTS.withdrawalMinMinor);
@@ -376,6 +378,15 @@ function Payments({ userId }: { userId: string }) {
                   ? translateUi('Agent deposit')
                   : translateUi('Agent withdrawal')}
               </h2>
+              {showEtbMinimum && (
+                <p role={belowEtbMinimum ? 'alert' : undefined}>
+                  {translateUi(
+                    section === 'deposit'
+                      ? 'Minimum P2P deposit is 100 ETB'
+                      : 'Minimum P2P withdrawal is 500 ETB'
+                  )}
+                </p>
+              )}
               {section === 'withdraw' && options.data?.withdrawalsEnabled === false && (
                 <div className="wallet-mode-notice" role="status">
                   <strong>{translateUi('Withdrawals are awaiting payment setup')}</strong>
@@ -388,8 +399,7 @@ function Payments({ userId }: { userId: string }) {
               )}
               {options.data?.isAdmin && (
                 <p>
-                  <Link to="/admin/payments">{translateUi('Configure payment accounts')}</Link> ·{' '}
-                  <Link to="/admin/pricing">{translateUi('Manage exchange rates')}</Link>
+                  <Link to="/admin/payments">{translateUi('Configure payment accounts')}</Link>
                 </p>
               )}
               {!options.data?.countries.length ? (
@@ -420,11 +430,7 @@ function Payments({ userId }: { userId: string }) {
                       {translateUi('Agent payments:')}{' '}
                       {country.agentPaymentEnabled === false
                         ? translateUi('setup in progress')
-                        : translateUi('enabled; request checks apply')}{' '}
-                      ·{' '}
-                      <Link to={paymentPath(section as 'deposit' | 'withdraw', 'crypto')}>
-                        {translateUi('Check USDT availability')}
-                      </Link>
+                        : translateUi('enabled; request checks apply')}
                     </p>
                   )}
                   {country?.agentPaymentEnabled === false && (
@@ -436,68 +442,26 @@ function Payments({ userId }: { userId: string }) {
                       </strong>
                       <p>
                         {translateUi(
-                          'An approved agent receiving account, current exchange rate and funded payment service are needed. You can prepare your payout account while setup is completed.'
+                          'Payments are paused in this country. New quotes are unavailable.'
                         )}
                       </p>
                     </div>
                   )}
-                  {country?.usdPricingEnabled && (
-                    <div className="payment-disclosure">
-                      <strong>{translateUi('Your wallet uses Birr (ETB)')}</strong>
-                      {country.agentPaymentEnabled === false ? (
-                        <p role="status">
+                  {country?.usdPricingEnabled && country.agentPaymentEnabled !== false && (
+                    <>
+                      {pricing.isPending && <p>{translateUi('Loading payment options…')}</p>}
+                      {pricing.isError && (
+                        <p role="alert">{translateUi('Payment options could not load.')}</p>
+                      )}
+                      {section === 'deposit' && pricing.data?.preview && (
+                        <p>
                           {translateUi(
-                            'Payments are paused in this country. New quotes are unavailable.'
+                            'You receive {value}. Final amount is fixed when the order is created.',
+                            { value: formatEtb(pricing.data.preview.coinAmount) }
                           )}
                         </p>
-                      ) : pricing.isPending ? (
-                        <p>{translateUi('Loading current rate…')}</p>
-                      ) : pricing.isError ? (
-                        <p role="alert">{walletError(pricing.error)}</p>
-                      ) : (
-                        pricing.data && (
-                          <>
-                            <p>
-                              {translateUi('USD 1 = {localPerUsd} {currencyCode}. Fee: 0.', {
-                                localPerUsd: pricing.data.policy.localPerUsd,
-                                currencyCode: country.currencyCode,
-                              })}
-                            </p>
-                            <p>
-                              {isEtbPayment ? translateUi('Minimum P2P deposit is 100 ETB') + '. ' + translateUi('Minimum P2P withdrawal is 500 ETB') + '.' : translateUi(
-                                'Deposit minimum: USD {value}. Withdrawal must exceed USD {value2}.',
-                                {
-                                  value: (pricing.data.policy.p2pDepositMinUsdCents / 100).toFixed(
-                                    2
-                                  ),
-                                  value2: (
-                                    pricing.data.policy.p2pWithdrawalAboveUsdCents / 100
-                                  ).toFixed(2),
-                                }
-                              )}
-                            </p>
-                            {pricing.data.preview && (
-                              <p>
-                                {translateUi(
-                                  'You receive {value}. Final amount is fixed when the order is created.',
-                                  { value: formatEtb(pricing.data.preview.coinAmount) }
-                                )}
-                              </p>
-                            )}
-                            <p>
-                              {translateUi('Rate observed {value}; expires {value2}.', {
-                                value: new Date(pricing.data.policy.observedAt).toLocaleString(
-                                  interfaceLocale
-                                ),
-                                value2: new Date(pricing.data.policy.expiresAt).toLocaleString(
-                                  interfaceLocale
-                                ),
-                              })}
-                            </p>
-                          </>
-                        )
                       )}
-                    </div>
+                    </>
                   )}
                   <label>
                     {section === 'deposit'
@@ -520,9 +484,6 @@ function Payments({ userId }: { userId: string }) {
                     <p role="alert">
                       {translateUi('Enter a positive ETB amount with up to two decimal places.')}
                     </p>
-                  )}
-                  {belowEtbMinimum && (
-                    <p role="alert">{translateUi(section === 'deposit' ? 'Minimum P2P deposit is 100 ETB' : 'Minimum P2P withdrawal is 500 ETB')}</p>
                   )}
                   <p><Link to={PAYMENT_REQUIREMENTS_PATH}>{translateUi('Payment requirements')}</Link></p>
                   {section === 'deposit' ? (
@@ -715,7 +676,7 @@ function Payments({ userId }: { userId: string }) {
                           'Only eligible ETB balance can be withdrawn. Current country limits apply and are checked when requesting a quote.'
                         )}
                       </p>
-                      {country?.usdPricingEnabled &&
+                      {!isEtbPayment && country?.usdPricingEnabled &&
                         withdrawalMinimum !== null &&
                         Number.isSafeInteger(withdrawalMinimum) && (
                           <p>
@@ -864,7 +825,7 @@ function Payments({ userId }: { userId: string }) {
             <p>{translateUi('No deposit requests yet.')}</p>
           ) : (
             orders.data.map((p) => (
-              <PaymentCard key={p.id} payment={p}>
+              <PaymentCard key={p.id} payment={p} showRateDetails={section === 'activity'}>
                 {p.status === 'CREATED' && (
                   <>
                     <p role="status">
@@ -921,7 +882,7 @@ function Payments({ userId }: { userId: string }) {
             <p>{translateUi('No withdrawal requests yet.')}</p>
           ) : (
             withdrawals.data.map((p) => (
-              <PaymentCard key={p.id} payment={p}>
+              <PaymentCard key={p.id} payment={p} showRateDetails={section === 'activity'}>
                 {p.status === 'HELD' && (
                   <ConfirmAction
                     label={translateUi('Cancel and return held ETB')}
@@ -1036,9 +997,11 @@ export function ConfirmAction({
 export function PaymentCard({
   payment: p,
   children,
+  showRateDetails = true,
 }: {
   payment: Payment;
   children?: React.ReactNode;
+  showRateDetails?: boolean;
 }) {
   const { t: translateUi, locale: interfaceLocale } = useInterfaceLanguage();
 
@@ -1070,7 +1033,7 @@ export function PaymentCard({
           value2: formatMinor(p.fiatAmount, p.fiatCurrency, p.pricingSnapshot?.minorDigits),
         })}
       </p>
-      {p.pricingSnapshot && (
+      {showRateDetails && p.pricingSnapshot && (
         <p>
           {translateUi('USD 1 = {localPerUsd} {fiatCurrency} · fee {value} · rate {value2}', {
             localPerUsd: p.pricingSnapshot.localPerUsd,
