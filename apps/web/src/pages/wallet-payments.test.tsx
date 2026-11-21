@@ -105,7 +105,7 @@ it.each([false, true])(
     mount('withdraw');
     fireEvent.change(await screen.findByLabelText('Country'), { target: { value: 'country' } });
     fireEvent.change(screen.getByLabelText('Payout account'), { target: { value: 'payout' } });
-    if (!paused) await screen.findByText(/Withdrawal must exceed USD/);
+    if (!paused) await screen.findByText('Minimum for the current policy: 5.01 ETB.');
     fireEvent.change(screen.getByLabelText('Amount to withdraw · ETB'), { target: { value: '5.00' } });
     expect(screen.getByRole('button', { name: 'Get withdrawal quote' })).toBeDisabled();
     fireEvent.change(screen.getByLabelText('Amount to withdraw · ETB'), { target: { value: '5.01' } });
@@ -274,7 +274,7 @@ it('keeps resolution disabled when the underlying financial request cannot be lo
   expect(screen.getByRole('button', { name: 'Confirm action' })).toBeDisabled();
   expect(m.post).not.toHaveBeenCalled();
 });
-it('links to the dedicated USDT TRON flow without starting a payment', async () => {
+it('links to the dedicated Crypto flow without showing the token on the Agent screen', async () => {
   const assets = ['USDT', 'USDC', 'BTC', 'ETH', 'SOL'].map((symbol) => ({
     symbol,
     name: symbol,
@@ -288,7 +288,7 @@ it('links to the dedicated USDT TRON flow without starting a payment', async () 
   }));
   mount();
   await screen.findByRole('heading', { name: 'Choose how to deposit' });
-  expect(screen.getByRole('link', { name: /Crypto USDT/ })).toHaveAttribute(
+  expect(screen.getByRole('link', { name: 'Crypto' })).toHaveAttribute(
     'href',
     '/wallet/crypto?direction=deposit'
   );
@@ -300,14 +300,15 @@ it.each(['deposit', 'withdraw'])(
     mount(section);
     fireEvent.change(await screen.findByLabelText('Country'), { target: { value: 'country' } });
     expect(screen.queryByText(/Crypto: not yet available/)).not.toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Check USDT availability' })).toHaveAttribute(
+    expect(screen.queryByText(/USDT|TRC20/)).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Crypto' })).toHaveAttribute(
       'href',
       '/wallet/crypto?direction=' + section
     );
     expect(m.post).not.toHaveBeenCalled();
   }
 );
-it('shows paused pricing without an endless rate loader or preview request', async () => {
+it('shows the paused state without a loader or preview request', async () => {
   m.get.mockImplementation(async (path: string) => ({
     data:
       path === '/wallet/payment-options'
@@ -322,7 +323,7 @@ it('shows paused pricing without an endless rate loader or preview request', asy
   mount();
   fireEvent.change(await screen.findByLabelText('Country'), { target: { value: 'country' } });
   expect(screen.getByText(/Payments are paused in this country/)).toBeInTheDocument();
-  expect(screen.queryByText('Loading current rate…')).toBeNull();
+  expect(screen.queryByText('Loading payment options…')).toBeNull();
   expect(m.get.mock.calls.some((c) => c[0].includes('deposit-preview'))).toBe(false);
   expect(m.post).not.toHaveBeenCalled();
 });
@@ -511,12 +512,65 @@ it('lets members save a payout destination while customer payments await setup',
   expect(m.post.mock.calls.every(([path]) => path === '/withdrawals/payout-accounts')).toBe(true);
 });
 
-function etbOptions() {
+function etbOptions({ pricingEnabled = true, agentEnabled = true } = {}) {
   m.get.mockImplementation(async (path: string) => ({ data:
-    path === '/wallet/payment-options' ? { ...options, countries: [{ ...options.countries[0], currencyCode: 'ETB', usdPricingEnabled: true, agentPaymentEnabled: true }], agents: [{ ...options.agents[0], maxOrderAmount: 1000000 }] }
+    path === '/wallet/payment-options' ? { ...options, countries: [{ ...options.countries[0], currencyCode: 'ETB', usdPricingEnabled: pricingEnabled, agentPaymentEnabled: agentEnabled }], agents: [{ ...options.agents[0], maxOrderAmount: 1000000 }] }
     : path.includes('deposit-preview') ? { policy: { version: 'ETB_V1', localPerUsd: '150', p2pDepositMinUsdCents: 200, p2pWithdrawalAboveUsdCents: 400, observedAt: new Date().toISOString(), expiresAt: new Date(Date.now()+60000).toISOString() }, preview: path.includes('fiatAmount=') ? { coinAmount: Number(path.split('fiatAmount=')[1]) } : null }
     : path === '/withdrawals/payout-accounts' ? [{ id: 'payout', countryId: 'country', status: 'ACTIVE', displayLabel: 'My account', accountDetails: {} }] : [] }));
 }
+it.each([
+  ['deposit', 'Minimum P2P deposit is 100 ETB'],
+  ['withdraw', 'Minimum P2P withdrawal is 500 ETB'],
+] as const)('shows the ETB minimum on the empty Agent %s form without rate or token details', async (section, notice) => {
+  etbOptions({ pricingEnabled: false });
+  mount(section);
+  expect(await screen.findByText(notice)).toBeVisible();
+  const country = screen.getByLabelText('Country');
+  expect(country).toHaveValue('');
+  fireEvent.change(country, { target: { value: 'country' } });
+  expect(screen.getByText(notice)).toBeVisible();
+  expect(screen.queryByText(/USDT|TRC20|exchange rate|USD 1 =/i)).not.toBeInTheDocument();
+  expect(m.get.mock.calls.some(([path]) => path.includes('deposit-preview'))).toBe(false);
+  expect(m.post).not.toHaveBeenCalled();
+});
+
+it('keeps the deposit minimum visible when agent payments are paused', async () => {
+  etbOptions({ agentEnabled: false });
+  mount();
+  expect(await screen.findByText('Minimum P2P deposit is 100 ETB')).toBeVisible();
+  fireEvent.change(screen.getByLabelText('Country'), { target: { value: 'country' } });
+  expect(screen.getByText('Minimum P2P deposit is 100 ETB')).toBeVisible();
+  expect(screen.getByText(/Payments are paused in this country/)).toBeVisible();
+  expect(m.get.mock.calls.some(([path]) => path.includes('deposit-preview'))).toBe(false);
+});
+
+it.each(['deposit', 'activity'])(
+  'keeps an existing order’s saved rate in Activity, not the Agent form (%s)',
+  async (section) => {
+    const row = {
+      id: 'recent-deposit',
+      status: 'COMPLETED',
+      coinAmount: 10000,
+      fiatAmount: 10000,
+      fiatCurrency: 'ETB',
+      createdAt: new Date().toISOString(),
+      pricingSnapshot: {
+        localPerUsd: '150',
+        minorDigits: 2,
+        feeMinor: 0,
+        observedAt: new Date().toISOString(),
+      },
+    };
+    m.get.mockImplementation(async (path: string) => ({
+      data: path === '/wallet/payment-options' ? options : path === '/agent-orders/me' ? [row] : [],
+    }));
+    mount(section);
+    await screen.findByText('recent-deposit');
+    if (section === 'activity') expect(screen.getByText(/USD 1 = 150 ETB/)).toBeInTheDocument();
+    else expect(screen.queryByText(/USD 1 = 150 ETB/)).not.toBeInTheDocument();
+  }
+);
+
 it('uses the inclusive 100 ETB deposit minimum, shows requirements and preserves confirmation', async () => {
   etbOptions(); mount();
   fireEvent.change(await screen.findByLabelText('Country'), { target: { value: 'country' } });
@@ -531,6 +585,8 @@ it('uses the inclusive 100 ETB deposit minimum, shows requirements and preserves
   expect(button).toBeDisabled();
   fireEvent.click(screen.getByRole('checkbox'));
   await waitFor(() => expect(button).toBeEnabled());
+  expect(screen.getByText(/You receive/)).toBeVisible();
+  expect(screen.queryByText(/USDT|TRC20|exchange rate|USD 1 =|Rate observed/i)).not.toBeInTheDocument();
   expect(m.post).not.toHaveBeenCalled();
 });
 it('uses the inclusive 500 ETB withdrawal minimum without relaxing account requirements', async () => {

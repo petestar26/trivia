@@ -83,7 +83,7 @@ export function PaymentMethodChooser({
           <Coins size={24} aria-hidden="true" />
           <span>
             <strong>{translateUi('Crypto')}</strong>
-            <small>{'USDT · TRON (TRC20)'}</small>
+            {method === 'crypto' && <small>USDT · TRON (TRC20)</small>}
           </span>
           <b aria-hidden="true">{method === 'crypto' ? '✓' : '→'}</b>
         </Link>
