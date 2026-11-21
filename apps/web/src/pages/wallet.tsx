@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
+import { LoadingState } from '@/components/ui/loading-state';
 
 /**
  * Shape this page renders from `GET /wallet/transactions`. The API wraps the
@@ -60,11 +61,7 @@ export function WalletPage() {
   const error = walletError || txError;
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <div className="animate-spin rounded-full h-8 w-8 border-4 border-primary-500 border-t-transparent" />
-      </div>
-    );
+    return <LoadingState />;
   }
 
   if (error) {

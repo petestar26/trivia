@@ -6,6 +6,7 @@ import { invalidateProgressionQueries } from '@/lib/progression-cache';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { LoadingState } from '@/components/ui/loading-state';
 
 /**
  * Shape this page renders from `GET /tasks`. `api.listTasks()` already
@@ -118,11 +119,7 @@ export function RewardsPage() {
   const loading = tasksLoading || achLoading || vipLoading || progLoading;
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <div className="animate-spin rounded-full h-8 w-8 border-4 border-primary-500 border-t-transparent" />
-      </div>
-    );
+    return <LoadingState />;
   }
 
   if (tasksError) {
