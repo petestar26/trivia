@@ -1,3 +1,4 @@
+import { DepositFundingPage } from '@/pages/deposit-funding-page';
 import { SupportPage } from '@/pages/support';
 import { WalletRoutes } from '@/pages/wallet-routes';
 import { DogRacingPage } from '@/pages/games/dog-racing';
@@ -156,6 +157,7 @@ export function App() {
         <Route path="support" element={<SupportPage />} />
         <Route path="*" element={<Navigate to="/agent" replace />} />
       </Route>
+      <Route path="/staff/deposit-funding" element={<ProtectedRoute><DepositFundingPage /></ProtectedRoute>} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
       <Route

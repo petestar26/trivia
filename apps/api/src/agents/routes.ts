@@ -1,4 +1,6 @@
 import { prisma } from '@socialplay/database';
+import { approveAgentPaymentAccountAsMainAdmin } from '../staff-access/direct-payment-account-approval.js';
+import { StaffAccessDenied } from '../staff-access/authority.js';
 import { z } from 'zod';
 import { getAgentFiatLiquidity, fundAgentFiatLiquidity, adjustAgentFiatLiquidity } from '../withdrawals/liquidity-service.js';
 import { FastifyInstance, FastifyRequest } from 'fastify';
@@ -18,7 +20,6 @@ import {
 import {
   createAgentPaymentAccount,
   updateAgentPaymentAccount,
-  approveAgentPaymentAccount,
   rejectAgentPaymentAccount,
   disableOwnPaymentAccount,
   adminDisablePaymentAccount,
@@ -270,19 +271,24 @@ export async function agentRoutes(server: FastifyInstance): Promise<void> {
     return reply.send({ success: true, data: accounts });
   });
 
-  server.post<{ Params: { id: string }; Body: { expectedUpdatedAt: string } }>(
+  server.post<{ Params: { id: string }; Body: unknown }>(
     '/payment-accounts/:id/approve',
     { preHandler: admin },
     async (request, reply) => {
-      const parsed = accountReviewSchema.safeParse(request.body);
-      if (!parsed.success) throw ApiError.badRequest('The displayed expectedUpdatedAt ISO timestamp is required');
-      const result = await approveAgentPaymentAccount(
-        request.user!.sub,
-        request.params.id,
-        parsed.data.expectedUpdatedAt,
-        requestContext(request)
-      );
-      return reply.send({ success: true, data: result });
+      try {
+        const result = await approveAgentPaymentAccountAsMainAdmin(
+          prisma,
+          request.user!.sub,
+          request.user!.tokenVersion ?? 0,
+          request.params.id,
+          request.body,
+          requestContext(request)
+        );
+        return reply.send({ success: true, data: result });
+      } catch (error) {
+        if (error instanceof StaffAccessDenied) throw ApiError.forbidden('Main Admin approval required');
+        throw error;
+      }
     }
   );
 

@@ -1,3 +1,5 @@
+import { prisma } from '@socialplay/database';
+import { createDepositFundingRoutes } from '../staff-access/deposit-funding-routes.js';
 import { paymentRoomRoutes } from '../agents/payment-room-routes.js';
 import { supportRoutes } from '../support/routes.js';
 import { memberRewardRoutes, memberProfileRoutes } from '../member-rewards/routes.js';
@@ -98,6 +100,10 @@ export async function registerRoutes(server: FastifyInstance): Promise<void> {
   await server.register(agentDisputeRoutes, { prefix: '/agent-disputes' });
   await server.register(agentConversationRoutes, { prefix: '/agent-conversations' });
   await server.register(agentConfigRoutes, { prefix: '/agent-config' });
+  if (process.env.SALEM_P2P_FUNDING_STAGING === 'true') {
+    await server.register(createDepositFundingRoutes(prisma, process.env.FRONTEND_URL ?? ''),
+      { prefix: '/staff/deposit-funding' });
+  }
   await server.register(securityRoutes, { prefix: '/security' });
   await server.register(withdrawalRoutes, { prefix: '/withdrawals' });
   await server.register(userRoutes, { prefix: '/users' });

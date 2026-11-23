@@ -1664,6 +1664,7 @@ enum InventoryLedgerType {
   RELEASE_UNUSED
   CONSUME_ON_SETTLEMENT
   ADMIN_ADJUSTMENT
+  MANAGER_DEPOSIT_ALLOCATION
 }
 
 // CREATED subsumes "payment instructions shown" (a timestamp, not a status —

@@ -145,8 +145,7 @@ function Payments({ userId }: { userId: string }) {
   const [dispute, setDispute] = useState<{ id: string; kind: string } | null>(null),
     [reason, setReason] = useState('');
   const action = useWalletAction();
-  const country = options.data?.countries.find((c) => c.id === countryId),
-    agent = options.data?.agents.find((a) => a.id === agentId && a.countryId === countryId);
+  const country = options.data?.countries.find((c) => c.id === countryId);
   const methods = useQuery({
     queryKey: ['payments', 'methods', countryId],
     queryFn: () => get<Method[]>(`/agent-config/countries/${countryId}/payment-methods/active`),
@@ -160,7 +159,7 @@ function Payments({ userId }: { userId: string }) {
     depositMinor !== null &&
     (section === 'deposit' || (withdrawalMinor !== null && withdrawalMinor <= 1_000_000_000));
   const pricing = useQuery({
-    queryKey: ['payments', 'usd-preview', countryId, section, depositMinor],
+    queryKey: ['payments', 'usd-preview', userId, countryId, section, depositMinor],
     queryFn: () =>
       get<{
         policy: {
@@ -171,6 +170,8 @@ function Payments({ userId }: { userId: string }) {
           p2pWithdrawalAboveUsdCents: number;
         };
         preview: { coinAmount: number } | null;
+        eligibilityEnabled?: boolean;
+        eligibility?: {countryId: string; amountMinor: number; eligibleAgentIds: string[]} | null;
       }>(
         `/agent-config/countries/${countryId}/deposit-preview${section === 'deposit' && depositMinor ? `?fiatAmount=${depositMinor}` : ''}`
       ),
@@ -178,6 +179,23 @@ function Payments({ userId }: { userId: string }) {
     retry: false,
     refetchInterval: 30000,
   });
+  const capacityRequired = section === 'deposit' && country?.currencyCode === 'ETB' && country.usdPricingEnabled && (pricing.data?.eligibilityEnabled === true || pricing.data?.eligibility != null);
+  const eligibility = pricing.data?.eligibility;
+  const eligibleIds = capacityRequired
+    ? new Set(!pricing.isError && eligibility?.countryId === countryId && eligibility?.amountMinor === depositMinor
+      ? eligibility?.eligibleAgentIds ?? [] : [])
+    : null;
+  const depositAgents = (options.data?.agents ?? []).filter(a => a.countryId === countryId &&
+    (!eligibleIds || (eligibleIds.has(a.id) && a.paymentAccounts.length > 0)));
+  const agent = depositAgents.find(a => a.id === agentId);
+  async function depositAction(path: string, body: Record<string, unknown>) {
+    await action.run(path, body, () => {
+      setAgent('');
+      setPaymentAccount('');
+      setConfirm(false);
+      void pricing.refetch();
+    });
+  }
   const withdrawalPolicy = pricing.data?.policy;
   const withdrawalMinimum = withdrawalPolicy
     ? etbMinimumMinor(
@@ -529,17 +547,17 @@ function Payments({ userId }: { userId: string }) {
                           disabled={busy || !countryId}
                         >
                           <option value="">{translateUi('Choose an agent')}</option>
-                          {options.data.agents
-                            .filter((a) => a.countryId === countryId)
-                            .map((a) => (
+                          {depositAgents.map((a) => (
                               <option key={a.id} value={a.id}>
                                 {a.displayName}
                               </option>
                             ))}
                         </select>
                       </label>
-                      {countryId && !options.data.agents.some((a) => a.countryId === countryId) && (
-                        <p>{translateUi('No approved agents currently serve this country.')}</p>
+                      {countryId && depositAgents.length === 0 && (!capacityRequired || depositMinor !== null) && (
+                        <p>{translateUi(capacityRequired
+                          ? 'No agents are available for this amount. Try another amount.'
+                          : 'No approved agents currently serve this country.')}</p>
                       )}
                       {agent && (
                         <>
@@ -595,6 +613,7 @@ function Payments({ userId }: { userId: string }) {
                           !validAmount ||
                           !agent ||
                           !paymentAccountId ||
+                          !agent.paymentAccounts.some(a => a.id === paymentAccountId) ||
                           !confirm ||
                           country?.agentPaymentEnabled === false ||
                           (!!country?.usdPricingEnabled &&
@@ -602,7 +621,7 @@ function Payments({ userId }: { userId: string }) {
                         }
                         onClick={() => {
                           setConfirm(false);
-                          void action.run('/agent-orders', {
+                          void depositAction('/agent-orders', {
                             countryId,
                             agentId,
                             paymentAccountId,
@@ -827,7 +846,7 @@ function Payments({ userId }: { userId: string }) {
         <button
           className="payment-primary"
           disabled={action.busy}
-          onClick={() => action.run(action.pending!.path, action.pending!.body)}
+          onClick={() => depositAction(action.pending!.path, action.pending!.body)}
         >
           {translateUi('Retry saved request')}
         </button>

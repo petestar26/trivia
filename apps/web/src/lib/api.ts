@@ -221,6 +221,10 @@ class ApiClient {
     });
   }
 
+  async postDepositFunding<T>(endpoint: '/staff/deposit-funding/receipts' | '/staff/deposit-funding/allocations', body: unknown, signal?: AbortSignal): Promise<ApiResponse<T>> {
+    return this.request<T>(endpoint, {method:'POST',body:JSON.stringify(body),signal,headers:{'x-staff-request':'1'}});
+  }
+
   /**
    * POST with a required Idempotency-Key header. The API rejects play requests
    * (and any idempotency-requiring mutation) without a present key.

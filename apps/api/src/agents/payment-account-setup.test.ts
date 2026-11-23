@@ -191,7 +191,7 @@ describe('displayed receiving-account versions', () => {
       for (const version of [undefined, 'not-a-date', '2026-02-30T00:00:00.000Z']) {
         const payload = mode === 'edit'
           ? { countryId: args.countryId, methodDefId: args.methodDefId, accountDetails: details, expectedUpdatedAt: version }
-          : { ...(mode === 'reject' ? { reviewNote: 'Invalid destination' } : {}), expectedUpdatedAt: version };
+          : { ...(mode === 'reject' ? { reviewNote: 'Invalid destination' } : { reason: 'Fixture reason' }), expectedUpdatedAt: version };
         const response = await app.inject({
           method: mode === 'edit' ? 'PATCH' : 'POST',
           url: mode === 'edit' ? '/agents/me/payment-accounts/account' : `/agents/payment-accounts/account/${mode}`,
@@ -209,6 +209,9 @@ describe('displayed receiving-account versions', () => {
   });
 
   it.each(['edit', 'approve', 'reject'] as const)('%s route forwards the displayed token and returns409 for a stale record', async (mode) => {
+    if (mode === 'approve') {
+      m.$queryRaw.mockResolvedValueOnce([{ allowed:true }]);
+    }
     m.agentPaymentAccount.findUnique.mockResolvedValue({
       ...existing, status: 'PENDING_APPROVAL', updatedAt: new Date(displayedAt.getTime() + 1),
       agent: { userId: 'agent-user', countryId: 'et' },
@@ -221,7 +224,7 @@ describe('displayed receiving-account versions', () => {
     try {
       const payload = mode === 'edit'
         ? args
-        : { ...(mode === 'reject' ? { reviewNote: 'Invalid destination' } : {}), expectedUpdatedAt: args.expectedUpdatedAt };
+        : { ...(mode === 'reject' ? { reviewNote: 'Invalid destination' } : { reason: 'Fixture reason' }), expectedUpdatedAt: args.expectedUpdatedAt };
       const response = await app.inject({
         method: mode === 'edit' ? 'PATCH' : 'POST',
         url: mode === 'edit' ? '/agents/me/payment-accounts/account' : `/agents/payment-accounts/account/${mode}`,

@@ -510,3 +510,48 @@ it('lets members save a payout destination while customer payments await setup',
   );
   expect(m.post.mock.calls.every(([path]) => path === '/withdrawals/payout-accounts')).toBe(true);
 });
+
+it.each([false,true])('rechecks eligibility after checkout (lost reply=%s)', async (lostReply) => {
+  let eligible = ['agent'];
+  const etbOptions = {
+    ...options,
+    countries:[{...options.countries[0],currencyCode:'ETB',usdPricingEnabled:true,agentPaymentEnabled:true}],
+    agents:[options.agents[0],{...options.agents[0],id:'other',displayName:'Other agent',
+      paymentAccounts:[{id:'other-account',methodDef:{name:'Other payment method'}}]}],
+  };
+  m.get.mockImplementation(async (path:string) => {
+    if (path === '/wallet/payment-options') return {data:etbOptions};
+    if (path.includes('deposit-preview')) return {data:{
+      policy:{localPerUsd:'20',observedAt:new Date().toISOString(),
+        expiresAt:new Date(Date.now()+60000).toISOString(),p2pDepositMinUsdCents:200},
+      preview:{coinAmount:10000},
+      eligibility:{countryId:'country',amountMinor:10000,eligibleAgentIds:eligible},
+    }};
+    return {data:[]};
+  });
+  m.post.mockImplementationOnce(async () => {
+    eligible=['other'];
+    if (lostReply) throw new Error('Response lost');
+    throw new Error(JSON.stringify({status:409, code:'DEPOSIT_CAPACITY_UNAVAILABLE', message:'Choose another agent.'}));
+  }).mockResolvedValue({success:true,data:{id:'test-order'}});
+  mount();
+  fireEvent.change(await screen.findByLabelText('Country'),{target:{value:'country'}});
+  fireEvent.change(screen.getByLabelText('Amount to pay · ETB'),{target:{value:'100'}});
+  await screen.findByRole('option',{name:'Approved agent'});
+  fireEvent.change(screen.getByLabelText('Agent'),{target:{value:'agent'}});
+  fireEvent.change(screen.getByLabelText('Payment method'),{target:{value:'account'}});
+  fireEvent.click(screen.getByRole('checkbox'));
+  fireEvent.click(screen.getByRole('button',{name:'Create deposit request'}));
+  if (lostReply) {
+    const retry = await screen.findByRole('button',{name:'Retry saved request'});
+    fireEvent.click(retry);
+    await waitFor(() => expect(m.post).toHaveBeenCalledTimes(2));
+    expect(m.post.mock.calls[1][1]).toEqual(m.post.mock.calls[0][1]);
+  } else {
+    await screen.findByRole('option',{name:'Other agent'});
+    expect(screen.getByLabelText('Agent')).toHaveValue('');
+    expect(screen.queryByRole('button',{name:'Retry saved request'})).not.toBeInTheDocument();
+    expect(screen.getByRole('button',{name:'Create deposit request'})).toBeDisabled();
+    expect(m.post).toHaveBeenCalledTimes(1);
+  }
+});

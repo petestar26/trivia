@@ -48,9 +48,36 @@ export async function agentConfigRoutes(server: FastifyInstance): Promise<void> 
       }
       const rate = await selectPaymentRate(prisma, country);
       const policy = parseUsdPolicy(rate.pricingPolicy);
+      const amount = Number(request.query.fiatAmount);
+      if (request.query.fiatAmount !== undefined &&
+          (!/^[1-9][0-9]{0,9}$/.test(request.query.fiatAmount) || amount > 2147483647)) {
+        throw ApiError.badRequest('Enter a valid deposit amount');
+      }
       const price = request.query.fiatAmount === undefined ? null
         : priceUsdPayment(policy, 'deposit', Number(request.query.fiatAmount));
-      return { success: true, data: { rateId: rate.id, policy, preview: price?.snapshot ?? null } };
+      // The quote remains advisory. Only the transaction creating the order holds capacity.
+      const eligibilityEnabled = process.env.SALEM_P2P_FUNDING_STAGING === 'true';
+      const eligible = price && eligibilityEnabled ? await prisma.$queryRaw<{id:string}[]>`
+        SELECT a.id FROM public.agents a
+        JOIN public.users u ON u.id=a."userId" AND u.status='ACTIVE'
+        JOIN public.agent_inventories i ON i."agentId"=a.id
+        WHERE a."countryId"=${country.id} AND a."userId"<>${request.user!.sub}
+          AND a.status='ACTIVE'
+          AND (a."minOrderAmount" IS NULL OR a."minOrderAmount"<=${amount}::int)
+          AND (a."maxOrderAmount" IS NULL OR a."maxOrderAmount">=${amount}::int)
+          AND i."totalBalance"-i."reservedBalance">=${price.coinAmount}::int
+          AND public.p2p_etb_agent_can_cover(a.id,${amount}::bigint)
+          AND EXISTS (SELECT FROM public.agent_payment_accounts pa
+            JOIN public.payment_method_definitions m ON m.id=pa."methodDefId"
+            WHERE pa."agentId"=a.id AND pa."countryId"=a."countryId" AND m."countryId"=a."countryId"
+              AND pa.status='APPROVED' AND NOT pa."safetyHold" AND m."isActive")
+        ORDER BY a."displayName", a.id LIMIT 100
+      ` : [];
+      return { success: true, data: {
+        rateId: rate.id, policy, preview: price?.snapshot ?? null,
+        eligibilityEnabled,
+        eligibility: price && eligibilityEnabled ? {countryId:country.id, amountMinor:amount, eligibleAgentIds:eligible.map(a=>a.id)} : null,
+      } };
     });
 
   server.get<{ Params: { countryId: string } }>('/admin/setup/:countryId', { preHandler: admin }, async request =>

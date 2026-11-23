@@ -272,6 +272,12 @@ export async function createAgentOrder(
       });
     } catch (err) {
       const code = (err as { code?: string }).code;
+      // The database refused the reservation and rolled back the whole order.
+      // Only this explicit server refusal authorizes offering a different agent.
+      if (err instanceof Error && err.name.startsWith('PrismaClient') &&
+          /\bP2P_DEPOSIT_CAPACITY_UNAVAILABLE\b/.test(err.message + JSON.stringify((err as {meta?:unknown}).meta ?? {}))) {
+        throw new ApiError('This agent no longer has enough capacity. Choose another agent.', 409, 'DEPOSIT_CAPACITY_UNAVAILABLE');
+      }
       if (code !== 'P2002') throw err;
 
       // A P2002 here is EITHER the [userId, idempotencyKey] unique constraint
